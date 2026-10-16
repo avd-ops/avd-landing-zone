@@ -17,7 +17,7 @@ What this landing zone deliberately doesn't do, and where to go instead.
 
 ## Next layers to build
 
-- **Image pipeline** (Azure Image Builder or Packer → Azure Compute Gallery) and host rotation on new image versions. Planned next, before the second brain: see [image-pipeline-spec.md](image-pipeline-spec.md) and [second-brain-spec.md](second-brain-spec.md) Q6.
+- **Image pipeline** (Azure Image Builder or Packer → Azure Compute Gallery) and host rotation on new image versions. Planned next, before the second brain: see [image-pipeline-spec.md](image-pipeline-spec.md) and [second-brain-spec.md](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md) Q6.
 - **App delivery**: App Attach, Intune apps, or baked into the image.
 - **Profile storage sizing**: provisioned size and IOPS for your user count; Azure NetApp Files for very large pools.
 - **Disaster recovery**: a secondary region and cross-region profile replication. Backup here is in-region.

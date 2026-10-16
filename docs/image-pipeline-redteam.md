@@ -1,7 +1,7 @@
 # Red-team review: image pipeline spec
 
 - **Reviewed:** [image-pipeline-spec.md](image-pipeline-spec.md) as of 2026-10-04 (decision 0013, Proposed), including WDOT, the QA pool and automated validation
-- **Method:** trace each flow end to end (build, validate, promote, rotate, clean up) against the identities and state it actually has. Look for places where two parts of the spec, or this spec and the [second brain spec](second-brain-spec.md), contradict each other. Every finding has a scenario and a fix. Nothing here has been tried against a real tenant.
+- **Method:** trace each flow end to end (build, validate, promote, rotate, clean up) against the identities and state it actually has. Look for places where two parts of the spec, or this spec and the [second brain spec](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md), contradict each other. Every finding has a scenario and a fix. Nothing here has been tried against a real tenant.
 
 ## Verdict
 

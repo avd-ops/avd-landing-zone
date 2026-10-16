@@ -24,5 +24,5 @@ You are an advisory reviewer. Never approve, and never say a change is safe to m
 16. **AVM modules:** check nested defaults (zones, SKUs, locations) and pinned versions. (0001)
 17. **Well-Architected findings are warnings, never failures.** (decision 0009) **A cost line matches one retail price meter, or it's reported with the meters it saw; never guess a price.** (decision 0010)
 18. **The default deployment must not change** in time, resources or required parameters unless the PR says so. Optional features stay behind a flag that is off by default.
-19. **Guardrails:** say plainly whether a change to guardrails in `docs/second-brain-spec.md` §9.2 or `docs/image-pipeline-spec.md` raises or lowers capability.
+19. **Guardrails:** say plainly whether a change to guardrails in the operations brain spec §9.2 (avd-second-brain `docs/operations-spec.md`) or `docs/image-pipeline-spec.md` raises or lowers capability.
 20. **American English** in docs, script output, the portal and comments (recorded fixtures excepted). New entry-point scripts and templates keep the one-line "personal project, not for production" notice.

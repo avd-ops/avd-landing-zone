@@ -1,12 +1,13 @@
 # 0012. A second brain that heals by tested playbooks and evolves by pull request
 
 - **Status:** Proposed
+- **Update 2026-10-16:** the spec and its red team moved to [avd-second-brain](https://github.com/nickprignano/avd-second-brain) (its decision 0001: one brain for the AVD lifecycle), with section numbers unchanged. The decision and the runtime it describes stay here. See [`docs/second-brain.md`](../second-brain.md).
 
 ## Context
 The project is for the community and has one maintainer, possibly for good. Decisions 0006 to 0011 built a learning loop that runs through people: a real run fails, the output is pasted, a lesson and a guard follow. The estate itself is not watched between runs, the same AVD failures (agent health, empty-host recycling, profile share headroom, drift) recur in every estate, and the knowledge to fix them already sits in this repo.
 
 ## Decision
-Build the loop into the platform, as specified in [second-brain-spec.md](../second-brain-spec.md):
+Build the loop into the platform, as specified in [second-brain-spec.md](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md):
 - **In tiers** (`AVD_BRAIN_TIER`):
   - **Tier 1, Notice**, is the supported core: detections, a Container Apps job running the preflight, pseudonymized evidence in episode issues, a Claude Code diagnosis, and the kill switch.
   - **Tier 2** adds approved fixes.
