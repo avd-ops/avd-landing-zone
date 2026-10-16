@@ -2,7 +2,7 @@
 
 - **Status:** Proposed (see [decision 0013](decisions/0013-image-pipeline.md)); all red-team findings folded in; see [image-pipeline-redteam.md](image-pipeline-redteam.md)
 - **Date:** 2026-10-04
-- **Scope:** landing zones built from this repo. This is phase 0b of the [second brain spec](second-brain-spec.md), built before its phase 1 (Q6).
+- **Scope:** landing zones built from this repo. This is phase 0b of the [second brain spec](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md), built before its phase 1 (Q6).
 
 This is a personal project, not for production, provided as is. Nothing in this spec has run against a real tenant yet; §11 lists what to verify at build time.
 

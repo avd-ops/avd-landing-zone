@@ -109,7 +109,7 @@ avd-landing-zone/
 - [`docs/rebuild-spec.md`](docs/rebuild-spec.md): one prompt to rebuild this from an empty repo, with the protocol to count the prompts it takes
 - [`docs/images.md`](docs/images.md): golden images, step 1: setting up and running the monthly image build
 - [`docs/image-pipeline-spec.md`](docs/image-pipeline-spec.md): proposed spec for a golden image pipeline (Azure Image Builder → Compute Gallery) and blue/green host rotation
-- [`docs/second-brain-spec.md`](docs/second-brain-spec.md): proposed spec for a self-healing, self-learning AVD estate on Azure and GitHub
+- [avd-second-brain](https://github.com/nickprignano/avd-second-brain): the second brain for the whole AVD lifecycle, shared with avd-current-state and avd-readiness-stratusphere. Its [operations spec](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md) is this landing zone's self-healing, self-learning brain (moved there; the runtime still deploys from here). What this repo exchanges with it: [`docs/second-brain.md`](docs/second-brain.md)
 - [`docs/demo.md`](docs/demo.md): a live demo in a 30-minute slot (dev built the night before, test deployed live beside it)
 - [Deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/) ([how it works](docs/portal/README.md)): region by latency, then the next command from each pasted Cloud Shell output
 - [`docs/ci.md`](docs/ci.md): validation and deployment pipelines, OIDC setup
