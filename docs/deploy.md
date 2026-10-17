@@ -77,7 +77,7 @@ Entra ID → **App registrations** → **All applications** → `[Storage Accoun
 ([Microsoft docs](https://learn.microsoft.com/azure/storage/files/storage-files-identity-auth-hybrid-identities-enable#grant-admin-consent-to-the-new-service-principal))
 
 ### Exclude the storage app from MFA Conditional Access
-Kerberos ticket requests for the share can't satisfy MFA. Exclude the `[Storage Account] …` app from Conditional Access policies that require MFA for all resources.
+Kerberos ticket requests for the share can't satisfy MFA. Exclude the `[Storage Account] …` app from Conditional Access policies that require MFA for all resources. Security Defaults has no exclusion, so a tenant that still has it on needs it replaced by Conditional Access first ([setup-azure-account.md](setup-azure-account.md#security-defaults)).
 
 ### NTFS permissions
 The share's default root ACL lets every authenticated user modify every folder. Harden it before production use. Mount the share from a session host while signed in as a member of **AVD Admins** (Elevated Contributor) and apply the FSLogix-recommended ACL:

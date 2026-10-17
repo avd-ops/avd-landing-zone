@@ -21,6 +21,16 @@ shellcheck scripts/deploy/deploy.sh
 
 If your change touches resources, include `deploy.sh --what-if` output from a test subscription in the PR.
 
+## Secret scanning
+
+The repo is public, so a leaked ID or key is public the moment it's pushed. Turn on the pre-commit hook once per clone:
+
+```bash
+git config core.hooksPath .githooks   # needs gitleaks 8.30.1: https://github.com/gitleaks/gitleaks/releases
+```
+
+The hook runs `gitleaks` over the staged changes and blocks the commit if it finds something, or if `gitleaks` isn't installed. The [`secret-scan`](.github/workflows/secret-scan.yml) workflow scans the full history on every PR as a backstop. A false positive goes in [`.gitleaksignore`](.gitleaksignore) by fingerprint, with a comment saying what it is. A real secret gets rotated first: deleting it in a later commit leaves it in history.
+
 ## When a real run surprises you
 
 Real deployments and Cloud Shell runs are the source of truth. When one fails for a reason the tests didn't catch:

@@ -403,6 +403,32 @@ test('state: sized preflight ready -> deploy with the validated sizing', () => {
   assertSelfContained(r);
 });
 
+// ---------------------------------------------------------------- Security Defaults (a warning, never a blocker)
+test('state: pre-deployment ready with Security Defaults on -> decide about it, then deploy', () => {
+  const r = analyze('state-predeploy-security-defaults.txt');
+  assert.equal(r.status, 'ready');
+  assert.equal(r.step, 'deploy');
+  assert.equal(r.actions[0].title, 'Decide about Security Defaults before the post-deployment setup');
+  assert.equal(r.actions[0].command, '');
+  assert.match(r.actions[1].why, /^The pre-deployment preflight passed\./);
+  assertSelfContained(r);
+});
+
+test('state: post-deployment ready with Security Defaults on -> still sign in, with the warning first', () => {
+  const r = analyze('state-postdeploy-security-defaults.txt');
+  assert.equal(r.status, 'ready');
+  assert.equal(r.step, 'signin');
+  assert.equal(r.actions[0].title, 'Decide about Security Defaults if profiles fail to load');
+  assert.equal(r.actions[0].command, '');
+  assert.equal(r.actions[1].title, 'Sign in to the desktop');
+  assert.doesNotMatch(r.actions[1].why, /Everything checks out/);
+});
+
+test('state: ready without Security Defaults -> no Security Defaults step', () => {
+  assert.ok(!analyze('state-predeploy-ready.txt').actions.some((x) => /Security Defaults/.test(x.title)));
+  assert.ok(!analyze('state-postdeploy-ready.txt').actions.some((x) => /Security Defaults/.test(x.title)));
+});
+
 // ---------------------------------------------------------------- auto shutdown (decision 0011)
 test('state: auto shutdown locked the hosts -> resume command', () => {
   const r = analyze('state-power-locked.txt');

@@ -95,6 +95,34 @@ Deleting the resource groups stops the VM and storage charges. The subscription 
 
 ---
 
+## Tenant settings that can block you
+
+Check these before the demo day. Each one has a lead time, and none of them is a code problem.
+
+### Global Administrator gives you no Azure access
+
+Entra ID roles and Azure RBAC are separate. If you created the tenant and the subscription yourself, you're already Owner and can skip this. If someone handed you the tenant, or a subscription you appear to own says "you do not have permission":
+
+1. Azure portal → **Microsoft Entra ID** → **Properties** → set **Access management for Azure resources** to **Yes** and save.
+2. Sign out and back in (the token doesn't refresh on its own).
+3. Assign yourself **Owner** on the subscription.
+4. Set the toggle back to **No**. It grants User Access Administrator on every subscription in the tenant, so don't leave it on.
+
+### Security Defaults
+
+New tenants have Security Defaults turned on. It can ask for MFA at sign-in and it has no per-app exclusion, so the storage account's Entra app can't be kept out of MFA the way the [post-deployment](deploy.md#5-post-deployment) Conditional Access step does it. Microsoft's guidance is that the storage app must not require MFA: when it does, `net use` against the share fails with *System error 1327: Account restrictions are preventing this user from signing in*. Both preflights warn when Security Defaults is on, and neither one changes it.
+
+- **A throwaway lab tenant:** Entra admin center → **Overview** → **Properties** → **Manage security defaults** → **Disabled**, and add no Conditional Access policies. Nothing then asks the storage app for MFA, so give the admin account a strong, unique password and delete the tenant when you're done. Your own admin sign-ins still need MFA (next section).
+- **A tenant you care about:** turn off Security Defaults and replace it straight away with Conditional Access policies (the Microsoft templates cover MFA for admins, MFA for all users and blocking legacy authentication). The post-deployment `-Fix` then excludes the storage app from the MFA-for-all-apps policies. Conditional Access needs **Entra ID P1**.
+
+> **The trial trap.** The Entra ID P2 trial lasts 30 days. When it lapses, Conditional Access policies keep enforcing but can no longer be edited, so a policy that blocks the storage app can't be given an exclusion; you can only delete it. Start the trial within 30 days of the date you need, buy P1, or use a throwaway tenant without Conditional Access.
+
+### Register MFA on your admin account and the account you present with
+
+Microsoft's [mandatory MFA for Azure management](https://learn.microsoft.com/entra/identity/authentication/concept-mandatory-multifactor-authentication) applies whatever Security Defaults or Conditional Access say: the Azure portal, Entra admin center, Cloud Shell, Azure CLI and PowerShell ask for MFA when you create, change or delete resources, and it can't be turned off. That covers you deploying this landing zone. AVD users signing in to the desktop aren't covered by it, only by your own policies. Register a method at [myprofile.microsoft.com](https://myprofile.microsoft.com) → **Security info** before the demo day, on the admin account and on any account you demo with that a policy asks for MFA. Excluding the storage app from MFA doesn't exclude you.
+
+---
+
 ## Notes & limits
 
 - **One free account per person.** If you've used the Azure free account before, you won't get the $200 credit again — sign up pay-as-you-go instead.

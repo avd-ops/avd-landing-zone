@@ -17,7 +17,8 @@ AVD_SERVICE_PRINCIPAL_ID=00000000-0000-0000-0000-000000000003 AVD_LOCAL_ADMIN_PA
   bicep build-params parameters/dev.bicepparam --stdout > /dev/null
 pwsh -c "Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"
 pwsh -c "Invoke-Pester -Path ./tests -CI"            # unit tests, offline scenarios, template guards
-shellcheck scripts/deploy/deploy.sh .claude/hooks/session-start.sh
+shellcheck scripts/deploy/deploy.sh .claude/hooks/session-start.sh .githooks/pre-commit
+gitleaks git --redact .                              # secret scan, as the secret-scan workflow runs it
 node --test "tests/portal/*.test.mjs"                # deployment portal engine
 ```
 

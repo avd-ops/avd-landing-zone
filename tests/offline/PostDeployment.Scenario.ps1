@@ -15,6 +15,12 @@ $noLaunch = & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @lz 6>&1 | Out-Stri
 $global:St.launchNoObjectId = $false
 Write-Host "RESULT launch-missing hasLaunch=$($noLaunch -match '"launch":')"
 
+# Security Defaults has no per-app exclusion, so it is reported as a warning, never changed. Not in the state-line list.
+$global:St.securityDefaults = $true
+$secDefaults = & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @lz 6>&1 | Out-String
+$global:St.securityDefaults = $false
+Write-Host "RESULT security-defaults warned=$($secDefaults -match '\[WARN \] Security Defaults is off') stillReady=$($secDefaults -match '"status":"ready"')"
+
 Invoke-ScenarioStep 'demo' { & ./scripts/ops/Deploy-AvdDemo.ps1 @lz -TestUserUpn alex@contoso.com }
 Invoke-ScenarioStep 'remove-demo' { & ./scripts/ops/Remove-AvdDemo.ps1 @lz -Force }
 

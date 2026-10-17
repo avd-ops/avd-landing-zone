@@ -391,9 +391,16 @@
     var a = [], failures = state.failures || [], warnings = state.warnings || [], S = state.stage;
     var note = function (title, why, command) { a.push({ title: title, why: why, command: command || '' }); };
 
+    // Security Defaults has no per-app exclusion for the storage app: a tenant decision, never a blocker.
+    var secDefaults = byId(warnings, 'security-defaults');
+    var noteSecDefaults = function (when) {
+      if (secDefaults.length) note('Decide about Security Defaults ' + when, [secDefaults[0].detail, secDefaults[0].remediation].filter(Boolean).join(' ') + ' Nothing here changes it; the rest of the landing zone works either way.', '');
+    };
+
     if (S === 'predeploy') {
       if (state.status === 'ready') {
-        note('Deploy the landing zone', 'The pre-deployment preflight is clean. Deployment takes 30-45 minutes and keeps running in Azure if Cloud Shell disconnects; paste its output here when it ends (or when you reconnect).', cmd.deploy(cfg));
+        noteSecDefaults('before the post-deployment setup');
+        note('Deploy the landing zone', 'The pre-deployment preflight ' + (secDefaults.length ? 'passed' : 'is clean') + '. Deployment takes 30-45 minutes and keeps running in Azure if Cloud Shell disconnects; paste its output here when it ends (or when you reconnect).', cmd.deploy(cfg));
         return { step: 'deploy', actions: a };
       }
       var quota = byId(failures, 'quota'), kv = byId(failures, 'kv-softdeleted'), hp = byId(failures, 'hostpool-region'), lzr = byId(failures, 'lz-region');
@@ -474,7 +481,8 @@
               (expected ? ' ' + expected + ' are trade-offs the ' + cfg.environment + ' parameter file makes on purpose; change them before production.' : '') + ' The findings are listed above; none of them blocks sign-in.'
               : 'Design checks, Azure Advisor, Defender for Cloud, Azure Policy and PSRule for Azure found nothing to review.', '');
         }
-        note('Sign in to the desktop', 'Everything checks out. Open https://windows.cloud.microsoft (or the Windows App) as a member of ' + cfg.usersGroup + ' and open the desktop. New group members can take up to an hour to see it; a stopped host starts on the first connection.', '');
+        noteSecDefaults('if profiles fail to load');
+        note('Sign in to the desktop', (secDefaults.length ? 'The checks pass apart from Security Defaults above.' : 'Everything checks out.') + ' Open https://windows.cloud.microsoft (or the Windows App) as a member of ' + cfg.usersGroup + ' and open the desktop. New group members can take up to an hour to see it; a stopped host starts on the first connection.', '');
         note('Optional: validate sign-in end to end with a demo host pool', 'Deploys a separate demo host pool, checks the host and your test user, and tells you how to remove it.', cmd.demo(cfg));
         if (!(state.context && state.context.wellArchitected))
           note('Optional: Well-Architected review', 'Reviews the deployed landing zone by pillar (reliability, security, cost, operations, performance): design checks, Azure Advisor, Defender for Cloud, Azure Policy and PSRule for Azure. Findings are warnings; no Graph sign-in needed. A few minutes.', cmd.wellArchitected(cfg));

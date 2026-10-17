@@ -1,0 +1,10 @@
+# gitleaks findings checked and accepted as false positives. One fingerprint per line,
+# each with a comment saying what it is. Never add a real secret here: rotate it.
+# tests/portal/fixtures/pii-sample.txt: fake registration token (JWT shape) in the portal redaction fixture
+dd50d62d27be39e0c2a9701b07a7205f9e4382f9:tests/portal/fixtures/pii-sample.txt:jwt:22
+# CONTRIBUTING.md: placeholder admin password in the build-params example
+5d51b660248d02113d7cc7d7165f71bf500bdf15:CONTRIBUTING.md:generic-api-key:11
+# bicep/modules/keyVault.bicep: built-in role definition ID (Key Vault Secrets User), public
+5d51b660248d02113d7cc7d7165f71bf500bdf15:bicep/modules/keyVault.bicep:generic-api-key:16
+# docs/ci.md: placeholder admin password in the build-params example
+5d51b660248d02113d7cc7d7165f71bf500bdf15:docs/ci.md:generic-api-key:69
