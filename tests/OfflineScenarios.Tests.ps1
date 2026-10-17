@@ -35,6 +35,7 @@ Describe 'Post-deployment: preflight, demo and cleanup' {
   It '-Fix removes the temporary storage role it granted the host' { $out | Should -Match 'leftoverRoles=0' }
   It 'is clean when checked again' { Get-StepExit $out 'recheck' | Should -Be 0 }
   It 'warns when Security Defaults is on, without blocking' { $out | Should -Match 'RESULT security-defaults warned=True stillReady=True' }
+  It 'fails the demo host check by name when a Kerberos client service is stopped' { $out | Should -Match 'RESULT kerberos-services failed=True named=True' }
   It 'deploys and validates the demo, then removes it' {
     Get-StepExit $out 'demo' | Should -Be 0
     Get-StepExit $out 'remove-demo' | Should -Be 0

@@ -185,6 +185,7 @@ foreach ($vmName in $hostNames) {
     'AVD agent registered and boot loader running' = @(($h.agentRegistered -and $h.bootLoaderRunning), 'Check the Register-AvdAgent run command output.')
     'FSLogix running and pointed at the profile share' = @(($h.fslogixServiceRunning -and $h.fslogixEnabled -and $h.fslogixPointsAtShare), 'Check the Configure-FSLogix run command output.')
     'Entra Kerberos ticket retrieval enabled'     = @(($h.cloudKerberosEnabled -and $h.loadCredKeyFromProfile), 'Check the Configure-FSLogix run command output.')
+    'Entra Kerberos services running (WinHttpAutoProxySvc, iphlpsvc)' = @((-not @($h.kerberosServicesStopped | Where-Object { $_ }).Count), "Not running: $(@($h.kerberosServicesStopped) -join ', '). Start them and set them to start automatically; a hardening baseline or image optimization may have disabled them.")
     'Profile share resolves to a private IP'      = @($h.storageIpPrivate, "Resolved to $($h.storageIp). Check private DNS for $($lz.StorageFqdn).")
     'Profile share reachable on TCP 445'          = @($h.smbReachable, 'Check the private endpoint subnet NSG and routing.')
   }

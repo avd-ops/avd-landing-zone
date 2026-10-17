@@ -22,6 +22,11 @@ $global:St.securityDefaults = $false
 Write-Host "RESULT security-defaults warned=$($secDefaults -match '\[WARN \] Security Defaults is off') stillReady=$($secDefaults -match '"status":"ready"')"
 
 Invoke-ScenarioStep 'demo' { & ./scripts/ops/Deploy-AvdDemo.ps1 @lz -TestUserUpn alex@contoso.com }
+# A hardening baseline that stops a Kerberos client service fails the host check by name. Not in the state-line list.
+$global:St.kerberosServicesStopped = @('iphlpsvc')
+$kerbDemo = & ./scripts/ops/Deploy-AvdDemo.ps1 @lz -TestUserUpn alex@contoso.com 6>&1 | Out-String
+$global:St.kerberosServicesStopped = @()
+Write-Host "RESULT kerberos-services failed=$($kerbDemo -match 'FAIL.*Entra Kerberos services running') named=$($kerbDemo -match 'Not running: iphlpsvc')"
 Invoke-ScenarioStep 'remove-demo' { & ./scripts/ops/Remove-AvdDemo.ps1 @lz -Force }
 
 $global:Calls.Clear()

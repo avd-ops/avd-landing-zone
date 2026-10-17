@@ -49,6 +49,8 @@ $locations = @(Get-RegValue 'HKLM:\SOFTWARE\FSLogix\Profiles' 'VHDLocations')
 $r.fslogixPointsAtShare = [bool]($locations | Where-Object { $_ -eq $ProfileShareUnc })
 $r.cloudKerberosEnabled = (Get-RegValue 'HKLM:\SYSTEM\CurrentControlSet\Control\Lsa\Kerberos\Parameters' 'CloudKerberosTicketRetrievalEnabled') -eq 1
 $r.loadCredKeyFromProfile = (Get-RegValue 'HKLM:\SOFTWARE\Policies\Microsoft\AzureADAccount' 'LoadCredKeyFromProfile') -eq 1
+# Microsoft lists both as required for Entra Kerberos: WinHttpAutoProxySvc carries the KDC proxy requests.
+$r.kerberosServicesStopped = @('WinHttpAutoProxySvc', 'iphlpsvc' | Where-Object { -not (Test-ServiceRunning $_) })
 
 # Profile share reachability
 $r.storageIp = $null
