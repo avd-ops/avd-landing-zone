@@ -60,6 +60,7 @@ jobs:
       # deployed, BCP037: a property ARM will reject) only show up at deploy time, so any
       # diagnostic at all fails the step. SARIF keeps az CLI's own notices out of the count.
       - name: Lint (warnings fail)
+        shell: bash # -eo pipefail: a lint that fails with no output must fail the step, not read as clean
         run: |
           failed=0
           for f in bicep/main.bicep bicep/demo/main.bicep bicep/images/main.bicep bicep/images/build.bicep parameters/*.bicepparam; do
