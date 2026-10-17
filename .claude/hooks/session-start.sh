@@ -2,7 +2,7 @@
 # SessionStart hook.
 # 1. Always: print the lessons index, so every Claude session starts from what real runs taught.
 # 2. Claude Code on the web only: make the repo's checks runnable (pwsh, Bicep, PSScriptAnalyzer,
-#    Pester, shellcheck). Tools come from GitHub releases (the PowerShell Gallery may be blocked);
+#    Pester, shellcheck, gitleaks). Tools come from GitHub releases (the PowerShell Gallery may be blocked);
 #    Pester only exists on the Gallery, so it is best-effort. Idempotent; never fails the session.
 # stdout becomes session context: keep it to the index and a one-line tool status.
 set -uo pipefail
@@ -43,6 +43,12 @@ if [ ! -x "$tools/bin/shellcheck" ] && ! command -v shellcheck >/dev/null 2>&1; 
     && tar -xJf "$tools/sc.txz" -C "$tools" >>"$log" 2>&1 && cp "$tools/shellcheck-v0.10.0/shellcheck" "$tools/bin/" && rm -rf "$tools/sc.txz" "$tools/shellcheck-v0.10.0"
 fi
 
+# gitleaks, same version as the secret-scan workflow
+if [ ! -x "$tools/bin/gitleaks" ] && ! command -v gitleaks >/dev/null 2>&1; then
+  fetch https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz "$tools/gl.tgz" \
+    && tar -xzf "$tools/gl.tgz" -C "$tools/bin" gitleaks >>"$log" 2>&1 && rm -f "$tools/gl.tgz"
+fi
+
 # PSScriptAnalyzer, same version as CI (a newer analyzer enforces more rules)
 if [ ! -f "$tools/modules/PSScriptAnalyzer/PSScriptAnalyzer.psd1" ]; then
   mkdir -p "$tools/modules/PSScriptAnalyzer"
@@ -71,6 +77,7 @@ s=()
 command -v pwsh >/dev/null 2>&1 && s+=("$(have ok pwsh)") || s+=("$(have no pwsh)")
 command -v bicep >/dev/null 2>&1 && s+=("$(have ok bicep)") || s+=("$(have no bicep)")
 command -v shellcheck >/dev/null 2>&1 && s+=("$(have ok shellcheck)") || s+=("$(have no shellcheck)")
+command -v gitleaks >/dev/null 2>&1 && s+=("$(have ok gitleaks)") || s+=("$(have no gitleaks)")
 [ -f "$tools/modules/PSScriptAnalyzer/PSScriptAnalyzer.psd1" ] && s+=("$(have ok PSScriptAnalyzer)") || s+=("$(have no PSScriptAnalyzer)")
 [ -d "$tools/modules/Pester" ] && s+=("$(have ok Pester)") || s+=("Pester unavailable (Gallery blocked): run the offline scenarios directly with pwsh -File tests/offline/<Name>.Scenario.ps1")
 echo "=== Tools: ${s[*]} (log: $log) ==="

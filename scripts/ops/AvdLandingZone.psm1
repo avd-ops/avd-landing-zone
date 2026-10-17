@@ -815,6 +815,25 @@ function Test-AvdCloudGroupSidTag {
   }
 }
 
+function Test-AvdSecurityDefault {
+  <#
+    Security Defaults can prompt for MFA and has no per-app exclusion, so the storage app cannot be
+    kept out of MFA the way the Conditional Access step does it. Reported, never fixed: turning it
+    off is a tenant-wide decision.
+  #>
+  param([string] $Area = 'Step 2: Conditional Access')
+  $label = 'Security Defaults is off (the storage app can be excluded from MFA)'
+  try { $policy = Invoke-AvdGraph -Uri 'v1.0/policies/identitySecurityDefaultsEnforcementPolicy' }
+  catch {
+    Add-AvdCheckResult $Area $label 'Warn' -Detail "Could not read the Security Defaults policy: $($_.Exception.Message)" -Remediation 'Needs the Policy.Read.All scope.'
+    return
+  }
+  if (-not $policy.isEnabled) { Add-AvdCheckResult $Area $label 'Pass'; return }
+  Add-AvdCheckResult $Area $label 'Warn' -Id 'security-defaults' `
+    -Detail 'Security Defaults is on. It cannot exclude the storage app, so an MFA prompt during sign-in can break the profile share (net use fails with System error 1327).' `
+    -Remediation 'A tenant-wide decision: turn off Security Defaults (Entra admin center > Overview > Properties) and replace it with Conditional Access policies that exclude the storage app. Needs Entra ID P1.'
+}
+
 function Test-AvdConditionalAccessExclusion {
   <# Post-deployment step 2: the storage app must be excluded from MFA-requiring CA policies. #>
   [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
@@ -1516,6 +1535,7 @@ function Invoke-AvdReadinessCheck {
       Test-AvdStorageAdminConsent -StorageApp $storageApp -Fix:$Fix
       Test-AvdCloudGroupSidTag -StorageApp $storageApp -Fix:$Fix
       Write-AvdSection 'Conditional Access'
+      Test-AvdSecurityDefault
       Test-AvdConditionalAccessExclusion -Lz $Lz -StorageApp $storageApp -Fix:$Fix
     }
   }
@@ -2047,6 +2067,7 @@ function Test-AvdPreDeployment {
       Add-AvdCheckResult 'Entra ID' 'Conditional Access reviewed' 'Pass' -Detail $detail
     }
     catch { Add-AvdCheckResult 'Entra ID' 'Conditional Access reviewed' 'Warn' -Detail "Could not read policies: $($_.Exception.Message)" }
+    Test-AvdSecurityDefault -Area 'Entra ID'
   }
 
   return [pscustomobject]@{ Plan = $plan; UsersGroup = $users; AdminsGroup = $admins; Estimate = $estimate }

@@ -81,13 +81,14 @@ test('redact: the committed fixtures have nothing left to find except the placeh
   }
 });
 
-// A GUID in the templates or scripts is the same in every tenant; it must stay readable.
+// A GUID in the templates, parameter files or scripts must be the same in every tenant (a tenant's
+// own IDs come from environment variables), and it must stay readable in a report.
 function walk(dir) {
   return readdirSync(dir).flatMap((n) => { const p = join(dir, n); return statSync(p).isDirectory() ? walk(p) : [p]; });
 }
-test('PUBLIC_IDS lists every GUID in bicep/ and scripts/', () => {
+test('PUBLIC_IDS lists every GUID in bicep/, parameters/ and scripts/', () => {
   const found = new Set();
-  for (const f of [...walk(join(root, 'bicep')), ...walk(join(root, 'scripts'))])
+  for (const f of ['bicep', 'parameters', 'scripts'].flatMap((d) => walk(join(root, d))))
     for (const m of readFileSync(f, 'utf8').matchAll(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi)) found.add(m[0].toLowerCase());
   const missing = [...found].filter((g) => !R.PUBLIC_IDS.includes(g));
   assert.deepEqual(missing, [], 'add these to PUBLIC_IDS in docs/portal/report.js (only if they are the same in every tenant)');

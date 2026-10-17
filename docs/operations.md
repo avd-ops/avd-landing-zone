@@ -109,7 +109,7 @@ The sizing covers one pooled host pool, which is what the landing zone deploys. 
 | Subscription | Owner, or Contributor + RBAC Administrator, plus policy rights when `enablePolicyGuardrails`; every resource provider `deploy.sh` needs; AVD host pools offered in the region; `EncryptionAtHost` (when used); VM size offered in **every requested zone**; family and regional vCPU quota for the host count; the profile storage SKU (Premium ZRS/LRS file shares) in the region; no soft-deleted, purge-protected Key Vault holding the vault name; budget parameters complete | Registers providers and the feature and **waits** for them (up to 15 minutes; the feature takes about that long), then re-registers `Microsoft.Compute` so the feature takes effect. Recovers a soft-deleted vault into its resource group (created again if the cleanup removed it), so a redeploy keeps the name prefix |
 | Network | HubPeered only: hub VNet readable; firewall IP set for egress; central DNS zone IDs present | — |
 | Landing zone | Whether `rg-<prefix>-<env>-*` already exists (deploying then updates in place), and fails if it exists in another region (resource groups can't move) | — |
-| Tenant | Intune licensing when `enrollInIntune = true` (the join fails without it); whether you hold active roles for the post-deployment steps; which Conditional Access policies will need the storage app excluded | — |
+| Tenant | Intune licensing when `enrollInIntune = true` (the join fails without it); whether you hold active roles for the post-deployment steps; which Conditional Access policies will need the storage app excluded; whether Security Defaults is on (a warning: it can't exclude the storage app) | — |
 
 ## Post-deployment preflight: what it checks and fixes
 
@@ -121,7 +121,7 @@ The sizing covers one pooled host pool, which is what the landing zone deploys. 
 | RBAC | AVD Users/Admins groups and AVD service principal assignments; SMB Share Contributor for AVD Users | — |
 | Entra ID | Both groups have members; the tenant has Intune licensing | — |
 | **Step 1** | Admin consent for `[Storage Account] <account>.file.core.windows.net`; the `kdc_enable_cloud_group_sids` tag, so Kerberos tickets carry cloud-only group SIDs | Grants tenant-wide consent for the scopes the app requests; adds the tag |
-| **Step 2** | Every enabled Conditional Access policy that requires MFA (or an authentication strength) for **all** apps and covers AVD users excludes the storage app. Policies scoped to other users or roles are reported for review | Adds the storage app to the policy's excluded applications. **You confirm each policy** unless `-Force` |
+| **Step 2** | Every enabled Conditional Access policy that requires MFA (or an authentication strength) for **all** apps and covers AVD users excludes the storage app. Policies scoped to other users or roles are reported for review. Security Defaults being on is a warning, since it has no per-app exclusion | Adds the storage app to the policy's excluded applications. **You confirm each policy** unless `-Force` |
 | **Step 3** | The profile share root ACL matches FSLogix guidance: inheritance cut; SYSTEM, Administrators and AVD Admins full control; CREATOR OWNER modify on subfolders; AVD Users modify on this folder only; no write for Authenticated Users, Users or Everyone | Replaces the root ACL |
 
 ### How the NTFS step works

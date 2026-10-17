@@ -10,6 +10,7 @@ on:
       - 'scripts/**'
       - 'tests/**'
       - '.claude/hooks/**'
+      - '.githooks/**'
       - 'docs/portal/**'
       - 'PSScriptAnalyzerSettings.psd1'
       - 'bicepconfig.json'
@@ -25,6 +26,7 @@ on:
       - 'scripts/**'
       - 'tests/**'
       - '.claude/hooks/**'
+      - '.githooks/**'
       - 'docs/portal/**'
       - 'PSScriptAnalyzerSettings.psd1'
       - 'bicepconfig.json'
@@ -102,8 +104,8 @@ jobs:
           Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
           Invoke-Pester -Path ./tests -CI -Output Detailed
 
-      - name: shellcheck (deploy script, session hook)
-        run: shellcheck scripts/deploy/deploy.sh .claude/hooks/session-start.sh
+      - name: shellcheck (deploy script, session hook, pre-commit hook)
+        run: shellcheck scripts/deploy/deploy.sh .claude/hooks/session-start.sh .githooks/pre-commit
 
   portal:
     name: Deployment portal tests

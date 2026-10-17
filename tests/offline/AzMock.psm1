@@ -9,7 +9,7 @@ function Log($s){ $global:Calls.Add($s) }
 $sub='00000000-aaaa-bbbb-cccc-000000000001'; $S="/subscriptions/$sub"
 $base='avdlz-dev'
 $global:St = @{
-  grants = @(); tags=@(); caExclude=@(); aclApplied=$false; forbiddenOnce=$true; roleAssignments=@()
+  grants = @(); tags=@(); caExclude=@(); securityDefaults=$false; aclApplied=$false; forbiddenOnce=$true; roleAssignments=@()
   rgs = @('rg-avdlz-dev-network','rg-avdlz-dev-management','rg-avdlz-dev-storage','rg-avdlz-dev-avd','rg-avdlz-dev-hosts')
 }
 $users='11111111-1111-1111-1111-111111111111'; $admins='22222222-2222-2222-2222-222222222222'; $avdsp='33333333-3333-3333-3333-333333333333'
@@ -452,6 +452,7 @@ function Invoke-MgGraphRequest { param($Method,$Uri,$Body,$ContentType,$OutputTy
     "servicePrincipals\?.*appId eq '00000003" { @{value=@(@{id='graph-sp';oauth2PermissionScopes=@(@{id='s1';value='openid'},@{id='s2';value='profile'},@{id='s3';value='User.Read'})})} }
     "servicePrincipals\?(?!.*(9cdead84|00000003))" { @{value=@(@{id='storage-sp';appId=$appId})} }
     'oauth2PermissionGrants\?' { @{value=@($global:St.grants)} }
+    'policies/identitySecurityDefaultsEnforcementPolicy' { @{isEnabled=[bool]$global:St.securityDefaults} }
     'conditionalAccess/policies' { @{value=@(
         @{id='p1';displayName='Require MFA for all users';state='enabled';conditions=@{applications=@{includeApplications=@('All');excludeApplications=@($global:St.caExclude)};users=@{includeUsers=@('All');includeGroups=@()}};grantControls=@{builtInControls=@('mfa')}},
         @{id='p2';displayName='Block legacy auth';state='enabled';conditions=@{applications=@{includeApplications=@('All');excludeApplications=@()};users=@{includeUsers=@('All')}};grantControls=@{builtInControls=@('block')}},

@@ -1,0 +1,23 @@
+#!/bin/sh
+# Pre-commit secret scan with gitleaks (CONTRIBUTING.md, "Secret scanning").
+# Enable once per clone:  git config core.hooksPath .githooks
+#
+# Fails closed: without gitleaks on PATH the commit is blocked, because a scanner
+# that silently does nothing reads as protection you don't have. CI's
+# secret-scan workflow is the backstop, not a substitute.
+set -eu
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "BLOCKED: gitleaks is not installed, so the staged changes were not scanned."
+  echo "  Install it: https://github.com/gitleaks/gitleaks/releases (8.30.1, as in CI)"
+  echo "  To skip once for a commit you know is clean: git commit --no-verify"
+  exit 1
+fi
+
+if ! gitleaks git --staged --redact --verbose; then
+  echo ""
+  echo "BLOCKED: gitleaks found a possible secret in the staged changes."
+  echo "  A false positive goes in .gitleaksignore (its fingerprint, with a comment)."
+  echo "  A real secret: rotate it first. Once committed it stays in history."
+  exit 1
+fi
