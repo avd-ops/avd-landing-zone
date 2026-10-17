@@ -55,13 +55,19 @@ jobs:
       - name: Install Bicep
         run: az bicep install && az bicep version
 
-      # bicepconfig.json promotes the security-relevant linter rules to errors.
-      - name: Lint
+      # bicepconfig.json promotes the security-relevant linter rules to errors. Bicep exits 0
+      # on warnings, and some compiler warnings (BCP245: a resource type that can't be
+      # deployed, BCP037: a property ARM will reject) only show up at deploy time, so any
+      # diagnostic at all fails the step. SARIF keeps az CLI's own notices out of the count.
+      - name: Lint (warnings fail)
+        shell: bash # -eo pipefail: a lint that fails with no output must fail the step, not read as clean
         run: |
-          az bicep lint --file bicep/main.bicep
-          az bicep lint --file bicep/demo/main.bicep
-          az bicep lint --file bicep/images/main.bicep
-          az bicep lint --file bicep/images/build.bicep
+          failed=0
+          for f in bicep/main.bicep bicep/demo/main.bicep bicep/images/main.bicep bicep/images/build.bicep parameters/*.bicepparam; do
+            results=$(az bicep lint --file "$f" --diagnostics-format sarif | jq -r '.runs[].results[] | "\(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine) \(.level // "warning") \(.ruleId): \(.message.text)"')
+            if [ -n "$results" ]; then echo "$f"; echo "$results"; failed=1; else echo "$f: clean"; fi
+          done
+          exit "$failed"
 
       - name: Build template and parameter files
         run: |

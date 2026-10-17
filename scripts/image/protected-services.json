@@ -19,6 +19,8 @@
     "LanmanWorkstation",
     "KeyIso",
     "VaultSvc",
+    "WinHttpAutoProxySvc",
+    "iphlpsvc",
     "TokenBroker",
     "AppXSvc",
     "ClipSVC",

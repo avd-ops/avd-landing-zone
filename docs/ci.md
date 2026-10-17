@@ -11,7 +11,7 @@ Workflows:
 
 **Advisory AI review** comes from GitHub Copilot code review, not a workflow: Copilot follows [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) (the review checklist, distilled from `CLAUDE.md`). Request it on a PR, or have a branch ruleset on `master` request it automatically (**Settings → Rules → Rulesets → Automatically request Copilot code review**). It needs no repository secret, and it reviews fork PRs too. It only comments: no AI review satisfies a review requirement ([second-brain-spec.md](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md) §9.3).
 
-The **bicep** and **scripts** jobs need no setup: the parameter files compile with placeholder identity values set in the workflow. `bicepconfig.json` makes security-relevant linter findings errors.
+The **bicep** and **scripts** jobs need no setup: the parameter files compile with placeholder identity values set in the workflow. `bicepconfig.json` makes security-relevant linter findings errors, and the lint step fails on any warning too: Bicep exits 0 on a warning, and warnings like BCP245 or BCP037 mean a resource that fails at deploy time.
 
 **PSRule** is a gate. Every finding must be fixed, or suppressed with a written justification in [`.ps-rule/Suppressions.Rule.yaml`](../.ps-rule/Suppressions.Rule.yaml); each suppression group's `# Synopsis:` line is the justification. Keep suppressions narrow (one rule, one resource type) so a new resource can't slip through an existing one.
 

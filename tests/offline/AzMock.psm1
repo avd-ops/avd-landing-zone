@@ -309,7 +309,7 @@ function Invoke-AzVMRunCommand { param($ResourceGroupName,$VMName,$CommandId,$Sc
     elseif ($global:St.aclApplied) { $o=@{status='ok';before=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Parameter.DesiredSddlBase64))} }
     elseif ($global:St.defaultRoot) { $o=@{status='ok';before=$null;defaultAcl=$true} }
     else { $o=@{status='ok';before='O:SYG:SYD:(A;OICIIO;GA;;;CO)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;;0x1301bf;;;AU)(A;OICI;0x1200a9;;;BU)'} }
-  } else { $o=@{entraJoined=$true;intuneEnrolled=$true;agentRegistered=$true;bootLoaderRunning=$true;fslogixServiceRunning=$true;fslogixEnabled=$true;fslogixPointsAtShare=$true;cloudKerberosEnabled=$true;loadCredKeyFromProfile=$true;storageIp='10.100.2.4';storageIpPrivate=$true;smbReachable=$true} }
+  } else { $o=@{entraJoined=$true;intuneEnrolled=$true;agentRegistered=$true;bootLoaderRunning=$true;fslogixServiceRunning=$true;fslogixEnabled=$true;fslogixPointsAtShare=$true;cloudKerberosEnabled=$true;loadCredKeyFromProfile=$true;kerberosServicesStopped=@($global:St.kerberosServicesStopped | Where-Object { $_ });storageIp='10.100.2.4';storageIpPrivate=$true;smbReachable=$true} }
   [pscustomobject]@{ Value=@([pscustomobject]@{Code='ComponentStatus/StdOut/succeeded';Message=('<<<AVDJSON'+($o|ConvertTo-Json -Compress)+'AVDJSON>>>')},[pscustomobject]@{Code='ComponentStatus/StdErr/succeeded';Message=''}) }
 }
 function New-AzSubscriptionDeployment { param($Name,$Location,$TemplateFile,$TemplateParameterObject,$ErrorAction)

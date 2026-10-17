@@ -219,6 +219,7 @@ It doesn't pass `-Restart`; an AIB restart customizer follows instead.
 - `TermService`, `SessionEnv`, `UmRdpService`: the RDP stack;
 - `LanmanWorkstation`: the SMB client FSLogix uses to reach the share;
 - `KeyIso` and `VaultSvc`: credential isolation and Kerberos;
+- `WinHttpAutoProxySvc` and `iphlpsvc`: required by Entra Kerberos, which sends its ticket requests through the KDC proxy (disabling WPAD by registry is fine; disabling the service is not);
 - `TokenBroker`: Web Account Manager, used by Entra ID single sign-on and Microsoft 365 Apps;
 - `AppXSvc` and `ClipSVC`: MSIX apps, such as the new Teams and the new Outlook;
 - the Edge Update services (`edgeupdate`, `edgeupdatem`).
