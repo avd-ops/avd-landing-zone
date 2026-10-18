@@ -571,6 +571,13 @@
       return { step: 'signin', actions: a };
     }
     if (S === 'cleanup') {
+      // A Graph sign-in that timed out leaves the hosts' device objects (docs/lessons/0029).
+      var left = byId(warnings, 'devices-left'), lz = state.context && state.context.includeLandingZone;
+      if (left.length) {
+        var names = [].concat.apply([], left.map(function (w) { return (w.data && w.data.devices) || []; }));
+        note('Finish the device cleanup', 'The Microsoft Graph step did not finish, so the device objects for ' + (names.join(', ') || 'the session hosts') + ' are still in Entra ID and Intune. ' +
+          (lz ? 'Delete them there by hand.' : 'Run the cleanup again: it kept the demo deployment record, which names them. Open https://microsoft.com/devicelogin first, because the sign-in code lasts 120 seconds.'), lz ? '' : cmd.removeDemo(cfg));
+      }
       if (state.context && state.context.includeLandingZone) note('The landing zone is removed', 'To deploy again, start with the pre-deployment preflight. The Key Vault name stays reserved for 90 days: change namePrefix to reuse the subscription sooner.', cmd.predeploy(cfg, false));
       else note('The demo is removed', 'The landing zone is untouched.', '');
       return { step: state.context && state.context.includeLandingZone ? 'predeploy' : 'signin', actions: a };

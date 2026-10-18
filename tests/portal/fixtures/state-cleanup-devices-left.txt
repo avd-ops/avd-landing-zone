@@ -1,0 +1,21 @@
+PS /home/admin/avd-landing-zone> ./scripts/ops/Remove-AvdDemo.ps1 -NamePrefix avdlz -Environment dev
+AVD cleanup - avdlz-dev in 'AVD LZ Dev' (demo only)
+
+== Demo host pool
+  deleting rg-avdlz-dev-demo (this can take several minutes)
+  [FIXED] rg-avdlz-dev-demo
+          Deleted.
+  Signing in to Microsoft Graph (Device.ReadWrite.All, DeviceManagementManagedDevices.ReadWrite.All, Application.ReadWrite.All)
+  ACTION NEEDED: open https://microsoft.com/devicelogin and enter the code below. The script waits until you sign in.
+  [WARN ] Microsoft Graph sign-in
+          Authentication timed out after 120 seconds due to inactivity. Please try again.
+          -> Delete these devices in Entra ID and Intune: avdlzddemo-001. For the demo, running this script again also finishes it.
+  [WARN ] avdlz-demo-avdlz-dev
+          Kept: it names the demo hosts whose device objects are left.
+          -> Run this script again to finish the device cleanup.
+
+== Summary: 1 Fixed, 2 Warn
+...
+Deployment portal: paste this output into https://nickprignano.github.io/avd-landing-zone/portal/ for the next step.
+<<<AVDLZ-STATE {"v":1,"stage":"cleanup","status":"ready","fix":false,"context":{"namePrefix":"avdlz","includeLandingZone":false,"environment":"dev"},"counts":{"pass":0,"fail":0,"warn":2,"fixed":1,"skip":0},"failures":[],"warnings":[{"id":"devices-left","area":"Devices","check":"Microsoft Graph sign-in","detail":"Authentication timed out after 120 seconds due to inactivity. Please try again.","remediation":"Delete these devices in Entra ID and Intune: avdlzddemo-001. For the demo, running this script again also finishes it.","data":{"devices":["avdlzddemo-001"]}},{"id":"","area":"Deployments","check":"avdlz-demo-avdlz-dev","detail":"Kept: it names the demo hosts whose device objects are left.","remediation":"Run this script again to finish the device cleanup."}]} AVDLZ-STATE>>>
+PS /home/admin/avd-landing-zone>

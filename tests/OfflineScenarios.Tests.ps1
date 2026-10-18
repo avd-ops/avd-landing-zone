@@ -41,6 +41,7 @@ Describe 'Post-deployment: preflight, demo and cleanup' {
     Get-StepExit $out 'demo' | Should -Be 0
     Get-StepExit $out 'remove-demo' | Should -Be 0
   }
+  It 'keeps the demo record when the device cleanup fails, so a rerun finishes it (lesson 0029)' { $out | Should -Match 'RESULT device-retry kept=True named=True rerunDeleted=True recordGone=True' }
   It 'changes nothing when removing the landing zone with -WhatIf' { $out | Should -Match 'RESULT remove-lz-whatif changes=0' }
   It 'says the Key Vault will be soft-deleted under -WhatIf, and is soft-deleted after the real run' {
     $whatIf = $out.Substring($out.IndexOf('######## remove-lz-whatif'), $out.IndexOf('RESULT remove-lz-whatif EXIT') - $out.IndexOf('######## remove-lz-whatif'))

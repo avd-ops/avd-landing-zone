@@ -39,10 +39,10 @@ bash ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus -
 ./scripts/ops/Test-AvdUserConnection.ps1 -NamePrefix avdlz -Environment dev
 ```
 
-Microsoft Graph sign-in uses a device code in Cloud Shell: the script prints a code and waits until you enter it at https://microsoft.com/devicelogin. To sign in up front instead (the scripts reuse an existing sign-in that has the scopes they need):
+Microsoft Graph sign-in uses a device code in Cloud Shell: the script prints a code and waits until you enter it at https://microsoft.com/devicelogin. To sign in up front instead, so the code can't time out in the middle of a run (the scripts reuse an existing sign-in that has the scopes they need; this one covers the preflight, `-Fix` and cleanup):
 
 ```powershell
-Connect-MgGraph -TenantId (Get-AzContext).Tenant.Id -UseDeviceCode -NoWelcome -Scopes 'Application.Read.All','Policy.Read.All','Group.Read.All','Directory.Read.All','Group.ReadWrite.All','Application.ReadWrite.All','DelegatedPermissionGrant.ReadWrite.All','Policy.ReadWrite.ConditionalAccess'
+Connect-MgGraph -TenantId (Get-AzContext).Tenant.Id -UseDeviceCode -NoWelcome -Scopes 'Application.Read.All','Policy.Read.All','Group.Read.All','Directory.Read.All','Group.ReadWrite.All','Application.ReadWrite.All','DelegatedPermissionGrant.ReadWrite.All','Policy.ReadWrite.ConditionalAccess','Device.ReadWrite.All','DeviceManagementManagedDevices.ReadWrite.All'
 ``` Required roles:
 
 | For | Azure | Entra ID |
@@ -162,6 +162,8 @@ The demo host's break-glass password is random and isn't stored anywhere. Use **
 - the demo resource group;
 - its deployment record;
 - the demo hosts' Entra ID and Intune device objects (`-KeepDevices` keeps them).
+
+If the Microsoft Graph sign-in times out, the script keeps the deployment record, which names the hosts. Run it again to finish the device objects ([lesson 0029](lessons/0029-device-cleanup-rerun.md)).
 
 It supports `-WhatIf`.
 
