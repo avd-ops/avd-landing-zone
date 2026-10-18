@@ -6,14 +6,14 @@
 
 ## Verdict
 
-The tier fits as an **upgrade for customers who need portability, GPP replacement or legacy app layering**, not as a default. Three things would break this repo's posture if built as first sketched: machine-context storage access on Entra-joined hosts quietly needs storage keys (C1); the console is a new standing Windows server in a landing zone sold as having no management VM (C2); and CommandCTRL's remote control and shell are a write path into session hosts that bypasses the swarm's governance (C3). All three have fixes that keep the tier viable. The strategic question (S1) is whether greenfield Entra-only landing zones need the tier at all: mostly not, so its real home is customer environments with Nerdio.
+The tier fits as an **upgrade for customers who need portability, GPP replacement or legacy app layering**, not as a default. Three things would break this repo's posture if built as first sketched: machine-context storage access on Entra-joined hosts quietly needs storage keys (C1); the console is a new standing Windows server in a landing zone sold as having no management VM (C2); and CommandCTRL's remote control and shell are a write path into session hosts that bypasses the swarm's governance (C3). All three have fixes that keep the tier viable. The independent pass found two more critical gaps the author missed, both about who *writes*: the config share has no working writer on Entra-only, and the obvious workaround lets users edit their own policy (N-C1); and Liquidware's app attach sync is a fourth writer to the AVD control plane, with a client secret (N-C2). The strategic question (S1) is whether greenfield Entra-only landing zones need the tier at all: mostly not, so its real home is customer environments with Nerdio.
 
-| Severity | Count |
-|---|---|
-| Critical: a stated guarantee doesn't hold | 3 |
-| High: wrong in a likely case | 6 |
-| Medium: gaps and inconsistencies | 6 |
-| Strategic | 2 |
+| Severity | Author's pass | Independent pass |
+|---|---|---|
+| Critical: a stated guarantee doesn't hold | 3 | 2 |
+| High: wrong in a likely case | 6 | 3 |
+| Medium: gaps and inconsistencies | 6 | 5 |
+| Strategic | 2 | 0 |
 
 ## Critical
 
@@ -25,7 +25,7 @@ The tier fits as an **upgrade for customers who need portability, GPP replacemen
 ### C2. A standing management server in a landing zone without one
 **Where:** §5, README ("FSLogix without storage keys, domain joins or a management VM").
 **Scenario:** the ProfileUnity console holds all user environment policy and a MongoDB database, listens on 8000 and 443, and in hybrid mode talks LDAP to domain controllers. Left with a public IP, a default MongoDB, or unpatched, it is the easiest way to push a malicious logon configuration to every host.
-**Fix (folded, §5.1, §7):** private only, Bastion or JIT admin, Entra login, Update Manager, daily backup, 6.9.5 minimum (which refuses insecure MongoDB on upgrade), Swagger off unless §10 needs it and then only from `snet-mgmt`. The README line is updated by phase L1 to say the tier adds a console VM.
+**Fix (folded, §5.1, §7):** private only, no standing admin path (Run Command, opt-in Bastion Developer with a Key Vault local admin; see N-M1), Update Manager, daily backup, 6.9.5 minimum (which refuses insecure MongoDB on upgrade), Swagger off unless §10 needs it and then only from `snet-mgmt`. The README line is updated by phase L1 to say the tier adds a console VM.
 
 ### C3. CommandCTRL remote control and shell bypass the swarm's governance
 **Where:** §9, avd-swarm governance (plans, approvals, kill switch).
@@ -80,3 +80,47 @@ Portability, GPP replacement and legacy layering matter most when a customer is 
 
 ### S2. Should this live in this repo?
 A separate repo would keep this one small. But the tier reuses this repo's storage, Run Command, preflight and portal patterns, and its tests guard the profiles account. **Recommendation:** this repo, behind `AVD_LIQUIDWARE`, with the Nerdio script under `scripts/nerdio/`. Open question 1 for the owner.
+
+## Independent pass
+
+Findings the author's pass missed. Each is folded into the spec under its ID.
+
+### N-C1 (Critical). The config share has no working writer, or users can write it
+**Where:** §5.1, §6.
+**Scenario:** the console deploys the compiled user INI to a share. On Entra-only its machine account can't get an Entra Kerberos ticket (the same reason as C1), so *Deploy configuration* fails. The easy workaround, the profiles share with the users' existing Contributor rights, lets every user edit the INI their own logon reads, switching off their restrictions and filters.
+**Fix (folded):** the config share is its own share, users read only, a template test rejects user write; the writer is decided in V16 (default candidate: a workflow over REST with RBAC); §6 row 2a.
+
+### N-C2 (Critical). The app attach sync is a fourth writer, with a client secret
+**Where:** §4.2 A3, §5.1, §6, §10.3.
+**Scenario:** Liquidware's guide has the console sync packages to ARM through an Entra app with a client secret and a subscription-level custom role (write and delete on `appattachpackages`, optional host pool write). Whoever takes the console can swap any app attach package in the subscription, beside the portal, Nerdio and the swarm's plan.
+**Fix (folded):** the console only registers packages, its role scoped to the packages resource group with no host pool permission; assignment and version swaps belong to the landing zone workflow or the swarm's plan; certificate if supported (V15), otherwise a secret in Key Vault set by Run Command.
+
+### N-H1 (High). Portability saves at logoff; this landing zone ends sessions without one
+**Where:** §4.1, §6 row 3, decision 0011, image pipeline rotation.
+**Scenario:** Lock, scaling-plan forced logoff, rotation and host failure skip or reorder the logoff save; settings silently roll back, which during a migration is data loss.
+**Fix (folded):** V14; until it passes, Portability carries only settings that can be lost, and the container stays the system of record.
+
+### N-H2 (High). The headline migrations can't reach this landing zone
+**Where:** §1, §4.1.
+**Scenario:** Portability captures on the domain-joined, usually on-premises source; this landing zone's storage is private and Entra Kerberos-only, with no line of sight to on premises (decision 0001).
+**Fix (folded):** migrations are customer-hybrid only, or use a separate time-limited staging store under its own decision; in-landing-zone P1 is user environment management and GPP replacement.
+
+### N-H3 (High). CommandCTRL shows every user on a multi-session host
+**Where:** §7, §9.
+**Scenario:** helping user A shows all users' processes, command lines and possibly window titles, kept in history and sent to the SaaS.
+**Fix (folded):** pre-L3 gate: collection baseline (V17), technician roles scoped to host groups, privacy notice or DPIA per customer.
+
+### Medium
+- **N-M1. No admin path as described.** No Bastion in the landing zone, no admin network (decision 0001), JIT already rejected. Fix: no standing path; opt-in Bastion Developer with a Key Vault local admin; Entra sign-in through Bastion (Basic or higher) priced as a customer choice.
+- **N-M2. Secrets in install arguments.** `LICSTR`/`AZCRED` in Run Command parameters are readable from the instance view and logs; the installer has no hash pin. Fix: `protectedParameters`, a Nerdio secure variable, no command-line logging, installer pinned by version and SHA-256.
+- **N-M3. Key Vault copy and rotation.** The AVD service reads keys itself, so a Key Vault copy has no consumer; regenerating the key in use breaks reconnecting mounts. Fix: no copy; alternate key1/key2 with a gap longer than the longest session; test a reconnect during rotation in L0.
+- **N-M4. Nerdio estates.** Nerdio owns FSLogix settings, so a template test can't see overlaps; scripted-action ordering isn't guaranteed; app attach storage must be in the hosts' subscription. Fix: host-side overlap check; ordering and subscription placement in V12.
+- **N-M5. Pipeline, rotation and cost.** QA validation doesn't exercise ProfileUnity or FlexApp; rotation leaves vendor machine records; excluding the console from Lock breaks "the budget stops spend"; Defender lines bill automatically. Fix: QA checks, rotation cleanup of vendor records, Lock deallocates the console, Defender lines in §11.
+
+### Factual corrections (folded)
+- The app attach sync identity is documented (client secret, custom role), so F4 is no longer "not stated".
+- App attach storage must be in the same subscription as the session hosts; the ARM Provider assignment is due to go away (F9).
+- Defender for Servers P2 is on subscription-wide in this repo, not "if the customer has it".
+- The landing zone has no Bastion; Entra sign-in through Bastion needs Basic or higher.
+- Premium Files has a provisioned minimum, so L0 uses Standard.
+- Server 2022 → 2025 doesn't apply to this landing zone (Windows 11 multi-session only); customer-only.

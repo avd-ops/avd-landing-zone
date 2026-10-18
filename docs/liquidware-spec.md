@@ -1,6 +1,6 @@
 # Spec: Liquidware ProfileUnity, FlexApp and CommandCTRL as an optional upgrade
 
-- **Status:** Proposed (see [decision 0016](decisions/0016-liquidware-upgrade.md)). Red-teamed in [liquidware-redteam.md](liquidware-redteam.md); every finding is folded in below and tagged with its ID (C1, H2, …).
+- **Status:** Proposed (see [decision 0016](decisions/0016-liquidware-upgrade.md)). Red-teamed twice in [liquidware-redteam.md](liquidware-redteam.md); every finding is folded in below and tagged with its ID (C1, H2, N-C1, …).
 - **Date:** 2026-10-18
 - **Scope:** an opt-in tier on top of what this repo deploys today, plus a delivery pattern for customer environments run by Nerdio Manager for Enterprise. Nothing changes in the default deployment. Nothing is built by this spec.
 
@@ -57,10 +57,14 @@ Some customers need more than that, usually because they are leaving Citrix, Omn
 | Option | Container | Settings and migration | When |
 |---|---|---|---|
 | **P0. Default** | FSLogix | none | Greenfield, one OS version, no GPP to replace |
-| **P1. Recommended upgrade** | FSLogix | ProfileUnity Portability for chosen settings; ProfileUnity user environment management | OS migrations (Win10 → 11, Server 2022 → 2025), moving users off Citrix UPM / Horizon DEM / Ivanti, GPP replacement on Entra-joined hosts |
+| **P1. Recommended upgrade** | FSLogix | ProfileUnity Portability for chosen settings; ProfileUnity user environment management | In this landing zone: GPP replacement and user environment management on Entra-joined hosts, Windows 11 feature-version moves. **Customer-hybrid only:** migrations off Citrix UPM / Horizon DEM / Ivanti and Server 2022 → 2025 (this landing zone deploys only Windows 11 multi-session) |
 | **P2. Gated** | ProfileUnity ProfileDisk | ProfileUnity Portability | Only if spike L0 proves ProfileDisk on Entra-only Azure Files *and* a customer needs something FSLogix can't do. Not offered until then (V4) |
 
-**P1 exclusion rule (H1).** FSLogix owns the container; Portability may only capture a named list of settings paths. The same path is never captured by Portability *and* left in the container for roaming, and never all of `AppData\Local` (Liquidware's known issues list it as a cause of long logons and broken folder redirection). The spec ships a starting exclusion matrix in the build phase, tested by a template test that rejects overlaps.
+**P1 exclusion rule (H1).** FSLogix owns the container; Portability may only capture a named list of settings paths. The same path is never captured by Portability *and* left in the container for roaming, and never all of `AppData\Local` (Liquidware's known issues list it as a cause of long logons and broken folder redirection). The spec ships a starting exclusion matrix in the build phase. The overlap check runs **on the host** (a preflight check and the `lw-portability-overlap` fact): it reads the FSLogix registry and `redirections.xml` and compares them with the deployed INI, because in Nerdio estates Nerdio owns the FSLogix settings and a template test here can't see them (N-M4).
+
+**Portability and sessions that end without a clean logoff (N-H1).** Portability saves at logoff. This landing zone also ends sessions by auto-shutdown Lock, scaling-plan forced logoff, rotation with forced logoff, and plain host failure. Until V14 shows saves survive those (and in which order against the FSLogix detach), Portability carries only settings that can be lost without harm, and the FSLogix container stays the system of record.
+
+**Migrations need a staging store (N-H2).** Portability captures on the *source* estate, which is domain-joined and usually on premises. It can't reach this landing zone's private, Entra Kerberos-only storage (decision 0001: no line of sight to on premises). A migration therefore needs a separate, time-limited staging store (Blob, write-only SAS for the source, deleted after cutover) under its own decision, or runs in the customer's hybrid environment. Neither is part of phase L1.
 
 ### 4.2 App delivery options
 
@@ -74,6 +78,11 @@ Some customers need more than that, usually because they are leaving Citrix, Omn
 | **A5. FlexApp One through Nerdio** | FlexApp One | Nerdio | Customer environments where Nerdio already owns app assignment |
 
 **One assignment system per app (H5).** An app is assigned in exactly one of A2–A5. The build phase adds a check to the post-deployment preflight that lists apps found in more than one system and warns. A3 is preferred over A4 because it keeps one assignment surface (the AVD control plane) that this repo, Nerdio and the second brain already read.
+
+**One writer per operation in app attach (N-C2).** Liquidware's sync registers FlexApp packages as AVD app attach packages through an Entra app registration with a client secret and a custom role (read, write, delete on `appattachpackages`, optional write on host pools). In this tier:
+- the console only **registers** packages: its custom role is scoped to the resource group that holds the app attach packages, with **no** host pool permission;
+- **assigning** packages to host pools (and the blue/green version swap) belongs to the landing zone's own workflow, or the swarm's approved plan (§10.3), never the console;
+- the credential is a certificate if Liquidware supports one (V15); otherwise a short-lived secret kept in Key Vault and set on the console by a Run Command, never typed or seen by an operator (lesson 0002). It is a named exception, listed in §6.
 
 **Isolation (H2).** FlexApp Sandbox Isolation needs Windows Sandbox and, inside a VM, nested virtualization. It is **off** in this tier. Turning it on is a separate decision after checking it against Trusted Launch, the VM sizes the portal offers, and the image's security baseline.
 
@@ -89,9 +98,9 @@ Some customers need more than that, usually because they are leaving Citrix, Omn
 
 ```
                          ┌─────────────────────── landing zone spoke (existing) ───────────────────────┐
- Admin (Bastion/JIT) ──► │ snet-mgmt (new, only with AVD_LIQUIDWARE)                                    │
+ Admin (opt-in Bastion) ► │ snet-mgmt (new, only with AVD_LIQUIDWARE)                                    │
                          │   ProfileUnity Management Console VM  (Windows Server 2025, MongoDB, :8000)  │
-                         │      ├─ Entra sign-in for admins; Graph app for Entra group filters (V6)     │
+                         │      ├─ Graph app for Entra filters (V6); app attach sync app (V15)          │
                          │      └─ License Service :443  ◄── session hosts (LICSTR)                     │
                          │                                                                              │
                          │ snet-hosts (existing)  session hosts                                         │
@@ -107,12 +116,14 @@ Some customers need more than that, usually because they are leaving Citrix, Omn
 
 | Resource | Notes |
 |---|---|
-| `snet-mgmt` and its NSG | Inbound 8000 from Bastion and the admin range only; 443 from `snet-hosts` for licensing |
-| ProfileUnity console VM | Smallest SKU that meets Liquidware's requirements (V5). Trusted Launch, encryption at host, no public IP, Entra login, Azure Backup, Update Manager. **Excluded from auto shutdown** until V7 says hosts can log on without it (M6) |
-| Config and portability share | A second share on the **existing** profiles account if spike V2/V3 proves user-context Entra Kerberos access works; otherwise Azure Blob with Entra auth if supported (V3) |
-| Packages storage account | Separate account, only for app attach images (MSIX and FlexApp). Shared-key access **on** because Microsoft requires it for app attach on Entra-joined hosts (§6). Private endpoint, no public network, keys in Key Vault, rotated by runbook. Never holds profiles |
-| Key Vault secrets | Packages account keys; ProfileUnity console service credentials if any (V8) |
-| Role assignments | Reader and Data Access on the packages account for the *Azure Virtual Desktop* and *Azure Virtual Desktop ARM Provider* service principals (Microsoft's documented requirement, which also grants the service access to all data in that account, which is why the account holds nothing else) |
+| `snet-mgmt` and its NSG | Inbound 3389 from the Bastion subnet only when Bastion is on; 443 from `snet-hosts` for licensing. Port 8000 is used from a browser on the console itself (there is no admin network: decision 0001) |
+| ProfileUnity console VM | Smallest SKU that meets Liquidware's requirements (V5). Trusted Launch, encryption at host, no public IP, Azure Backup, Update Manager. Random local admin password in Key Vault (decision 0004 pattern). Excluded from the **scheduled** shutdown until V7 says hosts can log on without it (M6); the budget **Lock** deallocates it too, since Lock already logs users off, so the budget still stops all compute (N-M5) |
+| Admin access | **None standing.** Run Command for setup. Opt-in Azure Bastion **Developer** (free, local sign-in only, so the Key Vault local admin) for console UI work. Entra sign-in through Bastion needs Basic or higher, which costs per hour; it's a customer choice, priced in §11 (N-M1) |
+| Config share | Its **own** share. Users get SMB Share Reader only, so nobody can edit the INI their logon reads (that would switch off their own restrictions and filters). The console can't write it with a machine identity on Entra-only; the writer is decided in V16 (a workflow copying the compiled INI over REST with RBAC is the default candidate). A template test fails if any user group has write (N-C1) |
+| Portability share | A share on the existing profiles account if V3 passes, with per-user folders and the same NTFS pattern as FSLogix (decision 0005) |
+| Packages storage account | Separate account, only for app attach images (MSIX and FlexApp), in the **same subscription as the session hosts** (Microsoft requirement). Shared-key access **on** because Microsoft's app attach guidance for Entra-joined hosts uses it (§6). Private endpoint, no public network. **No Key Vault copy of the keys:** the AVD service reads them itself through its role, and the packaging workflow writes with Entra RBAC, so a copy would only be one more place to leak from (N-M3). Keys rotate alternately (key1, then key2) with a gap longer than the longest session, so reconnecting mounts keep working; L0 tests a reconnect during rotation. Standard tier for L0 (Premium has a provisioned minimum). Never holds profiles |
+| Key Vault secrets | Console local admin; the app attach sync credential if it can't be a certificate (V15); console service credentials if any (V8) |
+| Role assignments | Console sync identity: custom role on the app attach packages resource group only (§4.2). Reader and Data Access on the packages account for the *Azure Virtual Desktop* and *Azure Virtual Desktop ARM Provider* service principals (Microsoft's documented requirement, which also grants the service access to all data in that account, which is why the account holds nothing else; Microsoft says the ARM Provider assignment won't be needed in a future update, so the template test checks for it only while it is) |
 | CommandCTRL | No Azure resources: agent via Intune or Run Command, outbound 443 |
 
 ### 5.2 Host configuration
@@ -121,6 +132,8 @@ Follows the image pipeline rule: **the image is generic, the landing zone config
 - The ProfileUnity client binary may go in the image's optional customization folder; per-landing-zone settings never do (H6).
 - A new managed Run Command, `Configure-ProfileUnity`, runs after `Configure-FSLogix` and before `Register-AvdAgent`: installs the standalone client if missing (`ACCEPTEULA=1 E=1 USERINI=… CLIENTXML=… LICSTR=…`), Windows PowerShell 5.1, no modules (CLAUDE.md host rule).
 - In Nerdio environments the same script is a Nerdio scripted action (§8).
+- **Secrets in arguments (N-M2).** `LICSTR` and any `AZCRED` go through the Run Command's `protectedParameters` (Nerdio: a secure variable), never `parameters`; the script never logs its command line and doesn't use MSI verbose logging. The installer is pinned by version and SHA-256, with a template test, the same rule as the image pipeline's customizers.
+- **Image pipeline and rotation (N-M5).** The QA validation (image pipeline §6.3) gains a ProfileUnity client exit-code check and a FlexApp mount check, so a client regression stops at QA. Rotation's cleanup also removes the old host's records in CommandCTRL and the ProfileUnity console, or each rotation eats a seat (and Community Edition's 5-machine cap in L0).
 - Minimum version **6.9.5**: it fixes Entra filter Graph calls that hung logon, removes the WMI dependency from licensing, encrypts INI content by default, and blocks upgrades of insecure MongoDB installs (M1, M2).
 
 ## 6. Identity and storage, path by path
@@ -132,7 +145,9 @@ This is the part that decides whether the tier fits an Entra-only landing zone. 
 | 1 | FSLogix container | user, Entra Kerberos | **Proven** (lesson 0028) |
 | 2 | ProfileUnity user INI read at logon | user | Expected to work on an Azure Files share with Entra Kerberos and share RBAC read. **Verify V2** |
 | 3 | Portability files write at logoff | user | Same mechanism as 2, read/write. **Verify V3** |
+| 2a | Console writes the compiled INI to the config share | console machine account (can't get an Entra Kerberos ticket) | **Doesn't work as-is.** Writer decided in V16; users stay read-only (N-C1) |
 | 4 | ProfileUnity client service and startup configuration (machine context) | LocalSystem (6.9.5) uses the *machine account*; older versions a domain service account | An Entra-joined machine account can't get an Entra Kerberos ticket for Azure Files. So machine-context configs must read from a cloud path with encrypted credentials (`AZCRED`), or not be used. **Verify V8**; until then, no startup (machine-context) configuration in this tier (C1) |
+| 5a | Console registers FlexApp packages in AVD app attach | Entra app registration, client secret per Liquidware's guide, custom role | Works by design; scoped and stored per §4.2 (N-C2). Certificate support: **Verify V15** |
 | 5 | FlexApp via AVD app attach | session host computer account | Microsoft: on Entra-joined hosts with Azure Files, app attach needs the RBAC above and "access keys or Microsoft Entra". **Packages account with keys, isolated** (C1). Verify the "or Microsoft Entra" half in V1, and drop keys if it works |
 | 6 | FlexApp through ProfileUnity rules (A4) | user or client service | Depends on 2 and 4. Not offered until V1/V8 pass |
 | 7 | ProfileDisk (P2) | client service | ProfileDisk doesn't support cloud providers (Liquidware docs). **Verify V4**; P2 stays gated |
@@ -143,7 +158,7 @@ This is the part that decides whether the tier fits an Entra-only landing zone. 
 
 ## 7. Security
 
-- **Console VM (C2).** It is the only Windows server in the landing zone, holds the whole user environment policy and a MongoDB database, and in hybrid mode talks to domain controllers. So: no public IP, admin access only through Bastion or JIT, Entra login with the admins group, Defender for Servers if the customer has it, patched by Update Manager, backed up daily, MongoDB on Liquidware's secured defaults (6.9.5 blocks insecure ones). The Swagger API stays off unless the second brain integration (§10) is built, and then reachable only from `snet-mgmt`.
+- **Console VM (C2).** It is the only Windows server in the landing zone, holds the whole user environment policy and a MongoDB database, and in hybrid mode talks to domain controllers. So: no public IP, no standing admin path (§5.1; JIT is rejected because it needs a management-port NSG rule), Defender for Servers (this repo turns on Servers P2 subscription-wide, so it applies and bills automatically), patched by Update Manager, backed up daily, MongoDB on Liquidware's secured defaults (6.9.5 blocks insecure ones). The Swagger API stays off unless the second brain integration (§10) is built, and then reachable only from `snet-mgmt`.
 - **Packages account (C1).** Read-only data plane for hosts; write only from the packaging workflow; keys rotated monthly by the existing Automation account; a template test fails if the profiles account ever enables shared-key access or if the packages account ever holds a `profiles` share.
 - **CommandCTRL (C3, H3).** Treated as a remote-access tool:
   - remote control and shell **off** by default; on per role, never for agents or automation identities;
@@ -151,6 +166,7 @@ This is the part that decides whether the tier fits an Entra-only landing zone. 
   - AI Insights **off** by default. If turned on, it uses the project's own provider and credentials, and Liquidware's tokenization of user names, hosts, IPs, domains and paths is confirmed in V10 first;
   - its audit log is exported to Log Analytics if the product allows (V11);
   - the swarm's kill switch (avd-swarm `docs/governance.md`) gets a CommandCTRL step: disable the tenant's remote control and shell. Agents never hold CommandCTRL credentials.
+- **Telemetry visibility on multi-session hosts (N-H3).** A technician helping one user sees every user's processes, command lines and possibly window titles on that host, kept in history and sent to the SaaS. Before L3: a collection baseline with command lines, window titles and URLs off on multi-session hosts if the product allows (V17), technician roles scoped to host groups, and a privacy notice or DPIA per customer.
 - **Application Restrictions** (ProfileUnity) log to the Windows event log; the AMA data collection rule gains that channel so restrictions show up in Log Analytics.
 
 ## 8. Nerdio Manager customer environments
@@ -165,7 +181,7 @@ Most deliveries are into a customer's existing environment with Nerdio Manager f
 | FlexApp packages | app attach (A3) | app attach through Nerdio's app attach UI if supported (V12), else ProfileUnity rules (A4) |
 | AD DS paths (§6 row 9, domain service account) | out | allowed if the customer is hybrid; documented as customer-owned |
 
-The Nerdio scripted action and its parameters are a deliverable of phase L2. Whether Nerdio's Unified Application Management handles FlexApp packages directly is unverified (V12); if it does, it becomes the A5 owner for that customer.
+Two Nerdio-specific checks go into V12: whether a scripted action can be guaranteed to run after FSLogix configuration and before the agent registers on every re-image and host recreation, and that Nerdio's app attach storage sits in the same subscription as the hosts (Microsoft requirement). The Nerdio scripted action and its parameters are a deliverable of phase L2. Whether Nerdio's Unified Application Management handles FlexApp packages directly is unverified (V12); if it does, it becomes the A5 owner for that customer.
 
 ## 9. CommandCTRL: where it fits
 
@@ -184,6 +200,7 @@ The Nerdio scripted action and its parameters are a deliverable of phase L2. Whe
 ### 9.2 Multi-session caveats
 - Sampling interval is configurable (10–60 s); start at 60 s on multi-session hosts and measure agent overhead in L0 (V9).
 - Remote control on a multi-session host must target one user's session with that user's consent; confirm in V9 that it can't attach to another user's session.
+- Telemetry on a multi-session host covers every user on it, not only the one being helped (§7, N-H3).
 - Data leaves the tenant for Liquidware's SaaS. Region and retention are unverified (V11); a customer with residency rules decides before install.
 
 ### 9.3 Stratusphere
@@ -213,7 +230,7 @@ Rule (2026-10-18): avd-swarm and avd-second-brain stay connected; a change in on
 - `lw-console-unreachable`: hosts report license or config fetch failures.
 
 ### 10.3 Swarm actions (plans approved through GitHub Environments)
-- assign or swap a FlexApp package version in app attach (blue/green: new version to the QA pool first, as the image pipeline does);
+- assign or swap a FlexApp package version in app attach (blue/green: new version to the QA pool first, as the image pipeline does). This plan is the only writer of host pool assignments; the console only registers packages (§4.2);
 - roll a ProfileUnity configuration (deploy INI) to the QA pool, then production;
 - rotate packages account keys.
 
@@ -225,11 +242,11 @@ Spend rule: Nick pays; estimate first, evidence after, teardown evidence, monthl
 
 ### 11.1 Ongoing (customer or landing zone)
 - **Licenses:** ProfileUnity/FlexApp and CommandCTRL Commercial are quoted by Liquidware or a partner; not priced here.
-- **Azure:** console VM (always on, M6), its disk and backup; packages account (Premium Files or Standard, by package count); Log Analytics ingestion for the restriction events. The preflight's price lookup prices these from retail meters when the tier is built (decision 0010: never guess a price). The retail price API wasn't reachable from the session that wrote this spec, so no number is given here.
+- **Azure:** console VM (on outside Lock, M6), its disk and backup; Defender for Servers P2 on the console and Defender for Storage on the packages account (both turned on subscription-wide by this repo, so they bill automatically); packages account (Standard, or Premium with its provisioned minimum); Bastion only if a customer wants Entra sign-in (Basic or higher, per hour); Log Analytics ingestion for the restriction events. The preflight's price lookup prices these from retail meters when the tier is built (decision 0010: never guess a price). The retail price API wasn't reachable from the session that wrote this spec, so no number is given here.
 
 ### 11.2 Spike L0 (the owner's personal sandbox)
 - **Licenses:** Liquidware trial (ProfileUnity/FlexApp) and CommandCTRL Community Edition: $0.
-- **Azure, one run, northcentralus, target under 4 hours:** the existing dev landing zone's one session host (already sized), one console VM at the smallest supported SKU, a packages storage account with a few GiB, Bastion only if no other admin path exists (Bastion is the largest line; prefer Run Command for console setup).
+- **Azure, one run, northcentralus, target under 4 hours:** the existing dev landing zone's one session host (already sized), one console VM at the smallest supported SKU, a Standard packages storage account with a few GiB, the Defender lines those two add, and Bastion Developer (free) only if the console UI is needed. Setup goes through Run Command.
 - **Before the run:** price the list with the preflight's retail lookup, post the estimate, get Nick's go. **After:** teardown evidence (RG not found), spend evidence kept privately, outside this public repo.
 
 ## 12. Facts and what is still unverified
@@ -241,12 +258,12 @@ Checked 2026-10-18 from vendor pages. "Verify" items are gates for spike L0.
 | F1 | ProfileUnity/FlexApp 6.9.5 GA (2026-05-26 notes, 2026-06-02 announcement): Sandbox Isolation, allow+deny app restrictions logged to the event log, .NET 10 console, single-file installer for Intune/SCCM, supports AVD and Windows 365 | Liquidware 6.9.5 release notes and blog | Checked |
 | F2 | 6.9.5 fixes: Entra filter Graph calls no longer hang logon; App attach syncs FlexApp packages; app attach apps install with ProfileDisk or FSLogix; INI encrypted by default; insecure MongoDB blocks upgrade | 6.9.5 release notes | Checked |
 | F3 | Isolation needs Windows Sandbox and nested virtualization in VMs | 6.9.5 release notes | Checked |
-| F4 | FlexApp integrates with AVD app attach (announced 2024-11-01, 6.8.7) | Liquidware press release | Checked; formats and Entra-joined behavior not stated |
+| F4 | FlexApp integrates with AVD app attach (announced 2024-11-01, 6.8.7). The console syncs packages to ARM using an Entra app registration with a client secret and a subscription-level custom role: read/write/delete on `appattachpackages`, optional read/write on host pools | Liquidware press release; ProfileUnity 6.8.7 guide, configuring FlexApp integration with AVD app attach | Checked |
 | F5 | Standalone client: EXE/MSI, args `USERINI`, `SYSINI`, `CLIENTXML`, `LICSTR`, `AZCRED`, `ISOLATE`; supports non-domain-joined endpoints; cloud paths S3, Azure, GCS | ProfileUnity 6.9.5 docs, standalone client installer | Checked; "Azure" means Blob per the cloud storage page; Entra-joined not named |
 | F6 | Cloud storage: Portability and FlexApp on S3, Azure Blob, GCS; FlexDisk, ProfileDisk and Folder Redirection not on cloud storage | ProfileUnity 6.8.6 docs, using cloud storage | Checked (6.8.6 page); recheck for 6.9.5 |
 | F7 | Console uses port 8000 (admin), 443 (licensing), 27017 (MongoDB cluster), LDAP to DCs, SMB to NETLOGON for the domain-based install | ProfileUnity 6.8.7 port requirements | Checked |
 | F8 | 6.9.5 LocalSystem option for the startup service uses the machine account; non-domain images can't grant a domain service account "log on as a service" | Liquidware KB "Running ProfileUnity and FlexApps at boot using a Service Account" | Checked |
-| F9 | App attach on Entra-joined hosts with Azure Files: Reader and Data Access for the AVD and AVD ARM Provider service principals; mounts use the computer account; "access keys or Microsoft Entra"; keep only app attach apps in that account, rotate keys | Microsoft Learn, app attach overview | Checked |
+| F9 | App attach on Entra-joined hosts with Azure Files: Reader and Data Access for the AVD and AVD ARM Provider service principals; mounts use the computer account; "access keys or Microsoft Entra"; keep only app attach apps in that account, rotate keys; the account must be in the same subscription as the session hosts; the ARM Provider assignment won't be needed in a future update | Microsoft Learn, app attach overview and app attach setup | Checked |
 | F10 | CommandCTRL 1.5 GA 2026-07-08: AI Insights with your own provider (ChatGPT, Azure OpenAI, Grok, Claude), tokenization before data leaves the endpoint, browser remote control with consent prompt, Stratusphere history button, IGEL/eLux/ARM64 agents, ProfileUnity diagnostics collection; Community Edition 5 machines, 24 h DVR | Liquidware blog 2026-07-13 | Checked |
 | F11 | Nerdio can assign FlexApp One packages to AVD | Nerdio blog (2022, updated 2026-01) | Checked; current UI and UAM support not confirmed |
 | V1 | App attach of FlexApp packages on Entra-joined hosts works without storage keys (the "or Microsoft Entra" half of F9) | spike | **Unverified** |
@@ -261,15 +278,19 @@ Checked 2026-10-18 from vendor pages. "Verify" items are gates for spike L0.
 | V11 | CommandCTRL SaaS region, retention, audit log export | Liquidware | **Unverified** |
 | V12 | Nerdio app attach UI and UAM handling of FlexApp packages today | Nerdio docs | **Unverified** |
 | V13 | Console REST API coverage for reading configs and assignments | console Swagger (off by default in 6.9.5) | **Unverified** |
+| V14 | Portability saves under forced logoff, Lock and deallocation; order of save against the FSLogix detach | spike | **Unverified**; limits what P1 carries |
+| V15 | Certificate credential for the app attach sync app registration | Liquidware docs or support | **Unverified** |
+| V16 | How the console's compiled INI reaches the config share on Entra-only (console to Blob with credentials, or a workflow over REST) | Liquidware docs, then spike | **Unverified** |
+| V17 | Which fields CommandCTRL collects per session on multi-session hosts, and which can be turned off | Liquidware docs, then spike | **Unverified** |
 
 ## 13. Phases
 
 | Phase | What | Gate |
 |---|---|---|
-| **L0. Spike** | Paper checks first (V5, V6, V8, V11, V12, V13 from docs or support), then one cost-estimated run in the personal sandbox for V1–V4, V7, V9, V10 | Nick's go on the estimate |
+| **L0. Spike** | Paper checks first (V5, V6, V8, V11, V12, V13, V15, V16, V17 from docs or support), then one cost-estimated run in the personal sandbox for V1–V4, V7, V9, V10, V14 and a reconnect during key rotation | Nick's go on the estimate |
 | **L1. Landing zone tier** | `AVD_LIQUIDWARE` flag, `bicep/modules/liquidware.bicep`, `Configure-ProfileUnity` Run Command, packages account with tests (C1), Portability exclusion matrix and test (H1), preflight checks (version floor, double assignment), portal step, docs and a lesson per real-run finding | L0 passes for the paths used |
 | **L2. Nerdio delivery** | Scripted action, parameters, customer runbook, hybrid notes (§8) | L1 |
-| **L3. CommandCTRL** | Intune/Run Command agent install, settings baseline (§7), Stratusphere overlap rule, kill-switch step in avd-swarm | L0 V9–V11 |
+| **L3. CommandCTRL** | Intune/Run Command agent install, settings baseline (§7), Stratusphere overlap rule, kill-switch step in avd-swarm, per-customer privacy notice | L0 V9–V11, V17 |
 | **L4. Brain and swarm** | §10 facts, detections and plans, in avd-second-brain and avd-swarm together | L1, and the facts contract in avd-current-state if it carries Liquidware facts |
 
 ## 14. Open questions for Nick
