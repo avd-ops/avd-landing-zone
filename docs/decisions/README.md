@@ -19,3 +19,4 @@ Short records of choices that shape this repo, so they are not reopened without 
 | 0013 | [A generic golden image built by Azure Image Builder, promoted by a person, rotated blue/green](0013-image-pipeline.md) | Proposed |
 | 0014 | [Verify access from the operator's device in three layers, each claiming only what it measures](0014-verify-access.md) | Proposed |
 | 0015 | [An optional computer-use agent on an isolated VM, as its own deployment, with no credential ever reaching the model](0015-foundry-cua.md) | Proposed |
+| 0016 | [Liquidware ProfileUnity, FlexApp and CommandCTRL as an optional tier: FSLogix stays the container, FlexApp goes through app attach](0016-liquidware-upgrade.md) | Proposed |
