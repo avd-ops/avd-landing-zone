@@ -676,7 +676,8 @@ function Test-AvdLandingZoneResource {
     $smb = (Invoke-AvdArm -Path "$($sa.Id)/fileServices/default?api-version=2023-05-01").properties.protocolSettings.smb
     $channel = "$($smb.channelEncryption)"
     if (-not $channel -or $channel -match 'AES-128-GCM') { Add-AvdCheckResult $area 'Profile share allows AES-128-GCM channel encryption' 'Pass' -Detail $(if ($channel) { $channel } else { 'Azure default' }) }
-    else { Add-AvdCheckResult $area 'Profile share allows AES-128-GCM channel encryption' 'Fail' -Detail "channelEncryption: $channel" -Remediation 'Entra Kerberos sign-ins to the share are denied without it. Deploy the landing zone again (bicep/modules/storage.bicep allows AES-128-GCM and AES-256-GCM).' }
+    else { Add-AvdCheckResult $area 'Profile share allows AES-128-GCM channel encryption' 'Fail' -Detail "channelEncryption: $channel" -Id 'smb-channel' -Data @{ channelEncryption = $channel } `
+        -Remediation 'Entra Kerberos sign-ins to the share are denied without it. Deploy the landing zone again with scripts/deploy/deploy.sh; the storage module allows AES-128-GCM and AES-256-GCM.' }
     if ($sa.PublicNetworkAccess -eq 'Disabled') { Add-AvdCheckResult $area 'Storage public network access disabled' 'Pass' }
     else { Add-AvdCheckResult $area 'Storage public network access disabled' 'Warn' -Detail "PublicNetworkAccess: $($sa.PublicNetworkAccess)" }
     if ($Lz.StorageDnsZoneId) { Add-AvdCheckResult $area 'Storage private endpoint with DNS zone group' 'Pass' -Detail ($Lz.StorageDnsZoneId -split '/')[-1] }

@@ -488,6 +488,12 @@
           note('Optional: Well-Architected review', 'Reviews the deployed landing zone by pillar (reliability, security, cost, operations, performance): design checks, Azure Advisor, Defender for Cloud, Azure Policy and PSRule for Azure. Findings are warnings; no Graph sign-in needed. A few minutes.', cmd.wellArchitected(cfg));
         return { step: 'signin', actions: a };
       }
+      // Only a deployment changes the share's SMB settings; -Fix does not (docs/lessons/0028).
+      var smb = byId(failures, 'smb-channel');
+      if (smb.length) {
+        note('Deploy the landing zone again', 'The profile share allows only ' + ((smb[0].data && smb[0].data.channelEncryption) || 'AES-256-GCM') + ' channel encryption, so Azure Files denies Entra Kerberos sign-ins and FSLogix profiles fail to load. Deploying again updates the existing storage account in place to allow AES-128-GCM and AES-256-GCM.', cmd.deploy(cfg));
+        failures = failures.filter(function (f) { return f.id !== 'smb-channel'; });
+      }
       if (hasFixable(failures) && !state.fix) {
         note('Run the setup with -Fix', 'It applies the tenant steps (admin consent, Conditional Access exclusion, profile share permissions) and starts the session host if it is stopped.', cmd.postdeploy(cfg, true));
         return { step: 'postdeploy', actions: a };
