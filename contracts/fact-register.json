@@ -1,0 +1,703 @@
+{
+  "$schema": "./schemas/fact-register.schema.json",
+  "schema": "avd-fact-register/v1",
+  "version": 1,
+  "decisions": [
+    {
+      "id": "identity",
+      "manifestPath": "/identity",
+      "label": "Identity lane",
+      "decidableFrom": [
+        "forensic",
+        "intake"
+      ]
+    },
+    {
+      "id": "region",
+      "manifestPath": "/region",
+      "label": "Region",
+      "decidableFrom": [
+        "azure",
+        "forensic",
+        "intake"
+      ]
+    },
+    {
+      "id": "network",
+      "manifestPath": "/network",
+      "label": "Network mode",
+      "decidableFrom": [
+        "azure",
+        "intake"
+      ]
+    },
+    {
+      "id": "hostPool.type",
+      "manifestPath": "/hostPools/*/type",
+      "label": "Host pool type",
+      "decidableFrom": [
+        "azure",
+        "forensic"
+      ]
+    },
+    {
+      "id": "hostPool.appGroup",
+      "manifestPath": "/hostPools/*/appGroup",
+      "label": "Application group",
+      "decidableFrom": [
+        "azure",
+        "forensic"
+      ]
+    },
+    {
+      "id": "hostPool.vmSize",
+      "manifestPath": "/hostPools/*/vmSize",
+      "label": "VM size",
+      "decidableFrom": [
+        "forensic"
+      ]
+    },
+    {
+      "id": "hostPool.maxSessions",
+      "manifestPath": "/hostPools/*/maxSessions",
+      "label": "Sessions per host",
+      "decidableFrom": [
+        "forensic"
+      ]
+    },
+    {
+      "id": "hostPool.hosts",
+      "manifestPath": "/hostPools/*/hosts",
+      "label": "Host count",
+      "decidableFrom": [
+        "forensic"
+      ]
+    },
+    {
+      "id": "hostPool.power",
+      "manifestPath": "/hostPools/*/power",
+      "label": "Power settings",
+      "decidableFrom": [
+        "azure",
+        "intake"
+      ]
+    },
+    {
+      "id": "hostPool.profileQuotaGiB",
+      "manifestPath": "/hostPools/*/profileQuotaGiB",
+      "label": "Profile share quota",
+      "decidableFrom": [
+        "forensic"
+      ]
+    }
+  ],
+  "facts": [
+    {
+      "id": "c11.subscription.regions",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/regions",
+      "grain": "subscription",
+      "unit": "region",
+      "privacy": "public",
+      "status": "built",
+      "evidences": [
+        "region"
+      ],
+      "aggregate": "distinct"
+    },
+    {
+      "id": "c11.hostPool.count",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/hostPools",
+      "grain": "subscription",
+      "unit": "count",
+      "privacy": "count",
+      "status": "built",
+      "evidences": [
+        "hostPool.type"
+      ],
+      "aggregate": "count"
+    },
+    {
+      "id": "c11.hostPool.region",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/hostPools/*/region",
+      "grain": "hostPool",
+      "unit": "region",
+      "privacy": "public",
+      "status": "built",
+      "evidences": [
+        "region"
+      ]
+    },
+    {
+      "id": "c11.hostPool.type",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/hostPools/*/type",
+      "grain": "hostPool",
+      "unit": "enum",
+      "privacy": "public",
+      "status": "built",
+      "evidences": [
+        "hostPool.type"
+      ]
+    },
+    {
+      "id": "c11.hostPool.preferredAppGroupType",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/hostPools/*/preferredAppGroupType",
+      "grain": "hostPool",
+      "unit": "enum",
+      "privacy": "public",
+      "status": "built",
+      "evidences": [
+        "hostPool.appGroup"
+      ]
+    },
+    {
+      "id": "c11.hostPool.appGroups",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/hostPools/*/appGroups",
+      "grain": "hostPool",
+      "unit": "count",
+      "privacy": "count",
+      "status": "built",
+      "evidences": [
+        "hostPool.appGroup"
+      ]
+    },
+    {
+      "id": "c11.hostPool.maxSessionLimit",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/hostPools/*/maxSessionLimit",
+      "grain": "hostPool",
+      "unit": "sessions",
+      "privacy": "count",
+      "status": "built",
+      "evidences": []
+    },
+    {
+      "id": "c11.hostPool.startVmOnConnect",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/hostPools/*/startVmOnConnect",
+      "grain": "hostPool",
+      "unit": "bool",
+      "privacy": "boolean",
+      "status": "built",
+      "evidences": [
+        "hostPool.power"
+      ]
+    },
+    {
+      "id": "c11.hostPool.sessionHosts.total",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/hostPools/*/sessionHosts/total",
+      "grain": "hostPool",
+      "unit": "hosts",
+      "privacy": "count",
+      "status": "built",
+      "evidences": []
+    },
+    {
+      "id": "c11.hostPool.sessionHosts.sessions",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/hostPools/*/sessionHosts/sessions",
+      "grain": "hostPool",
+      "unit": "sessions",
+      "privacy": "count",
+      "status": "built",
+      "evidences": []
+    },
+    {
+      "id": "c11.hostPool.vmSizes",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/hostPools/*/vmSizes",
+      "grain": "hostPool",
+      "unit": "count",
+      "privacy": "count",
+      "status": "built",
+      "evidences": []
+    },
+    {
+      "id": "c11.hostPool.images",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/hostPools/*/images",
+      "grain": "hostPool",
+      "unit": "count",
+      "privacy": "public",
+      "status": "built",
+      "evidences": []
+    },
+    {
+      "id": "c11.network.virtualNetworks",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/network/virtualNetworks",
+      "grain": "subscription",
+      "unit": "count",
+      "privacy": "count",
+      "status": "built",
+      "evidences": [
+        "network"
+      ]
+    },
+    {
+      "id": "c11.network.customDnsVirtualNetworks",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/network/customDnsVirtualNetworks",
+      "grain": "subscription",
+      "unit": "count",
+      "privacy": "count",
+      "status": "built",
+      "evidences": [
+        "network",
+        "identity"
+      ]
+    },
+    {
+      "id": "c11.network.defaultRoutes",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/network/defaultRoutes",
+      "grain": "subscription",
+      "unit": "count",
+      "privacy": "count",
+      "status": "built",
+      "evidences": [
+        "network"
+      ]
+    },
+    {
+      "id": "c11.network.privateEndpoints",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/network/privateEndpoints",
+      "grain": "subscription",
+      "unit": "count",
+      "privacy": "count",
+      "status": "built",
+      "evidences": [
+        "network"
+      ]
+    },
+    {
+      "id": "c11.storage.count",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/storageAccounts",
+      "grain": "subscription",
+      "unit": "count",
+      "privacy": "count",
+      "status": "built",
+      "evidences": [
+        "hostPool.profileQuotaGiB"
+      ],
+      "aggregate": "count"
+    },
+    {
+      "id": "c11.storage.privateEndpoint",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/storageAccounts/*/privateEndpoint",
+      "grain": "storageAccount",
+      "unit": "bool",
+      "privacy": "boolean",
+      "status": "built",
+      "evidences": [
+        "network"
+      ]
+    },
+    {
+      "id": "c11.policy.assignments",
+      "tier": "azure",
+      "contract": "C11",
+      "path": "/subscriptions/*/policy/assignments",
+      "grain": "subscription",
+      "unit": "count",
+      "privacy": "count",
+      "status": "built",
+      "evidences": [
+        "region"
+      ]
+    },
+    {
+      "id": "c12.window.days",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/window/days",
+      "grain": "window",
+      "unit": "days",
+      "privacy": "count",
+      "status": "specified",
+      "evidences": []
+    },
+    {
+      "id": "c12.quality.coverage",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/quality/coverage",
+      "grain": "window",
+      "unit": "ratio",
+      "privacy": "measure",
+      "status": "specified",
+      "evidences": []
+    },
+    {
+      "id": "c12.group.users",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/users",
+      "grain": "group",
+      "unit": "users",
+      "privacy": "count",
+      "status": "specified",
+      "evidences": [
+        "hostPool.hosts",
+        "hostPool.type",
+        "hostPool.profileQuotaGiB"
+      ]
+    },
+    {
+      "id": "c12.group.concurrency.peak",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/concurrency/peak",
+      "grain": "group",
+      "unit": "sessions",
+      "privacy": "count",
+      "status": "specified",
+      "evidences": [
+        "hostPool.hosts"
+      ]
+    },
+    {
+      "id": "c12.group.concurrency.byHour",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/concurrency/byHour",
+      "grain": "group",
+      "unit": "sessions",
+      "privacy": "count",
+      "status": "specified",
+      "evidences": [
+        "hostPool.hosts"
+      ]
+    },
+    {
+      "id": "c12.group.perUser.p95CpuPercentOfCore",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/perUser/p95CpuPercentOfCore",
+      "grain": "group",
+      "unit": "%",
+      "privacy": "measure",
+      "status": "specified",
+      "evidences": [
+        "hostPool.vmSize",
+        "hostPool.maxSessions"
+      ]
+    },
+    {
+      "id": "c12.group.perUser.p95MemoryMiB",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/perUser/p95MemoryMiB",
+      "grain": "group",
+      "unit": "MiB",
+      "privacy": "measure",
+      "status": "specified",
+      "evidences": [
+        "hostPool.vmSize",
+        "hostPool.maxSessions"
+      ]
+    },
+    {
+      "id": "c12.group.perUser.p95DiskIops",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/perUser/p95DiskIops",
+      "grain": "group",
+      "unit": "iops",
+      "privacy": "measure",
+      "status": "specified",
+      "evidences": [
+        "hostPool.vmSize"
+      ]
+    },
+    {
+      "id": "c12.group.perHost.peakSessionsPerHost",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/perHost/peakSessionsPerHost",
+      "grain": "group",
+      "unit": "sessions",
+      "privacy": "count",
+      "status": "specified",
+      "evidences": [
+        "hostPool.maxSessions",
+        "hostPool.hosts"
+      ]
+    },
+    {
+      "id": "c12.group.perHost.p95CpuPercent",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/perHost/p95CpuPercent",
+      "grain": "group",
+      "unit": "%",
+      "privacy": "measure",
+      "status": "specified",
+      "evidences": [
+        "hostPool.vmSize",
+        "hostPool.maxSessions"
+      ]
+    },
+    {
+      "id": "c12.group.perHost.p95MemoryPercent",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/perHost/p95MemoryPercent",
+      "grain": "group",
+      "unit": "%",
+      "privacy": "measure",
+      "status": "specified",
+      "evidences": [
+        "hostPool.vmSize",
+        "hostPool.maxSessions"
+      ]
+    },
+    {
+      "id": "c12.group.logonSeconds.p95",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/logonSeconds/p95",
+      "grain": "group",
+      "unit": "seconds",
+      "privacy": "measure",
+      "status": "specified",
+      "evidences": []
+    },
+    {
+      "id": "c12.group.uxScoreMedian",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/uxScoreMedian",
+      "grain": "group",
+      "unit": "score",
+      "privacy": "measure",
+      "status": "specified",
+      "evidences": []
+    },
+    {
+      "id": "c12.group.profile.p95SizeGiB",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/profile/p95SizeGiB",
+      "grain": "group",
+      "unit": "GiB",
+      "privacy": "measure",
+      "status": "specified",
+      "evidences": [
+        "hostPool.profileQuotaGiB"
+      ]
+    },
+    {
+      "id": "c12.group.profile.logonIopsPerUser",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/profile/logonIopsPerUser",
+      "grain": "group",
+      "unit": "iops",
+      "privacy": "measure",
+      "status": "specified",
+      "evidences": [
+        "hostPool.profileQuotaGiB"
+      ]
+    },
+    {
+      "id": "c12.group.rttMsP95",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/rttMsP95",
+      "grain": "group",
+      "unit": "ms",
+      "privacy": "measure",
+      "status": "specified",
+      "evidences": [
+        "region"
+      ]
+    },
+    {
+      "id": "c12.group.apps.catalog",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/apps/catalog",
+      "grain": "group",
+      "unit": "app",
+      "privacy": "public",
+      "status": "specified",
+      "evidences": [
+        "identity",
+        "hostPool.type",
+        "hostPool.appGroup"
+      ]
+    },
+    {
+      "id": "c12.group.apps.unknown",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/apps/unknown",
+      "grain": "group",
+      "unit": "count",
+      "privacy": "count",
+      "status": "specified",
+      "evidences": [
+        "identity"
+      ]
+    },
+    {
+      "id": "intake.residency",
+      "tier": "intake",
+      "contract": null,
+      "path": null,
+      "grain": "estate",
+      "unit": "region",
+      "privacy": "public",
+      "status": "specified",
+      "evidences": [
+        "region"
+      ]
+    },
+    {
+      "id": "intake.preferredRegions",
+      "tier": "intake",
+      "contract": null,
+      "path": null,
+      "grain": "estate",
+      "unit": "region",
+      "privacy": "public",
+      "status": "specified",
+      "evidences": [
+        "region"
+      ]
+    },
+    {
+      "id": "intake.existingHub",
+      "tier": "intake",
+      "contract": null,
+      "path": null,
+      "grain": "estate",
+      "unit": "bool",
+      "privacy": "public",
+      "status": "specified",
+      "evidences": [
+        "network"
+      ]
+    },
+    {
+      "id": "intake.identityConstraints",
+      "tier": "intake",
+      "contract": null,
+      "path": null,
+      "grain": "estate",
+      "unit": "enum",
+      "privacy": "public",
+      "status": "specified",
+      "evidences": [
+        "identity"
+      ]
+    },
+    {
+      "id": "liquidware.version",
+      "tier": "liquidware",
+      "contract": null,
+      "path": null,
+      "grain": "host",
+      "unit": "version",
+      "privacy": "public",
+      "status": "proposed",
+      "evidences": []
+    },
+    {
+      "id": "liquidware.flexapp.assignments",
+      "tier": "liquidware",
+      "contract": null,
+      "path": null,
+      "grain": "hostPool",
+      "unit": "count",
+      "privacy": "count",
+      "status": "proposed",
+      "evidences": []
+    },
+    {
+      "id": "liquidware.profileunity.configHash",
+      "tier": "liquidware",
+      "contract": null,
+      "path": null,
+      "grain": "estate",
+      "unit": "sha256",
+      "privacy": "pseudonym",
+      "status": "proposed",
+      "evidences": []
+    },
+    {
+      "id": "liquidware.restrictions.events",
+      "tier": "liquidware",
+      "contract": null,
+      "path": null,
+      "grain": "hostPool",
+      "unit": "count",
+      "privacy": "count",
+      "status": "proposed",
+      "evidences": []
+    },
+    {
+      "id": "liquidware.logon.phases",
+      "tier": "liquidware",
+      "contract": null,
+      "path": null,
+      "grain": "group",
+      "unit": "seconds",
+      "privacy": "measure",
+      "status": "proposed",
+      "evidences": []
+    },
+    {
+      "id": "liquidware.commandctrl.agentPresent",
+      "tier": "liquidware",
+      "contract": null,
+      "path": null,
+      "grain": "host",
+      "unit": "bool",
+      "privacy": "boolean",
+      "status": "proposed",
+      "evidences": []
+    },
+    {
+      "id": "intake.workingHours",
+      "tier": "intake",
+      "contract": null,
+      "path": null,
+      "grain": "estate",
+      "unit": "hours",
+      "privacy": "public",
+      "status": "specified",
+      "evidences": [
+        "hostPool.power"
+      ]
+    }
+  ]
+}
