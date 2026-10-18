@@ -23,6 +23,7 @@
     '00000003-0000-0000-c000-000000000000', // Microsoft Graph
     '0000000a-0000-0000-c000-000000000000', // Intune
     '9cdead84-a844-4324-93f2-b2e6bb768d07', // Azure Virtual Desktop
+    '14d82eec-204b-4c2f-b7e8-296a70dab67e', // Microsoft Graph Command Line Tools (the Graph SDK's default app)
     '0c867c2a-1d8c-454a-a3db-ab2ea1bdc8bb',
     '1c0163c0-47e6-4577-8991-ea5c82e286e4',
     '1d18fff3-a72a-46b5-b4a9-0b38a3cd7e63',

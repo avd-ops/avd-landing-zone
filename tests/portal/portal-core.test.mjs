@@ -252,7 +252,8 @@ test('portal commands only use parameters the scripts define', () => {
     'Deploy-AvdDemo.ps1': psParams('scripts/ops/Deploy-AvdDemo.ps1'),
     'Remove-AvdDemo.ps1': psParams('scripts/ops/Remove-AvdDemo.ps1'),
     'Invoke-AvdPowerAction.ps1': psParams('scripts/automation/Invoke-AvdPowerAction.ps1'),
-    'Test-AvdUserConnection.ps1': psParams('scripts/ops/Test-AvdUserConnection.ps1')
+    'Test-AvdUserConnection.ps1': psParams('scripts/ops/Test-AvdUserConnection.ps1'),
+    'Connect-AvdLandingZone.ps1': psParams('scripts/ops/Connect-AvdLandingZone.ps1')
   };
   const cfg = { ...P.DEFAULTS, testUserUpn: 'alex@contoso.com' };
   const commands = [
@@ -264,9 +265,11 @@ test('portal commands only use parameters the scripts define', () => {
   commands.push(P.commands.predeploy(sizedCfg, true), P.commands.deploy(sizedCfg), P.commands.postdeploy(sizedCfg, true));
   commands.push(P.commands.power(cfg, 'Resume'), P.commands.power(cfg, 'Lock'));
   commands.push(P.commands.verify(cfg), P.commands.verify(cfg, { user: 'alex@contoso.com', demo: true, timeout: 30 }));
+  commands.push(P.commands.demo({ ...cfg, graphClientId: '11111111-2222-3333-4444-555555555555' }));
   let checked = 0;
-  for (const c of commands) {
-    const line = last(c);
+  // The Graph sign-in line runs before the script (decision 0016); check its parameters too.
+  const lines = commands.flatMap((c) => { const l = c.trim().split('\n'); return l.length > 1 && l.at(-2).includes('Connect-AvdLandingZone') ? [l.at(-2), l.at(-1)] : [l.at(-1)]; });
+  for (const line of lines) {
     const script = Object.keys(scripts).find((s) => line.includes(s));
     if (script) {
       for (const [, p] of line.matchAll(/\s-([A-Za-z]+)\b/g)) { assert.ok(scripts[script].has(p.toLowerCase()), `${script} has no -${p}`); checked++; }
@@ -708,4 +711,18 @@ test('verify: the step offers the telemetry check, and a pasted run of it is rec
   assert.match(last(P.commands.verify(P.DEFAULTS, { demo: true, user: "o'neil@contoso.com", timeout: 30 })), / -UserPrincipalName 'o''neil@contoso\.com' -Demo -TimeoutMinutes 30$/);
   const r = P.analyze('PS /home/admin/avd-landing-zone> ./scripts/ops/Test-AvdUserConnection.ps1 -NamePrefix avdlz -Environment dev\nThe term \'./scripts/ops/Test-AvdUserConnection.ps1\' is not recognized as a name of a cmdlet', {}, { currentStep: 'verify' });
   assert.equal(r.step, 'verify');
+});
+
+test('steps that use Microsoft Graph sign in once first, through the operator app when its client ID is set', () => {
+  const cfg = { ...P.DEFAULTS, testUserUpn: 'alex@contoso.com' };
+  const signInLine = (c) => c.trim().split('\n').at(-2);
+  for (const c of [P.commands.predeploy(cfg, true), P.commands.postdeploy(cfg, false), P.commands.postdeploy(cfg, true), P.commands.demo(cfg), P.commands.removeDemo(cfg)]) {
+    assert.equal(signInLine(c), './scripts/ops/Connect-AvdLandingZone.ps1');
+  }
+  // No Graph in these: no sign-in line.
+  for (const c of [P.commands.wellArchitected(cfg), P.commands.verify(cfg), P.commands.deploy(cfg)]) assert.doesNotMatch(c, /Connect-AvdLandingZone/);
+  const op = { ...cfg, graphClientId: ' 11111111-2222-3333-4444-555555555555 ' };
+  assert.equal(signInLine(P.commands.removeDemo(op)), "./scripts/ops/Connect-AvdLandingZone.ps1 -ClientId '11111111-2222-3333-4444-555555555555'");
+  // Anything that is not a client ID is left out rather than passed to the script.
+  assert.equal(signInLine(P.commands.demo({ ...cfg, graphClientId: "x'; Remove-Item ~ -Recurse" })), './scripts/ops/Connect-AvdLandingZone.ps1');
 });

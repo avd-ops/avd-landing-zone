@@ -445,3 +445,36 @@ Describe 'Verify access: the connection check fails closed (decision 0014)' {
     $s[4].failures[0].data.status | Should -Be 403
   }
 }
+
+Describe 'One Microsoft Graph sign-in per session (decision 0016)' {
+  BeforeAll { $script:out = Invoke-OfflineScenario 'GraphSignIn' }
+
+  It 'creates the operator app: public client, every scope consented, assignment required, you and the group assigned' {
+    Get-StepExit $out 'setup' | Should -Be 0
+    $out | Should -Match 'RESULT setup-state publicClient=True scopes=10 assignmentRequired=True consent=AllPrincipals grantScopes=11 assigned=me-1,22222222-2222-2222-2222-222222222222 clientIdSet=True setupClient=client=default deviceGranted=True'
+  }
+  It "grants a scope Graph's service principal doesn't list, by name, instead of failing (lesson 0030)" {
+    $out | Should -Match 'granted by name only and not shown under the app''s API permissions: Device\.ReadWrite\.All'
+  }
+  It 'switches from a default-app sign-in to the operator app once its client ID is set' {
+    $out | Should -Match 'RESULT default-to-operator connects=1 client=client=77777777-7777-7777-7777-777777777777 named=True'
+  }
+  It 'changes nothing when the setup runs again' {
+    Get-StepExit $out 'setup-again' | Should -Be 0
+    $out | Should -Match 'RESULT setup-again writes=0'
+  }
+  It 'renames an app created under its earlier name instead of creating a second one' {
+    $out | Should -Match 'RESULT setup-rename exit=0 writes=2 app=avd-opsbot sp=avd-opsbot sameClient=True created=0'
+  }
+  It 'turns assignment required back on when it was turned off' { $out | Should -Match 'RESULT setup-drift writes=1 assignmentRequired=True' }
+  It 'signs in once, through the operator app, for the sign-in, preflight, -Fix, demo and cleanup' {
+    Get-StepExit $out 'op-signin' | Should -Be 0
+    foreach ($s in 'op-fix', 'op-demo', 'op-remove') { Get-StepExit $out $s | Should -Be 0 -Because $s }
+    $out | Should -Match 'RESULT op-session connects=1 client=client=77777777-7777-7777-7777-777777777777'
+  }
+  It "signs in once through Microsoft's default app without AVD_GRAPH_CLIENT_ID" {
+    foreach ($s in 'default-fix', 'default-demo', 'default-remove') { Get-StepExit $out $s | Should -Be 0 -Because $s }
+    $out | Should -Match 'RESULT default-session connects=1 client=client=default'
+  }
+  It 'names a client ID that is not a GUID and how to clear it' { $out | Should -Match 'RESULT bad-client-id exit=1 named=True wayOut=True' }
+}

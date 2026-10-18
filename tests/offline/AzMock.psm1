@@ -428,14 +428,25 @@ function Invoke-RestMethod { param($Uri,$Method,$Headers,$Body,$ContentType,$Err
 
 # ---- Graph ----
 function Get-MgContext { $global:MgCtx }
-function Connect-MgGraph { param($Scopes,$TenantId,[switch]$NoWelcome,[switch]$UseDeviceCode,$ErrorAction)
+# Microsoft's default app (Microsoft Graph Command Line Tools) when no -ClientId is given, as the SDK does.
+function Connect-MgGraph { param($Scopes,$TenantId,$ClientId,[switch]$NoWelcome,[switch]$UseDeviceCode,$ErrorAction)
   if ($global:St.graphTimeout) { Log "graph connect timeout"; throw 'Authentication timed out after 120 seconds due to inactivity. Please try again.' }
-  $global:MgCtx=[pscustomobject]@{TenantId=$TenantId;Scopes=$Scopes}; Log "graph connect $($Scopes -join ' ')"; if ($UseDeviceCode) { Write-Output 'To sign in, use a web browser to open the page https://microsoft.com/devicelogin and enter the code ABCD-1234 to authenticate.' } }
+  $client = if ($ClientId) { $ClientId } else { '14d82eec-204b-4c2f-b7e8-296a70dab67e' }
+  $global:MgCtx=[pscustomobject]@{TenantId=$TenantId;Scopes=$Scopes;ClientId=$client}; Log "graph connect client=$(if ($ClientId) { $ClientId } else { 'default' }) $($Scopes -join ' ')"; if ($UseDeviceCode) { Write-Output 'To sign in, use a web browser to open the page https://microsoft.com/devicelogin and enter the code ABCD-1234 to authenticate.' } }
 function Invoke-MgGraphRequest { param($Method,$Uri,$Body,$ContentType,$OutputType,$ErrorAction)
   $u=[uri]::UnescapeDataString($Uri); Log "GRAPH $Method $u"
   $b = if ($Body) { $Body | ConvertFrom-Json } else { $null }
   $appId='55555555-5555-5555-5555-555555555555'
-  if ($Method -eq 'POST' -and $u -match 'oauth2PermissionGrants$') { $global:St.grants += $b; return $b }
+  # The operator app (Initialize-AvdGraphApp.ps1): $global:St.opApp, .opSp and .opAssigned once created.
+  $opAppId='77777777-7777-7777-7777-777777777777'
+  if ($Method -eq 'POST' -and $u -match 'v1.0/applications$') { $global:St.opApp=[pscustomobject]@{id='op-app';appId=$opAppId;displayName=$b.displayName;isFallbackPublicClient=$b.isFallbackPublicClient;publicClient=$b.publicClient;requiredResourceAccess=$b.requiredResourceAccess}; return $global:St.opApp }
+  if ($Method -eq 'PATCH' -and $u -match 'applications/op-app$') { foreach ($k in $b.PSObject.Properties.Name) { $global:St.opApp.$k = $b.$k }; return $null }
+  # As Entra does: a new service principal takes the app's display name, and keeps its own afterwards.
+  if ($Method -eq 'POST' -and $u -match 'v1.0/servicePrincipals$' -and $b.appId -eq $opAppId) { $global:St.opSp=[pscustomobject]@{id='op-sp';appId=$opAppId;displayName=$global:St.opApp.displayName;appRoleAssignmentRequired=$b.appRoleAssignmentRequired}; return $global:St.opSp }
+  if ($Method -eq 'PATCH' -and $u -match 'servicePrincipals/op-sp$') { foreach ($k in $b.PSObject.Properties.Name) { $global:St.opSp.$k = $b.$k }; return $null }
+  if ($Method -eq 'POST' -and $u -match 'servicePrincipals/op-sp/appRoleAssignedTo$') { $global:St.opAssigned = @(@($global:St.opAssigned) | ? { $_ }) + $b.principalId; return $b }
+  if ($Method -eq 'PATCH' -and $u -match 'oauth2PermissionGrants/(.+)$') { $gid=$Matches[1]; foreach ($g in @($global:St.grants)) { if ($g.id -eq $gid) { $g.scope=$b.scope } }; return $null }
+  if ($Method -eq 'POST' -and $u -match 'oauth2PermissionGrants$') { $b | Add-Member -NotePropertyName id -NotePropertyValue "grant-$(@($global:St.grants).Count + 1)" -Force; $global:St.grants += $b; return $b }
   if ($Method -eq 'PATCH' -and $u -match 'applications/') { $global:St.tags=$b.tags; return $null }
   if ($Method -eq 'PATCH' -and $u -match 'conditionalAccess/policies/') { $global:St.caExclude=$b.conditions.applications.excludeApplications; return $null }
   if ($Method -eq 'POST' -and $u -match 'v1.0/groups$') { $g=@{id=[guid]::NewGuid().ToString();displayName=$b.displayName;securityEnabled=$true}; $global:St.groups += $g; return [pscustomobject]$g }
@@ -450,6 +461,11 @@ function Invoke-MgGraphRequest { param($Method,$Uri,$Body,$ContentType,$OutputTy
   }
   if ($Method -eq 'DELETE') { return $null }
   $r = switch -Regex ($u) {
+    "applications\?.*displayName eq '(avd-opsbot|AVD Landing Zone Operator)'" { $n=$Matches[1]; @{value=@($global:St.opApp | ? { $_ -and $_.displayName -eq $n })}; break }
+    "servicePrincipals\?.*appId eq '$opAppId'" { @{value=@($global:St.opSp | ? { $_ })}; break }
+    'servicePrincipals/op-sp/appRoleAssignedTo' { @{value=@(@($global:St.opAssigned) | ? { $_ } | % { @{principalId=$_} })}; break }
+    "oauth2PermissionGrants\?.*clientId eq '([^']+)'" { $c=$Matches[1]; @{value=@(@($global:St.grants) | ? { -not $_.clientId -or $_.clientId -eq $c })}; break }
+    '^v1.0/me\?' { @{id='me-1';userPrincipalName='nick@contoso.com'}; break }
     'groups/[0-9a-f-]+/members' { @{value=@(@{id='u1'})} }
     "groups\?.*displayName eq '([^']+)'" { $n=$Matches[1]; @{value=@($global:St.groups | ? { $_.displayName -eq $n })} }
     "servicePrincipals\?.*appId eq '9cdead84" { @{value=@(if ($global:St.avdSp) { @{id='33333333-3333-3333-3333-333333333333';appId='9cdead84-a844-4324-93f2-b2e6bb768d07'} })} }
@@ -457,7 +473,10 @@ function Invoke-MgGraphRequest { param($Method,$Uri,$Body,$ContentType,$OutputTy
     'groups/(\w{8}-[\w-]+)\?' { @{id=$Matches[1];displayName="grp-$($Matches[1].Substring(0,4))";onPremisesSecurityIdentifier=$null} }
     'subscribedSkus' { @{value=@(@{servicePlans=@(@{servicePlanName='INTUNE_A';provisioningStatus='Success'})})} }
     '^v1.0/applications\?' { @{value=@(@{id='app-obj';appId=$appId;displayName='[Storage Account] x';tags=$global:St.tags;requiredResourceAccess=@(@{resourceAppId='00000003-0000-0000-c000-000000000000';resourceAccess=@(@{id='s1';type='Scope'},@{id='s2';type='Scope'},@{id='s3';type='Scope'})})})} }
-    "servicePrincipals\?.*appId eq '00000003" { @{value=@(@{id='graph-sp';oauth2PermissionScopes=@(@{id='s1';value='openid'},@{id='s2';value='profile'},@{id='s3';value='User.Read'})})} }
+    # As in a real tenant (lesson 0030): Device.ReadWrite.All is issued in tokens but not listed here.
+    "servicePrincipals\?.*appId eq '00000003" { @{value=@(@{id='graph-sp';oauth2PermissionScopes=@(@{id='s1';value='openid'},@{id='s2';value='profile'},@{id='s3';value='User.Read'},@{id='s4';value='offline_access'},
+      @{id='s5';value='Application.ReadWrite.All'},@{id='s6';value='DelegatedPermissionGrant.ReadWrite.All'},@{id='s7';value='Policy.Read.All'},@{id='s8';value='Policy.ReadWrite.ConditionalAccess'},
+      @{id='s9';value='Group.ReadWrite.All'},@{id='s10';value='Directory.Read.All'},@{id='s12';value='DeviceManagementManagedDevices.ReadWrite.All'})})} }
     "servicePrincipals\?(?!.*(9cdead84|00000003))" { @{value=@(@{id='storage-sp';appId=$appId})} }
     'oauth2PermissionGrants\?' { @{value=@($global:St.grants)} }
     'policies/identitySecurityDefaultsEnforcementPolicy' { @{isEnabled=[bool]$global:St.securityDefaults} }

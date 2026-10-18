@@ -35,6 +35,7 @@ Add a lesson whenever a real run fails for a reason the tests didn't catch. The 
 | 0027 | [A repo-wide `*.json` ignore rule kept the image pipeline's data files out of git](0027-gitignore-json-data-files.md) | CI | #37 #39 | Template test: files the templates load are committed |
 | 0028 | [Azure Files denies Entra Kerberos sessions when AES-256-GCM is the only channel encryption](0028-smb-channel-encryption-entra-kerberos.md) | Bicep | #45 | Template test: SMB channel encryption; readiness check |
 | 0029 | [A cleanup step that fails after its inputs are deleted can't be retried](0029-device-cleanup-rerun.md) | Cleanup | #46 | Offline scenario: device-retry; portal test |
+| 0030 | [Microsoft Graph's service principal doesn't list every delegated permission it issues](0030-graph-unlisted-delegated-scope.md) | Ops scripts | #47 | Offline scenario: GraphSignIn (setup, default-to-operator) |
 
 ## Template
 
