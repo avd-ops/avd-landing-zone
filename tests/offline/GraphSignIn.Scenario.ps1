@@ -30,6 +30,12 @@ $global:Calls.Clear()
 & ./scripts/ops/Initialize-AvdGraphApp.ps1 -OperatorsGroup $admins 6>&1 | Out-Null
 Write-Host "RESULT setup-drift writes=$((& $writes).Count) assignmentRequired=$($global:St.opSp.appRoleAssignmentRequired)"
 
+# An app created under its earlier name is renamed in place, so its client ID (and consent) stay.
+$global:St.opApp.displayName = 'AVD Landing Zone Operator'; $global:St.opSp.displayName = 'AVD Landing Zone Operator'
+$global:Calls.Clear()
+& ./scripts/ops/Initialize-AvdGraphApp.ps1 -OperatorsGroup $admins 6>&1 | Out-Null
+Write-Host "RESULT setup-rename exit=$LASTEXITCODE writes=$((& $writes).Count) app=$($global:St.opApp.displayName) sp=$($global:St.opSp.displayName) sameClient=$($global:St.opApp.appId -eq $opAppId) created=$(@($global:Calls | Where-Object { $_ -match '^GRAPH POST v1\.0/applications$' }).Count)"
+
 # ---- A whole session through the operator app; the setup's own sign-in is still active ----
 $env:AVD_GRAPH_CLIENT_ID = $opAppId
 $global:Calls.Clear()
@@ -47,7 +53,7 @@ $global:MgCtx = [pscustomobject]@{ TenantId = '55555555-5555-5555-5555-555555555
 $global:Calls.Clear()
 $switched = & ./scripts/ops/Connect-AvdLandingZone.ps1 6>&1 | Out-String
 $c = & $connects
-Write-Host "RESULT default-to-operator connects=$($c.Count) client=$(($c | ForEach-Object { ($_ -split ' ')[2] }) -join ',') named=$($switched -match 'Through the AVD Landing Zone Operator app')"
+Write-Host "RESULT default-to-operator connects=$($c.Count) client=$(($c | ForEach-Object { ($_ -split ' ')[2] }) -join ',') named=$($switched -match 'Through the avd-opsbot app')"
 
 # ---- The same session through Microsoft's default app, without the sign-in script ----
 $env:AVD_GRAPH_CLIENT_ID = $null
@@ -63,7 +69,7 @@ $c = & $connects
 Write-Host "RESULT default-session connects=$($c.Count) client=$(($c | ForEach-Object { ($_ -split ' ')[2] }) -join ',')"
 
 # ---- A client ID that is not a GUID fails the sign-in step with the way out ----
-$env:AVD_GRAPH_CLIENT_ID = 'AVD Landing Zone Operator'
+$env:AVD_GRAPH_CLIENT_ID = 'avd-opsbot'
 $global:MgCtx = $null
 $bad = & ./scripts/ops/Connect-AvdLandingZone.ps1 6>&1 | Out-String
 Write-Host "RESULT bad-client-id exit=$LASTEXITCODE named=$($bad -match 'is not a client ID') wayOut=$($bad -match 'Remove-Item Env:AVD_GRAPH_CLIENT_ID')"

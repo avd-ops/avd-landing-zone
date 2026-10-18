@@ -164,7 +164,7 @@ $script:GraphPurposes = @{
   SignIn       = 'every landing zone script in this Cloud Shell session'
 }
 # Created by Initialize-AvdGraphApp.ps1, which keeps its own copy of the scopes (a unit test compares them).
-$script:GraphOperatorAppName = 'AVD Landing Zone Operator'
+$script:GraphOperatorAppName = 'avd-opsbot'
 
 function Get-AvdGraphScope {
   <# The scopes a purpose signs in with: the same set for every one (decision 0016). #>

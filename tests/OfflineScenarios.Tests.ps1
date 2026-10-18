@@ -463,6 +463,9 @@ Describe 'One Microsoft Graph sign-in per session (decision 0016)' {
     Get-StepExit $out 'setup-again' | Should -Be 0
     $out | Should -Match 'RESULT setup-again writes=0'
   }
+  It 'renames an app created under its earlier name instead of creating a second one' {
+    $out | Should -Match 'RESULT setup-rename exit=0 writes=2 app=avd-opsbot sp=avd-opsbot sameClient=True created=0'
+  }
   It 'turns assignment required back on when it was turned off' { $out | Should -Match 'RESULT setup-drift writes=1 assignmentRequired=True' }
   It 'signs in once, through the operator app, for the sign-in, preflight, -Fix, demo and cleanup' {
     Get-StepExit $out 'op-signin' | Should -Be 0

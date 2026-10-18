@@ -10,7 +10,7 @@
   one scope set every script uses (decision 0016) and checks the sign-in with a real
   request. The scripts that run after it in the same session reuse the sign-in.
 
-  With the AVD Landing Zone Operator app (scripts/ops/Initialize-AvdGraphApp.ps1), pass
+  With the avd-opsbot app (scripts/ops/Initialize-AvdGraphApp.ps1), pass
   its client ID or set $env:AVD_GRAPH_CLIENT_ID: no consent prompts, and the sign-ins are
   logged under that app. Without it, Microsoft's default Graph app is used, which needs
   consent for the scopes (an administrator's, for the ReadWrite ones).
@@ -45,7 +45,7 @@ catch {
 
 # A sign-in is only trusted after a real request (lesson 0007).
 $ctx = Get-MgContext
-$app = if ($ctx.ClientId -and $ctx.ClientId -eq $env:AVD_GRAPH_CLIENT_ID) { "the AVD Landing Zone Operator app ($($ctx.ClientId))" }
+$app = if ($ctx.ClientId -and $ctx.ClientId -eq $env:AVD_GRAPH_CLIENT_ID) { "the avd-opsbot app ($($ctx.ClientId))" }
 elseif ($ctx.ClientId -eq '14d82eec-204b-4c2f-b7e8-296a70dab67e') { "Microsoft's default app (Microsoft Graph Command Line Tools); set AVD_GRAPH_CLIENT_ID to use the operator app" }
 else { "app $($ctx.ClientId)" }
 try {

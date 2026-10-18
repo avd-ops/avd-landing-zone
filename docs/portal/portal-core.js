@@ -36,7 +36,7 @@
     namePrefix: 'avdlz',
     environment: 'dev',
     testUserUpn: '',
-    // The AVD Landing Zone Operator app's client ID (Initialize-AvdGraphApp.ps1, decision 0016); empty: Microsoft's default app.
+    // The avd-opsbot app's client ID (Initialize-AvdGraphApp.ps1, decision 0016); empty: Microsoft's default app.
     graphClientId: ''
   };
 

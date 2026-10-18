@@ -222,7 +222,7 @@ Describe 'Get-AvdGraphClientId' {
     Get-AvdGraphClientId -ClientId '22222222-2222-2222-2222-222222222222' | Should -Be '22222222-2222-2222-2222-222222222222'
   }
   It 'rejects a value that is not a GUID, naming how to clear it' {
-    $env:AVD_GRAPH_CLIENT_ID = 'AVD Landing Zone Operator'
+    $env:AVD_GRAPH_CLIENT_ID = 'avd-opsbot'
     { Get-AvdGraphClientId } | Should -Throw '*Remove-Item Env:AVD_GRAPH_CLIENT_ID*'
   }
 }

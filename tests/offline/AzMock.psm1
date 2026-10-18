@@ -438,11 +438,12 @@ function Invoke-MgGraphRequest { param($Method,$Uri,$Body,$ContentType,$OutputTy
   $b = if ($Body) { $Body | ConvertFrom-Json } else { $null }
   $appId='55555555-5555-5555-5555-555555555555'
   # The operator app (Initialize-AvdGraphApp.ps1): $global:St.opApp, .opSp and .opAssigned once created.
-  $opName='AVD Landing Zone Operator'; $opAppId='77777777-7777-7777-7777-777777777777'
+  $opAppId='77777777-7777-7777-7777-777777777777'
   if ($Method -eq 'POST' -and $u -match 'v1.0/applications$') { $global:St.opApp=[pscustomobject]@{id='op-app';appId=$opAppId;displayName=$b.displayName;isFallbackPublicClient=$b.isFallbackPublicClient;publicClient=$b.publicClient;requiredResourceAccess=$b.requiredResourceAccess}; return $global:St.opApp }
   if ($Method -eq 'PATCH' -and $u -match 'applications/op-app$') { foreach ($k in $b.PSObject.Properties.Name) { $global:St.opApp.$k = $b.$k }; return $null }
-  if ($Method -eq 'POST' -and $u -match 'v1.0/servicePrincipals$' -and $b.appId -eq $opAppId) { $global:St.opSp=[pscustomobject]@{id='op-sp';appId=$opAppId;appRoleAssignmentRequired=$b.appRoleAssignmentRequired}; return $global:St.opSp }
-  if ($Method -eq 'PATCH' -and $u -match 'servicePrincipals/op-sp$') { $global:St.opSp.appRoleAssignmentRequired=$b.appRoleAssignmentRequired; return $null }
+  # As Entra does: a new service principal takes the app's display name, and keeps its own afterwards.
+  if ($Method -eq 'POST' -and $u -match 'v1.0/servicePrincipals$' -and $b.appId -eq $opAppId) { $global:St.opSp=[pscustomobject]@{id='op-sp';appId=$opAppId;displayName=$global:St.opApp.displayName;appRoleAssignmentRequired=$b.appRoleAssignmentRequired}; return $global:St.opSp }
+  if ($Method -eq 'PATCH' -and $u -match 'servicePrincipals/op-sp$') { foreach ($k in $b.PSObject.Properties.Name) { $global:St.opSp.$k = $b.$k }; return $null }
   if ($Method -eq 'POST' -and $u -match 'servicePrincipals/op-sp/appRoleAssignedTo$') { $global:St.opAssigned = @(@($global:St.opAssigned) | ? { $_ }) + $b.principalId; return $b }
   if ($Method -eq 'PATCH' -and $u -match 'oauth2PermissionGrants/(.+)$') { $gid=$Matches[1]; foreach ($g in @($global:St.grants)) { if ($g.id -eq $gid) { $g.scope=$b.scope } }; return $null }
   if ($Method -eq 'POST' -and $u -match 'oauth2PermissionGrants$') { $b | Add-Member -NotePropertyName id -NotePropertyValue "grant-$(@($global:St.grants).Count + 1)" -Force; $global:St.grants += $b; return $b }
@@ -460,7 +461,7 @@ function Invoke-MgGraphRequest { param($Method,$Uri,$Body,$ContentType,$OutputTy
   }
   if ($Method -eq 'DELETE') { return $null }
   $r = switch -Regex ($u) {
-    "applications\?.*displayName eq '$opName'" { @{value=@($global:St.opApp | ? { $_ })}; break }
+    "applications\?.*displayName eq '(avd-opsbot|AVD Landing Zone Operator)'" { $n=$Matches[1]; @{value=@($global:St.opApp | ? { $_ -and $_.displayName -eq $n })}; break }
     "servicePrincipals\?.*appId eq '$opAppId'" { @{value=@($global:St.opSp | ? { $_ })}; break }
     'servicePrincipals/op-sp/appRoleAssignedTo' { @{value=@(@($global:St.opAssigned) | ? { $_ } | % { @{principalId=$_} })}; break }
     "oauth2PermissionGrants\?.*clientId eq '([^']+)'" { $c=$Matches[1]; @{value=@(@($global:St.grants) | ? { -not $_.clientId -or $_.clientId -eq $c })}; break }

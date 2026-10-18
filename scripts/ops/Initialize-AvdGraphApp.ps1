@@ -1,7 +1,7 @@
 # Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE). Not affiliated with the author's employer or with Microsoft.
 <#
 .SYNOPSIS
-  One-time setup of the "AVD Landing Zone Operator" app registration, so operators sign in
+  One-time setup of the "avd-opsbot" app registration, so operators sign in
   to Microsoft Graph once per Cloud Shell session with no consent prompts (decision 0016).
 
 .DESCRIPTION
@@ -32,7 +32,7 @@ param(
   [string] $OperatorsGroup = 'AVD Admins',
   # Tenant to set up; defaults to the Azure context's tenant, else your home tenant.
   [string] $TenantId,
-  [string] $AppName = 'AVD Landing Zone Operator',
+  [string] $AppName = 'avd-opsbot',
   [switch] $SaveToProfile
 )
 
@@ -154,6 +154,15 @@ if ($apps.Count -gt 1) {
   exit 1
 }
 $app = $apps | Select-Object -First 1
+if (-not $app) {
+  # Earlier name of the same app: rename it rather than create a second one, so its client ID stays.
+  $legacy = @(Invoke-SetupGraph -Uri (Get-FilterUri -Collection applications -Filter "displayName eq 'AVD Landing Zone Operator'" -Select 'id,appId,displayName,isFallbackPublicClient,publicClient,requiredResourceAccess'))
+  if ($legacy.Count -eq 1 -and $PSCmdlet.ShouldProcess($legacy[0].displayName, "Rename to $AppName")) {
+    Invoke-SetupGraph -Method PATCH -Uri "v1.0/applications/$($legacy[0].id)" -Body @{ displayName = $AppName } | Out-Null
+    $app = $legacy[0]
+    Write-Step Fixed "App registration '$AppName'" -Detail "Renamed from '$($legacy[0].displayName)'. Client ID unchanged: $($app.appId)"
+  }
+}
 $wantAccess = @($scopeIds.Values | ForEach-Object { @{ id = $_; type = 'Scope' } })
 if (-not $app) {
   if ($PSCmdlet.ShouldProcess($AppName, 'Create a public client app registration with delegated Microsoft Graph permissions')) {
@@ -193,7 +202,12 @@ else {
 }
 
 # ---- Service principal, assignment required ----
-$sp = Invoke-SetupGraph -Uri (Get-FilterUri -Collection servicePrincipals -Filter "appId eq '$($app.appId)'" -Select 'id,appId,appRoleAssignmentRequired') | Select-Object -First 1
+$sp = Invoke-SetupGraph -Uri (Get-FilterUri -Collection servicePrincipals -Filter "appId eq '$($app.appId)'" -Select 'id,appId,displayName,appRoleAssignmentRequired') | Select-Object -First 1
+# The enterprise application keeps its own display name; follow the app registration's.
+if ($sp -and $sp.displayName -ne $AppName -and $PSCmdlet.ShouldProcess($sp.displayName, "Rename the enterprise application to $AppName")) {
+  Invoke-SetupGraph -Method PATCH -Uri "v1.0/servicePrincipals/$($sp.id)" -Body @{ displayName = $AppName } | Out-Null
+  Write-Step Fixed "Enterprise application '$AppName'" -Detail "Renamed from '$($sp.displayName)'."
+}
 if (-not $sp) {
   if ($PSCmdlet.ShouldProcess($AppName, 'Create the service principal with assignment required')) {
     $sp = Invoke-AfterReplication -What 'service principal' -Action {
