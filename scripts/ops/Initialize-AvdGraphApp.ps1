@@ -129,15 +129,22 @@ Write-Step Pass "Signed in as $($me.userPrincipalName)"
 
 # ---- Microsoft Graph's permission IDs, read from the tenant (no hard-coded IDs) ----
 $graphSp = Invoke-SetupGraph -Uri (Get-FilterUri -Collection servicePrincipals -Filter "appId eq '$graphAppId'" -Select 'id,oauth2PermissionScopes') | Select-Object -First 1
+if (-not $graphSp) {
+  Write-Step Fail 'Microsoft Graph service principal' -Detail "No service principal for appId $graphAppId in this tenant."
+  exit 1
+}
 $scopeIds = [ordered]@{}
 foreach ($s in $grantScopes) {
   $def = @($graphSp.oauth2PermissionScopes | Where-Object value -eq $s) | Select-Object -First 1
   if ($def) { $scopeIds[$s] = $def.id }
 }
-$unknown = @($grantScopes | Where-Object { -not $scopeIds.Contains($_) })
-if ($unknown.Count) {
-  Write-Step Fail 'Microsoft Graph publishes every permission the app needs' -Detail "Not found: $($unknown -join ', ')"
-  exit 1
+# Graph's service principal doesn't list every delegated permission it issues: in a real tenant
+# Device.ReadWrite.All was missing from oauth2PermissionScopes, yet tokens carried it (lesson 0030).
+# The consent grant names scopes by value, so those are still granted; the app registration's
+# permission list only shows the ones with an ID.
+$unlisted = @($grantScopes | Where-Object { -not $scopeIds.Contains($_) })
+if ($unlisted.Count) {
+  Write-Step Pass 'Microsoft Graph permissions resolved' -Detail "Not listed on Graph's service principal, so granted by name only and not shown under the app's API permissions: $($unlisted -join ', ')"
 }
 
 # ---- App registration ----

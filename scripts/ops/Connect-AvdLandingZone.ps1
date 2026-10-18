@@ -45,7 +45,9 @@ catch {
 
 # A sign-in is only trusted after a real request (lesson 0007).
 $ctx = Get-MgContext
-$app = if ($ctx.ClientId -and $ctx.ClientId -eq $env:AVD_GRAPH_CLIENT_ID) { 'the AVD Landing Zone Operator app' } else { "app $($ctx.ClientId)" }
+$app = if ($ctx.ClientId -and $ctx.ClientId -eq $env:AVD_GRAPH_CLIENT_ID) { "the AVD Landing Zone Operator app ($($ctx.ClientId))" }
+elseif ($ctx.ClientId -eq '14d82eec-204b-4c2f-b7e8-296a70dab67e') { "Microsoft's default app (Microsoft Graph Command Line Tools); set AVD_GRAPH_CLIENT_ID to use the operator app" }
+else { "app $($ctx.ClientId)" }
 try {
   $me = Invoke-AvdGraph -Uri 'v1.0/me?$select=id,userPrincipalName'
   Add-AvdCheckResult 'Microsoft Graph' "Signed in as $($me.userPrincipalName)" 'Pass' -Detail "Through $app. The scripts run after this in this session reuse the sign-in."

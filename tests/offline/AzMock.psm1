@@ -472,9 +472,10 @@ function Invoke-MgGraphRequest { param($Method,$Uri,$Body,$ContentType,$OutputTy
     'groups/(\w{8}-[\w-]+)\?' { @{id=$Matches[1];displayName="grp-$($Matches[1].Substring(0,4))";onPremisesSecurityIdentifier=$null} }
     'subscribedSkus' { @{value=@(@{servicePlans=@(@{servicePlanName='INTUNE_A';provisioningStatus='Success'})})} }
     '^v1.0/applications\?' { @{value=@(@{id='app-obj';appId=$appId;displayName='[Storage Account] x';tags=$global:St.tags;requiredResourceAccess=@(@{resourceAppId='00000003-0000-0000-c000-000000000000';resourceAccess=@(@{id='s1';type='Scope'},@{id='s2';type='Scope'},@{id='s3';type='Scope'})})})} }
+    # As in a real tenant (lesson 0030): Device.ReadWrite.All is issued in tokens but not listed here.
     "servicePrincipals\?.*appId eq '00000003" { @{value=@(@{id='graph-sp';oauth2PermissionScopes=@(@{id='s1';value='openid'},@{id='s2';value='profile'},@{id='s3';value='User.Read'},@{id='s4';value='offline_access'},
       @{id='s5';value='Application.ReadWrite.All'},@{id='s6';value='DelegatedPermissionGrant.ReadWrite.All'},@{id='s7';value='Policy.Read.All'},@{id='s8';value='Policy.ReadWrite.ConditionalAccess'},
-      @{id='s9';value='Group.ReadWrite.All'},@{id='s10';value='Directory.Read.All'},@{id='s11';value='Device.ReadWrite.All'},@{id='s12';value='DeviceManagementManagedDevices.ReadWrite.All'})})} }
+      @{id='s9';value='Group.ReadWrite.All'},@{id='s10';value='Directory.Read.All'},@{id='s12';value='DeviceManagementManagedDevices.ReadWrite.All'})})} }
     "servicePrincipals\?(?!.*(9cdead84|00000003))" { @{value=@(@{id='storage-sp';appId=$appId})} }
     'oauth2PermissionGrants\?' { @{value=@($global:St.grants)} }
     'policies/identitySecurityDefaultsEnforcementPolicy' { @{isEnabled=[bool]$global:St.securityDefaults} }

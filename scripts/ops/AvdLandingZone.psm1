@@ -198,10 +198,12 @@ function Connect-AvdGraph {
   Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
   $tenantId = (Get-AzContext).Tenant.Id
   $ctx = Get-MgContext
-  # An existing sign-in is reused when it covers every scope ('X.ReadWrite.All' covers 'X.Read.All'),
-  # whichever app it came through.
+  # An existing sign-in is reused when it covers every scope ('X.ReadWrite.All' covers 'X.Read.All').
+  # With a client ID set, only a sign-in through that app counts: a default-app sign-in that already
+  # has the scopes (from earlier consent) would otherwise keep the operator app from ever being used.
   $missing = @($scopes | Where-Object { $_ -notin $ctx.Scopes -and $_.Replace('.Read.', '.ReadWrite.') -notin $ctx.Scopes })
-  if ($ctx -and $ctx.TenantId -eq $tenantId -and -not $missing.Count) {
+  $sameApp = -not $ClientId -or $ctx.ClientId -eq $ClientId
+  if ($ctx -and $ctx.TenantId -eq $tenantId -and $sameApp -and -not $missing.Count) {
     if (Test-AvdGraphToken) { return }
     Write-Host '  The existing Microsoft Graph sign-in cannot get a token; signing in again.' -ForegroundColor Yellow
     Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null

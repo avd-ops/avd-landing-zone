@@ -14,9 +14,11 @@ Invoke-ScenarioStep 'setup' { & ./scripts/ops/Initialize-AvdGraphApp.ps1 -Operat
 $app = $global:St.opApp
 $graphScopes = @($app.requiredResourceAccess | Where-Object resourceAppId -eq '00000003-0000-0000-c000-000000000000' | ForEach-Object { $_.resourceAccess } | ForEach-Object id)
 $grant = @($global:St.grants | Where-Object clientId -eq 'op-sp') | Select-Object -First 1
-Write-Host ("RESULT setup-state publicClient={0} scopes={1} assignmentRequired={2} consent={3} grantScopes={4} assigned={5} clientIdSet={6} setupClient={7}" -f
+# Graph's service principal doesn't list Device.ReadWrite.All (lesson 0030): granted by name, not in the app's permission list.
+Write-Host ("RESULT setup-state publicClient={0} scopes={1} assignmentRequired={2} consent={3} grantScopes={4} assigned={5} clientIdSet={6} setupClient={7} deviceGranted={8}" -f
   $app.isFallbackPublicClient, $graphScopes.Count, $global:St.opSp.appRoleAssignmentRequired, $grant.consentType, @($grant.scope -split ' ').Count,
-  (@($global:St.opAssigned) -join ','), ($env:AVD_GRAPH_CLIENT_ID -eq $opAppId), ((& $connects) -join ';' -replace '^graph connect (client=\S+).*', '$1'))
+  (@($global:St.opAssigned) -join ','), ($env:AVD_GRAPH_CLIENT_ID -eq $opAppId), ((& $connects) -join ';' -replace '^graph connect (client=\S+).*', '$1'),
+  (@($grant.scope -split ' ') -contains 'Device.ReadWrite.All'))
 
 $global:Calls.Clear()
 Invoke-ScenarioStep 'setup-again' { & ./scripts/ops/Initialize-AvdGraphApp.ps1 -OperatorsGroup $admins }
@@ -38,6 +40,14 @@ Invoke-ScenarioStep 'op-demo' { & ./scripts/ops/Deploy-AvdDemo.ps1 @lz -TestUser
 Invoke-ScenarioStep 'op-remove' { & ./scripts/ops/Remove-AvdDemo.ps1 @lz -Force }
 $c = & $connects
 Write-Host "RESULT op-session connects=$($c.Count) client=$(($c | ForEach-Object { ($_ -split ' ')[2] }) -join ',')"
+
+# ---- A default-app sign-in that already has every scope (earlier consent, as in the first real run)
+# must not keep the operator app from being used once its client ID is set ----
+$global:MgCtx = [pscustomobject]@{ TenantId = '55555555-5555-5555-5555-555555555555'; Scopes = @(Get-Content -Raw ./scripts/ops/Initialize-AvdGraphApp.ps1 | Select-String "'[A-Za-z]+\.[A-Za-z.]+'" -AllMatches | ForEach-Object { $_.Matches.Value.Trim("'") }); ClientId = '14d82eec-204b-4c2f-b7e8-296a70dab67e' }
+$global:Calls.Clear()
+$switched = & ./scripts/ops/Connect-AvdLandingZone.ps1 6>&1 | Out-String
+$c = & $connects
+Write-Host "RESULT default-to-operator connects=$($c.Count) client=$(($c | ForEach-Object { ($_ -split ' ')[2] }) -join ',') named=$($switched -match 'Through the AVD Landing Zone Operator app')"
 
 # ---- The same session through Microsoft's default app, without the sign-in script ----
 $env:AVD_GRAPH_CLIENT_ID = $null
