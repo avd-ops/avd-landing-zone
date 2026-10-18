@@ -1,0 +1,4 @@
+# Vendored contract files are hashed byte for byte (contracts/PINS.json).
+contracts/schemas/*.json -text
+contracts/examples/*.json -text
+contracts/fact-register.json -text

@@ -1,0 +1,148 @@
+{
+  "schema": "avd-target-state/v1",
+  "estate": "est-2540bffa",
+  "engagement": "eng-2026-11-a7f3",
+  "generatedUtc": "2026-11-30T14:00:00Z",
+  "producer": {
+    "name": "avdmf",
+    "version": "0.1.0"
+  },
+  "pins": {
+    "brainCommit": "0000000000000000000000000000000000000000",
+    "factRegister": 1
+  },
+  "evidence": {
+    "currentState": "2026-11-28T09:12:00Z",
+    "forensicWindowEnd": "2026-11-27",
+    "quality": "pass"
+  },
+  "target": {
+    "renderer": "lz-cloudnative",
+    "gaps": []
+  },
+  "identity": {
+    "value": "EntraOnly",
+    "evidence": [
+      "c12.group.apps.catalog@hp-ac5fc5e3",
+      "intake.identityConstraints"
+    ],
+    "confidence": "high"
+  },
+  "region": {
+    "value": "eastus2",
+    "evidence": [
+      "c11.hostPool.region@hp-ac5fc5e3",
+      "c12.group.rttMsP95@hp-ac5fc5e3"
+    ],
+    "confidence": "medium"
+  },
+  "network": {
+    "value": "Standalone",
+    "evidence": [
+      "c11.network.virtualNetworks",
+      "intake.existingHub"
+    ],
+    "confidence": "high"
+  },
+  "hostPools": [
+    {
+      "id": "tp-01",
+      "persona": "persona-1",
+      "replaces": [
+        "hp-ac5fc5e3"
+      ],
+      "type": {
+        "value": "Pooled",
+        "evidence": [
+          "c11.hostPool.type@hp-ac5fc5e3",
+          "c12.group.apps.catalog@hp-ac5fc5e3"
+        ],
+        "confidence": "high"
+      },
+      "appGroup": {
+        "value": "Desktop",
+        "evidence": [
+          "c11.hostPool.preferredAppGroupType@hp-ac5fc5e3"
+        ],
+        "confidence": "high"
+      },
+      "tier": "medium",
+      "users": 120,
+      "peakConcurrent": 84,
+      "vmSize": {
+        "value": "Standard_E8as_v5",
+        "rule": "workload-tiers@v1",
+        "evidence": [
+          "c12.group.perUser.p95MemoryMiB@hp-ac5fc5e3",
+          "c12.group.perUser.p95CpuPercentOfCore@hp-ac5fc5e3"
+        ],
+        "confidence": "high"
+      },
+      "maxSessions": {
+        "value": 12,
+        "evidence": [
+          "c12.group.perUser.p95MemoryMiB@hp-ac5fc5e3",
+          "c12.group.perHost.p95MemoryPercent@hp-ac5fc5e3"
+        ],
+        "confidence": "high",
+        "boundBy": "memory",
+        "rule": "calibration@v2"
+      },
+      "hosts": {
+        "value": 8,
+        "evidence": [
+          "c12.group.concurrency.peak@hp-ac5fc5e3",
+          "c12.group.perHost.peakSessionsPerHost@hp-ac5fc5e3"
+        ],
+        "confidence": "high",
+        "note": "ceil(84 / 12) + 1 spare = 8"
+      },
+      "power": {
+        "value": {
+          "startVmOnConnect": true,
+          "autoShutdownTime": "20:00"
+        },
+        "evidence": [
+          "c11.hostPool.startVmOnConnect@hp-ac5fc5e3",
+          "intake.workingHours"
+        ],
+        "confidence": "high"
+      },
+      "profileQuotaGiB": {
+        "value": 1024,
+        "evidence": [
+          "c12.group.profile.p95SizeGiB@hp-ac5fc5e3",
+          "c12.group.users@hp-ac5fc5e3"
+        ],
+        "confidence": "medium"
+      },
+      "monthlyEstimate": 4120,
+      "scaling": {
+        "timeZone": "Central Standard Time",
+        "rampUp": "07:00",
+        "peak": "08:30",
+        "rampDown": "17:30"
+      },
+      "apps": {
+        "image": [
+          "microsoft-teams"
+        ],
+        "appAttach": [],
+        "unknown": 7
+      }
+    }
+  ],
+  "profiles": {
+    "type": "FSLogix",
+    "storage": "AzureFilesPremium"
+  },
+  "liquidware": {
+    "profileUnity": false,
+    "flexApp": false
+  },
+  "cost": {
+    "monthlyEstimate": 4120,
+    "currency": "USD",
+    "unmatchedLines": 0
+  }
+}

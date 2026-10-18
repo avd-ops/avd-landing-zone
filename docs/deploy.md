@@ -66,6 +66,18 @@ To size the host pool, use the portal's **Size the host pool** step, then its **
 
 `deploy.sh` registers the resource providers and the `EncryptionAtHost` feature, resolves the group and service principal IDs, and runs `az deployment sub create`. A first deployment takes roughly 30–45 minutes. Session hosts are registered to the pool and FSLogix-configured as part of it. There are no post-deployment scripts.
 
+### From a migration factory manifest
+
+When the design comes from an assessment ([avd-readiness-stratusphere](https://github.com/nickprignano/avd-readiness-stratusphere)), it arrives as an approved target-state manifest (`avd-target-state/v1`, contract C14 in [avd-second-brain](https://github.com/nickprignano/avd-second-brain/blob/main/docs/contracts.md)) with its approval file next to it. The reader turns one host pool of it into the two commands above, with the sizing and power settings as flags, and changes nothing in Azure:
+
+```powershell
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+./scripts/ops/ConvertFrom-AvdTargetState.ps1 -Path ~/clouddrive/engagement/manifest.json -ParameterFile parameters/prod.bicepparam -AlertEmail ops@example.com
+```
+
+It looks for `manifest.approval.json` next to the manifest (`-ApprovalPath` overrides it) and refuses, with the reason, a manifest that has no matching approval or changed after it, evidence that was stale when it was approved, another renderer or listed gaps, an identity lane other than Entra-only, hub-peered networking, more than one host pool without `-HostPool`, a personal or RemoteApp pool, a GPU size, a Liquidware product, a low-confidence value the approval doesn't accept, or a schedule in a different time zone from the parameter file's. `-AlertEmail` sets `AVD_MONTHLY_BUDGET` to the pool's estimate plus 10%, so the budget lock is armed. The scaling schedule and the C5 attribution tags are printed as lines to set by hand. What it can deploy is in `contracts/target-state-capabilities.json`; the vendored schemas and fact register are pinned in `contracts/PINS.json`.
+
 ## 5. Post-deployment
 
 These are tenant-level steps that ARM can't perform. Each is done once per storage account.
