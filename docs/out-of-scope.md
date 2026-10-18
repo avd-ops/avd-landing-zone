@@ -18,7 +18,7 @@ What this landing zone deliberately doesn't do, and where to go instead.
 ## Next layers to build
 
 - **Image pipeline** (Azure Image Builder or Packer → Azure Compute Gallery) and host rotation on new image versions. Planned next, before the second brain: see [image-pipeline-spec.md](image-pipeline-spec.md) and [second-brain-spec.md](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md) Q6.
-- **App delivery**: App Attach, Intune apps, or baked into the image.
+- **App delivery**: App Attach, Intune apps, or baked into the image. An optional Liquidware tier (ProfileUnity, FlexApp through app attach, CommandCTRL) that runs against a landing zone from this repo lives in [avd-liquidware](https://github.com/nickprignano/avd-liquidware).
 - **Profile storage sizing**: provisioned size and IOPS for your user count; Azure NetApp Files for very large pools.
 - **Disaster recovery**: a secondary region and cross-region profile replication. Backup here is in-region.
 - **Customer-managed keys** for disks and storage, if your compliance regime requires them.
