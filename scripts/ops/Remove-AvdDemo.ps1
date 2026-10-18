@@ -74,8 +74,9 @@ function Remove-AvdDevice {
   [CmdletBinding(SupportsShouldProcess)]
   param([string[]] $ComputerName)
   if (-not $ComputerName) { return }
+  $left = "Delete these devices in Entra ID and Intune: $($ComputerName -join ', '). For the demo, running this script again also finishes it."
   try { Connect-AvdGraph -Purpose Cleanup }
-  catch { Add-AvdCheckResult 'Devices' 'Microsoft Graph sign-in' 'Warn' -Detail $_.Exception.Message -Remediation 'Delete the devices manually in Entra ID and Intune.'; return }
+  catch { $script:DeviceCleanupIncomplete = $true; Add-AvdCheckResult 'Devices' 'Microsoft Graph sign-in' 'Warn' -Detail $_.Exception.Message -Remediation $left -Id 'devices-left' -Data @{ devices = @($ComputerName) }; return }
   foreach ($name in $ComputerName) {
     try {
       $found = 0; $removed = 0
@@ -92,7 +93,7 @@ function Remove-AvdDevice {
       if ($removed) { Add-AvdCheckResult 'Devices' "Device objects for $name" 'Fixed' -Detail "Removed $removed of $found object(s)." }
       elseif (-not $found) { Add-AvdCheckResult 'Devices' "Device objects for $name" 'Pass' -Detail 'None found.' }
     }
-    catch { Add-AvdCheckResult 'Devices' "Device objects for $name" 'Warn' -Detail $_.Exception.Message }
+    catch { $script:DeviceCleanupIncomplete = $true; Add-AvdCheckResult 'Devices' "Device objects for $name" 'Warn' -Detail $_.Exception.Message -Id 'devices-left' -Data @{ devices = @($name) } }
   }
 }
 
@@ -155,13 +156,24 @@ $demoHosts = @()
 if ($lz.RgExists.Demo) {
   $demoHosts = @(Get-AzVM -ResourceGroupName $lz.ResourceGroups.Demo -ErrorAction SilentlyContinue | ForEach-Object { $_.OSProfile.ComputerName })
 }
-Remove-AvdResourceGroupIfPresent -Name $lz.ResourceGroups.Demo
 $demoDeployment = "avdlz-demo-$($lz.BaseName)"
-if ((Get-AzDeployment -Name $demoDeployment -ErrorAction SilentlyContinue) -and $PSCmdlet.ShouldProcess($demoDeployment, 'Delete deployment record')) {
+$demoRecord = Get-AzDeployment -Name $demoDeployment -ErrorAction SilentlyContinue
+# Once the hosts are gone, only the deployment record still names them, so a rerun can finish
+# a device cleanup that failed (a Graph sign-in that timed out, docs/lessons/0029).
+if (-not $demoHosts.Count -and $demoRecord -and -not $KeepDevices) {
+  $record = Invoke-AvdArm -Path "$sub/providers/Microsoft.Resources/deployments/$demoDeployment`?api-version=2021-04-01" -AllowNotFound
+  $demoHosts = @($record.properties.outputs.sessionHostNames.value | Where-Object { $_ })
+}
+Remove-AvdResourceGroupIfPresent -Name $lz.ResourceGroups.Demo
+$script:DeviceCleanupIncomplete = $false
+if (-not $KeepDevices) { Remove-AvdDevice -ComputerName $demoHosts }
+if ($demoRecord -and $script:DeviceCleanupIncomplete) {
+  Add-AvdCheckResult 'Deployments' $demoDeployment 'Warn' -Detail 'Kept: it names the demo hosts whose device objects are left.' -Remediation 'Run this script again to finish the device cleanup.'
+}
+elseif ($demoRecord -and $PSCmdlet.ShouldProcess($demoDeployment, 'Delete deployment record')) {
   Remove-AzDeployment -Name $demoDeployment | Out-Null
   Add-AvdCheckResult 'Deployments' $demoDeployment 'Fixed' -Detail 'Deleted.'
 }
-if (-not $KeepDevices) { Remove-AvdDevice -ComputerName $demoHosts }
 
 if (-not $IncludeLandingZone) {
   Write-AvdSummary | Out-Null

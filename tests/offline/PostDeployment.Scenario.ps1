@@ -35,6 +35,19 @@ $global:St.kerberosServicesStopped = @()
 Write-Host "RESULT kerberos-services failed=$($kerbDemo -match 'FAIL.*Entra Kerberos services running') named=$($kerbDemo -match 'Not running: iphlpsvc')"
 Invoke-ScenarioStep 'remove-demo' { & ./scripts/ops/Remove-AvdDemo.ps1 @lz -Force }
 
+# A Graph sign-in that times out during the demo cleanup (lesson 0029): the hosts are gone, so the
+# deployment record is kept to name them, and a rerun deletes the devices and then the record.
+# Not in the state-line list.
+& ./scripts/ops/Deploy-AvdDemo.ps1 @lz -TestUserUpn alex@contoso.com 6>&1 | Out-Null
+$global:St.graphTimeout = $true; $global:MgCtx = $null
+$timedOut = & ./scripts/ops/Remove-AvdDemo.ps1 @lz -Force 6>&1 | Out-String
+$global:St.graphTimeout = $false
+$global:Calls.Clear()
+& ./scripts/ops/Remove-AvdDemo.ps1 @lz -Force 6>&1 | Out-Null
+$rerunDevices = @($global:Calls | Where-Object { $_ -match '^GRAPH DELETE v1\.0/(devices|deviceManagement/managedDevices)/' }).Count
+Write-Host ("RESULT device-retry kept={0} named={1} rerunDeleted={2} recordGone={3}" -f ($timedOut -match 'Kept: it names the demo hosts'), ($timedOut -match 'Intune: avdlzddemo-001'),
+  ($rerunDevices -gt 0), (@($global:St.deployments) -notcontains 'avdlz-demo-avdlz-dev'))
+
 $global:Calls.Clear()
 Invoke-ScenarioStep 'remove-lz-whatif' { & ./scripts/ops/Remove-AvdDemo.ps1 @lz -IncludeLandingZone -WhatIf }
 Write-Host "RESULT remove-lz-whatif changes=$(@($global:Calls | Where-Object { $_ -match 'del |unlock|backup|rsv|DELETE|RBAC -|PUT' }).Count)"

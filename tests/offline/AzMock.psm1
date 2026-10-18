@@ -182,6 +182,10 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
   if ($Path -match '/sessionHosts\?') { return & $ok @{ value=@(@{ name='vdpool-avdlz-dev-demo/avdlzddemo-001'; properties=@{status='Available';allowNewSession=$true;agentVersion='1.0.9999';sessionHostHealthCheckResults=@(@{healthCheckName='DomainJoinedCheck';healthCheckResult='HealthCheckSucceeded'})} }) } }
   if ($Path -match '/runCommands/') { return & $ok @{ properties=@{ instanceView=@{executionState='Succeeded';exitCode=0} } } }
   if ($Path -match 'policyAssignments\?') { return & $ok @{ value=@(@{name='avdlz-allowed-locations';id="$S/providers/Microsoft.Authorization/policyAssignments/avdlz-allowed-locations"},@{name='avdlz-inherit-rg-tag-workload';id="$S/pa2";identity=@{principalId='44444444-0000-0000-0000-000000000000'}},@{name='someone-else';id='x'}) } }
+  if ($Path -match 'providers/Microsoft.Resources/deployments/(avdlz-demo-[^/?]+)\?' -and $Method -eq 'GET') {
+    if (@($global:St.deployments) -notcontains $Matches[1]) { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"DeploymentNotFound"}}' } }
+    return & $ok @{ name=$Matches[1]; properties=@{ provisioningState='Succeeded'; outputs=@{ sessionHostNames=@{ type='Array'; value=@('avdlzddemo-001') } } } }
+  }
   if ($Path -match 'budgets/' -and $Method -eq 'GET') { return [pscustomobject]@{StatusCode=404;Content=''} }
   if ($Path -match 'diagnosticSettings/' -and $Method -eq 'GET') { return & $ok @{ name='avdlz-activity-log'; properties=@{ workspaceId=$(if ($global:St.activityLogWorkspace) { $global:St.activityLogWorkspace } else { "$S/resourceGroups/rg-avdlz-dev-management/providers/Microsoft.OperationalInsights/workspaces/log-avdlz-dev" }) } } }
   # ---- Well-Architected review (Test-AvdWellArchitected). $global:St.waf.good: a production-grade
@@ -316,13 +320,15 @@ function New-AzSubscriptionDeployment { param($Name,$Location,$TemplateFile,$Tem
   Log "deploy $Name pwType=$($TemplateParameterObject.localAdminPassword.GetType().Name) dns=$($TemplateParameterObject.avdPrivateDnsZoneResourceId -split '/' | select -last 1)"
   foreach ($k in 'sessionHostSubnetResourceId','usersGroupObjectId','avdServicePrincipalObjectId','profileShareUncPath') { if (-not $TemplateParameterObject[$k]) { throw "missing $k" } }
   $global:St.rgs += 'rg-avdlz-dev-demo'
+  if ($null -eq $global:St.deployments) { $global:St.deployments = @('avdlz-governance-avdlz-dev-eastus2', 'avdlz-dev-20260929-101500') }
+  if ($global:St.deployments -notcontains $Name) { $global:St.deployments += $Name }
   $v = { param($x) [pscustomobject]@{Value=$x} }
   [pscustomobject]@{ProvisioningState='Succeeded';Outputs=@{resourceGroupName=(& $v 'rg-avdlz-dev-demo');hostPoolResourceId=(& $v "$S/resourceGroups/rg-avdlz-dev-demo/providers/Microsoft.DesktopVirtualization/hostPools/vdpool-avdlz-dev-demo");hostPoolName=(& $v 'vdpool-avdlz-dev-demo');appGroupResourceId=(& $v "$S/resourceGroups/rg-avdlz-dev-demo/providers/Microsoft.DesktopVirtualization/applicationGroups/vdag-avdlz-dev-demo-desktop");workspaceResourceId=(& $v 'ws');sessionHostNames=(& $v @('avdlzddemo-001'))}}
 }
 # Subscription deployment records ($global:St.deployments; default: one landing zone's).
 function Get-AzDeployment { param($Name,$ErrorAction)
   $names = if ($null -ne $global:St.deployments) { $global:St.deployments } else { @('avdlz-governance-avdlz-dev-eastus2', 'avdlz-dev-20260929-101500') }
-  if ($Name) { [pscustomobject]@{DeploymentName=$Name} } else { @($names | ForEach-Object { [pscustomobject]@{DeploymentName=$_} }) } }
+  if ($Name) { if ($names -contains $Name -or $Name -notlike 'avdlz-demo-*') { [pscustomobject]@{DeploymentName=$Name} } } else { @($names | ForEach-Object { [pscustomobject]@{DeploymentName=$_} }) } }
 function Remove-AzDeployment { param($Name) Log "del deployment $Name"; if ($null -ne $global:St.deployments) { $global:St.deployments = @($global:St.deployments | Where-Object { $_ -ne $Name }) } }
 # Deleting the storage resource group deletes the storage account, which moves its Entra Kerberos app
 # and service principal to Entra's deleted items (as on 2026-09-29/30), still named after the account.
@@ -422,7 +428,9 @@ function Invoke-RestMethod { param($Uri,$Method,$Headers,$Body,$ContentType,$Err
 
 # ---- Graph ----
 function Get-MgContext { $global:MgCtx }
-function Connect-MgGraph { param($Scopes,$TenantId,[switch]$NoWelcome,[switch]$UseDeviceCode,$ErrorAction) $global:MgCtx=[pscustomobject]@{TenantId=$TenantId;Scopes=$Scopes}; Log "graph connect $($Scopes -join ' ')"; if ($UseDeviceCode) { Write-Output 'To sign in, use a web browser to open the page https://microsoft.com/devicelogin and enter the code ABCD-1234 to authenticate.' } }
+function Connect-MgGraph { param($Scopes,$TenantId,[switch]$NoWelcome,[switch]$UseDeviceCode,$ErrorAction)
+  if ($global:St.graphTimeout) { Log "graph connect timeout"; throw 'Authentication timed out after 120 seconds due to inactivity. Please try again.' }
+  $global:MgCtx=[pscustomobject]@{TenantId=$TenantId;Scopes=$Scopes}; Log "graph connect $($Scopes -join ' ')"; if ($UseDeviceCode) { Write-Output 'To sign in, use a web browser to open the page https://microsoft.com/devicelogin and enter the code ABCD-1234 to authenticate.' } }
 function Invoke-MgGraphRequest { param($Method,$Uri,$Body,$ContentType,$OutputType,$ErrorAction)
   $u=[uri]::UnescapeDataString($Uri); Log "GRAPH $Method $u"
   $b = if ($Body) { $Body | ConvertFrom-Json } else { $null }

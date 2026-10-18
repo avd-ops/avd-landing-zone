@@ -194,6 +194,15 @@ test('state: landing zone removed -> done, pre-deployment to start again', () =>
   assert.match(r.actions[0].title, /landing zone is removed/);
 });
 
+test('state: demo cleanup whose Graph sign-in timed out -> run it again to finish the devices (lesson 0029)', () => {
+  const r = analyze('state-cleanup-devices-left.txt');
+  assert.equal(r.actions[0].title, 'Finish the device cleanup');
+  assert.match(r.actions[0].why, /avdlzddemo-001/);
+  assert.match(r.actions[0].why, /devicelogin/);
+  assert.equal(last(r.actions[0].command), './scripts/ops/Remove-AvdDemo.ps1 -NamePrefix avdlz -Environment dev');
+  assertSelfContained(r);
+});
+
 test('host pool region not offered -> closest supported region from the latency test', () => {
   const state = { v: 1, stage: 'predeploy', status: 'notready', fix: false, context: { location: 'mexicocentral', parameterFile: 'parameters/dev.bicepparam' },
     failures: [{ id: 'hostpool-region', check: 'AVD host pools offered in mexicocentral', data: { location: 'mexicocentral', regions: ['eastus2', 'southcentralus', 'westus2'] } }], warnings: [] };
