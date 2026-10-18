@@ -21,6 +21,12 @@ $secDefaults = & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @lz 6>&1 | Out-S
 $global:St.securityDefaults = $false
 Write-Host "RESULT security-defaults warned=$($secDefaults -match '\[WARN \] Security Defaults is off') stillReady=$($secDefaults -match '"status":"ready"')"
 
+# AES-256-GCM as the only channel encryption denies Entra Kerberos sessions (lesson 0028). Not in the state-line list.
+$global:St.smbChannel = 'AES-256-GCM;'
+$channel = & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @lz 6>&1 | Out-String
+$global:St.smbChannel = $null
+Write-Host "RESULT smb-channel failed=$($channel -match '\[FAIL \] Profile share allows AES-128-GCM') notReady=$($channel -match '"status":"notready"')"
+
 Invoke-ScenarioStep 'demo' { & ./scripts/ops/Deploy-AvdDemo.ps1 @lz -TestUserUpn alex@contoso.com }
 # A hardening baseline that stops a Kerberos client service fails the host check by name. Not in the state-line list.
 $global:St.kerberosServicesStopped = @('iphlpsvc')

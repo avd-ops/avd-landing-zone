@@ -233,3 +233,17 @@ Describe 'Files the templates load are committed (docs/lessons/0027)' {
     @($missing) | Should -BeNullOrEmpty -Because 'git add the file; if .gitignore hides it, narrow the rule'
   }
 }
+
+Describe 'Profile share SMB channel encryption (docs/lessons/0028)' {
+  # With AES-256-GCM as the only channel encryption, Azure Files rejects an Entra Kerberos
+  # SESSION_SETUP from a cloud-only user with STATUS_ACCESS_DENIED and FSLogix cannot attach.
+  It 'allows AES-128-GCM beside AES-256-GCM, and no CCM' {
+    $t = Get-CompiledTemplate 'parameters/dev.bicepparam'
+    $storage = Find-Deployment $t 'avdlz-storage'
+    $account = Find-Deployment $storage['properties']['template'] 'storage-account'
+    $channel = $account['properties']['parameters']['fileServices']['value']['protocolSettings']['smb']['channelEncryption']
+    $channel | Should -Match 'AES-128-GCM'
+    $channel | Should -Match 'AES-256-GCM'
+    $channel | Should -Not -Match 'CCM'
+  }
+}

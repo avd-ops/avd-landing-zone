@@ -23,6 +23,7 @@ Check these in order:
 3. The user isn't in AVD Users, so has no **SMB Share Contributor** role.
 4. **DNS**: on a host, `Resolve-DnsName <storage>.file.core.windows.net` must return a `10.x` address. In hub mode with custom DNS, the hub must resolve `privatelink.file.core.windows.net` (pass central zones with `centralPrivateDnsZoneResourceIds`).
 5. **Kerberos**: `klist get cifs/<storage>.file.core.windows.net` on the host should return a ticket. No ticket: check that `WinHttpAutoProxySvc` and `iphlpsvc` are running ([Microsoft lists both as required](https://learn.microsoft.com/azure/storage/files/storage-files-identity-auth-hybrid-identities-enable); a hardening baseline may have disabled them). The demo host check reports this.
+6. **SMB channel encryption**: a ticket but still "Access is denied" (SESSION_SETUP returns `STATUS_ACCESS_DENIED`) happens when the share allows only AES-256-GCM. Allow AES-128-GCM too; the storage module does, and the readiness check fails without it ([lesson 0028](lessons/0028-smb-channel-encryption-entra-kerberos.md)).
 
 The `Microsoft-FSLogix-Apps/Operational` log is shipped to Log Analytics, and the *FSLogix profile errors* alert fires on errors.
 
