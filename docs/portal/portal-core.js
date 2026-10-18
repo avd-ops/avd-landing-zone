@@ -35,7 +35,9 @@
     adminsGroup: 'AVD Admins',
     namePrefix: 'avdlz',
     environment: 'dev',
-    testUserUpn: ''
+    testUserUpn: '',
+    // The AVD Landing Zone Operator app's client ID (Initialize-AvdGraphApp.ps1, decision 0016); empty: Microsoft's default app.
+    graphClientId: ''
   };
 
   // ---------------------------------------------------------------- helpers
@@ -197,6 +199,11 @@
     ].join('\n');
   }
   function block(cfg, lines) { return preamble(cfg) + '\n' + lines.join('\n'); }
+  // Steps that use Microsoft Graph sign in first, once for the session; the scripts reuse the sign-in (decision 0016).
+  function signIn(cfg) {
+    var id = String(cfg.graphClientId || '').trim();
+    return './scripts/ops/Connect-AvdLandingZone.ps1' + (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? ' -ClientId ' + psQuote(id) : '');
+  }
 
   // Sizing flags, only once a sizing is set: the preflight validates and prices it, deploy.sh deploys it,
   // and the post-deployment preflight checks quota for it.
@@ -213,7 +220,7 @@
 
   var cmd = {
     predeploy: function (cfg, fix) {
-      return block(cfg, ['./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -PreDeployment -ParameterFile ' + cfg.parameterFile +
+      return block(cfg, [signIn(cfg), './scripts/ops/Test-AvdLandingZoneReadiness.ps1 -PreDeployment -ParameterFile ' + cfg.parameterFile +
         ' -Location ' + cfg.location + ' -UsersGroup ' + psQuote(cfg.usersGroup) + ' -AdminsGroup ' + psQuote(cfg.adminsGroup) + sizeArgs.predeploy(cfg) + (fix ? ' -Fix' : '')]);
     },
     deploy: function (cfg) {
@@ -229,7 +236,7 @@
       ].join('\n');
     },
     postdeploy: function (cfg, fix) {
-      return block(cfg, ['./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment +
+      return block(cfg, [signIn(cfg), './scripts/ops/Test-AvdLandingZoneReadiness.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment +
         sizeArgs.postdeploy(cfg) + (fix ? ' -Fix -AllowHostStart' : '')]);
     },
     wellArchitected: function (cfg) {
@@ -241,7 +248,7 @@
       return block(cfg, ['./scripts/automation/Invoke-AvdPowerAction.ps1 -Action ' + action + ' -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment]);
     },
     demo: function (cfg) {
-      return block(cfg, ['./scripts/ops/Deploy-AvdDemo.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment +
+      return block(cfg, [signIn(cfg), './scripts/ops/Deploy-AvdDemo.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment +
         (cfg.testUserUpn ? ' -TestUserUpn ' + psQuote(cfg.testUserUpn) : '')]);
     },
     // Verify access (decision 0014): confirm from Azure telemetry that a sign-in reached the desktop.
@@ -252,7 +259,7 @@
         (opts.user ? ' -UserPrincipalName ' + psQuote(opts.user) : '') + (opts.demo ? ' -Demo' : '') + (opts.timeout ? ' -TimeoutMinutes ' + opts.timeout : '')]);
     },
     removeDemo: function (cfg) {
-      return block(cfg, ['./scripts/ops/Remove-AvdDemo.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment]);
+      return block(cfg, [signIn(cfg), './scripts/ops/Remove-AvdDemo.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment]);
     },
     // Quota increase through the Microsoft.Quota API; small requests are usually approved in minutes.
     quota: function (items) {

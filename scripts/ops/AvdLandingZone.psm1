@@ -150,41 +150,83 @@ function Invoke-AvdArm {
   if ($r.Content) { return $r.Content | ConvertFrom-Json -Depth 30 }
 }
 
-$script:GraphReadScopes = @('Application.Read.All', 'Policy.Read.All', 'Group.Read.All', 'Directory.Read.All')
-$script:GraphFixScopes = @('Application.ReadWrite.All', 'DelegatedPermissionGrant.ReadWrite.All', 'Policy.Read.All', 'Policy.ReadWrite.ConditionalAccess', 'Group.Read.All', 'Directory.Read.All')
-$script:GraphCleanupScopes = @('Device.ReadWrite.All', 'DeviceManagementManagedDevices.ReadWrite.All', 'Application.ReadWrite.All')
-$script:GraphPreDeployFixScopes = @('Group.ReadWrite.All', 'Application.ReadWrite.All', 'Policy.Read.All', 'Directory.Read.All')
+# One scope set for every script, so the first Microsoft Graph sign-in covers the whole Cloud Shell
+# session: preflight, -Fix, the demo and the cleanup (decision 0016). The purposes only change the message.
+$script:GraphScopes = @(
+  'Application.ReadWrite.All', 'DelegatedPermissionGrant.ReadWrite.All', 'Policy.Read.All', 'Policy.ReadWrite.ConditionalAccess',
+  'Group.ReadWrite.All', 'Directory.Read.All', 'Device.ReadWrite.All', 'DeviceManagementManagedDevices.ReadWrite.All'
+)
+$script:GraphPurposes = @{
+  Read         = 'the tenant checks'
+  Fix          = 'the tenant fixes'
+  PreDeployFix = 'creating the groups and the AVD service principal'
+  Cleanup      = "deleting the hosts' device objects"
+  SignIn       = 'every landing zone script in this Cloud Shell session'
+}
+# Created by Initialize-AvdGraphApp.ps1, which keeps its own copy of the scopes (a unit test compares them).
+$script:GraphOperatorAppName = 'AVD Landing Zone Operator'
+
+function Get-AvdGraphScope {
+  <# The scopes a purpose signs in with: the same set for every one (decision 0016). #>
+  param([ValidateSet('Read', 'Fix', 'PreDeployFix', 'Cleanup', 'SignIn')][string] $Purpose = 'Read')
+  $null = $Purpose
+  $script:GraphScopes
+}
+
+function Get-AvdGraphClientId {
+  <# The operator app's client ID: the parameter, else $env:AVD_GRAPH_CLIENT_ID; empty means Microsoft's default app. #>
+  param([string] $ClientId)
+  $id = if ($ClientId) { $ClientId } else { $env:AVD_GRAPH_CLIENT_ID }
+  if (-not $id) { return $null }
+  $id = $id.Trim()
+  $guid = [guid]::Empty
+  if (-not [guid]::TryParse($id, [ref]$guid)) { throw "AVD_GRAPH_CLIENT_ID '$id' is not a client ID (a GUID). Run scripts/ops/Initialize-AvdGraphApp.ps1, or clear it: Remove-Item Env:AVD_GRAPH_CLIENT_ID" }
+  return $id
+}
 
 function Connect-AvdGraph {
-  param([ValidateSet('Read', 'Fix', 'PreDeployFix', 'Cleanup')][string] $Purpose = 'Read')
-  $scopes = switch ($Purpose) {
-    'Read' { $script:GraphReadScopes }
-    'Fix' { $script:GraphFixScopes }
-    'PreDeployFix' { $script:GraphPreDeployFixScopes }
-    'Cleanup' { $script:GraphCleanupScopes }
-  }
+  param(
+    [ValidateSet('Read', 'Fix', 'PreDeployFix', 'Cleanup', 'SignIn')][string] $Purpose = 'Read',
+    # Defaults to $env:AVD_GRAPH_CLIENT_ID; without one, Microsoft's default app.
+    [string] $ClientId
+  )
+  $scopes = Get-AvdGraphScope -Purpose $Purpose
+  $ClientId = Get-AvdGraphClientId -ClientId $ClientId
   if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Authentication)) {
     throw 'Module Microsoft.Graph.Authentication is required: Install-Module Microsoft.Graph.Authentication -Scope CurrentUser'
   }
   Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
   $tenantId = (Get-AzContext).Tenant.Id
   $ctx = Get-MgContext
-  # An existing sign-in is reused when it covers every scope ('X.ReadWrite.All' covers 'X.Read.All').
+  # An existing sign-in is reused when it covers every scope ('X.ReadWrite.All' covers 'X.Read.All'),
+  # whichever app it came through.
   $missing = @($scopes | Where-Object { $_ -notin $ctx.Scopes -and $_.Replace('.Read.', '.ReadWrite.') -notin $ctx.Scopes })
   if ($ctx -and $ctx.TenantId -eq $tenantId -and -not $missing.Count) {
     if (Test-AvdGraphToken) { return }
     Write-Host '  The existing Microsoft Graph sign-in cannot get a token; signing in again.' -ForegroundColor Yellow
     Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
   }
-  Write-Host "  Signing in to Microsoft Graph ($($scopes -join ', '))" -ForegroundColor DarkGray
+  $app = if ($ClientId) { "the $script:GraphOperatorAppName app ($ClientId)" } else { "Microsoft's default app (no AVD_GRAPH_CLIENT_ID set)" }
+  Write-Host "  Signing in to Microsoft Graph for $($script:GraphPurposes[$Purpose]), through $app" -ForegroundColor DarkGray
+  Write-Host "  Scopes: $($scopes -join ', ')" -ForegroundColor DarkGray
   $connect = @{ Scopes = $scopes; TenantId = $tenantId; NoWelcome = $true; ErrorAction = 'Stop' }
+  if ($ClientId) { $connect.ClientId = $ClientId }
   if (Test-AvdCloudShell) {
     $connect.UseDeviceCode = $true
     Write-Host '  ACTION NEEDED: open https://microsoft.com/devicelogin and enter the code below. The script waits until you sign in.' -ForegroundColor Yellow
   }
   # Connect-MgGraph writes the device-code message to the output stream. Send it to the
   # host so it is shown even when this runs inside a function whose output is captured.
-  Connect-MgGraph @connect | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow }
+  try { Connect-MgGraph @connect | ForEach-Object { Write-Host "  $_" -ForegroundColor Yellow } }
+  catch {
+    if (-not $ClientId) { throw }
+    # The full error first (lesson 0012); the codes below are the usual causes with the operator app.
+    throw ("Microsoft Graph sign-in through $app failed: $($_.Exception.Message)`n" +
+      "AADSTS50105: you are not assigned to the app; add yourself to its operators group, or run Initialize-AvdGraphApp.ps1 again as an administrator.`n" +
+      "AADSTS65001: consent is missing for a scope; run Initialize-AvdGraphApp.ps1 again.`n" +
+      "AADSTS700016: the app does not exist in this tenant; check AVD_GRAPH_CLIENT_ID.`n" +
+      'To use Microsoft''s default app instead: Remove-Item Env:AVD_GRAPH_CLIENT_ID')
+  }
   if (-not (Test-AvdGraphToken)) {
     throw 'Signed in to Microsoft Graph, but requests still fail to get a token. Run Disconnect-MgGraph, close and reopen Cloud Shell, and try again.'
   }

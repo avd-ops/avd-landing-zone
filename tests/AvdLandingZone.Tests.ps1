@@ -168,6 +168,65 @@ Describe 'Test-AvdGraphToken' {
   }
 }
 
+Describe 'Microsoft Graph scopes (decision 0016)' {
+  It 'gives every purpose the same scope set, so one sign-in covers the session' {
+    $all = Get-AvdGraphScope -Purpose SignIn
+    $all.Count | Should -Be 8
+    foreach ($p in 'Read', 'Fix', 'PreDeployFix', 'Cleanup') { (Get-AvdGraphScope -Purpose $p) -join ' ' | Should -Be ($all -join ' ') -Because $p }
+  }
+  It 'matches the scopes the operator app setup consents to' {
+    $setup = Get-Content -Raw (Join-Path $PSScriptRoot '../scripts/ops/Initialize-AvdGraphApp.ps1')
+    $m = [regex]::Match($setup, '(?s)\$operatorScopes = @\((.*?)\)')
+    $m.Success | Should -BeTrue
+    $listed = @([regex]::Matches($m.Groups[1].Value, "'([^']+)'") | ForEach-Object { $_.Groups[1].Value })
+    ($listed | Sort-Object) -join ' ' | Should -Be ((Get-AvdGraphScope | Sort-Object) -join ' ')
+  }
+  It 'covers every Graph call the scripts make' {
+    # Each Graph path the scripts call, and the scope that allows it. A new call fails here until it is listed.
+    $needs = [ordered]@{
+      'v1\.0/(applications|servicePrincipals)\b'           = 'Application.ReadWrite.All'
+      'collection (applications|servicePrincipals)'         = 'Application.ReadWrite.All'
+      'directory/deletedItems'                              = 'Application.ReadWrite.All'
+      'v1\.0/oauth2PermissionGrants|collection oauth2PermissionGrants' = 'DelegatedPermissionGrant.ReadWrite.All'
+      'v1\.0/policies/'                                     = 'Policy.Read.All'
+      'v1\.0/identity/conditionalAccess'                    = 'Policy.ReadWrite.ConditionalAccess'
+      'v1\.0/groups|collection groups'                      = 'Group.ReadWrite.All'
+      'v1\.0/(me|users|subscribedSkus|organization)\b'      = 'Directory.Read.All'
+      'v1\.0/devices|collection devices'                    = 'Device.ReadWrite.All'
+      'v1\.0/deviceManagement|collection deviceManagement/managedDevices' = 'DeviceManagementManagedDevices.ReadWrite.All'
+    }
+    $scopes = Get-AvdGraphScope
+    $files = Get-ChildItem (Join-Path $PSScriptRoot '../scripts/ops') -Filter *.ps*1 | Where-Object Name -ne 'Initialize-AvdGraphApp.ps1'
+    $calls = foreach ($f in $files) {
+      foreach ($line in (Get-Content $f.FullName)) {
+        $u = [regex]::Match($line, 'Invoke-AvdGraph\b.*?-Uri\s+(\(Get-AvdGraphFilterUri -Collection (\S+)|\S+)')
+        if (-not $u.Success) { continue }
+        if ($u.Groups[2].Success) { 'collection ' + ($u.Groups[2].Value -replace '[''"]', '') } else { $u.Groups[1].Value }
+      }
+    }
+    @($calls).Count | Should -BeGreaterThan 20
+    foreach ($c in $calls) {
+      $hit = @($needs.Keys | Where-Object { $c -match $_ }) | Select-Object -First 1
+      $hit | Should -Not -BeNullOrEmpty -Because "$c needs a scope in the list above"
+      $scopes | Should -Contain $needs[$hit] -Because $c
+    }
+  }
+}
+
+Describe 'Get-AvdGraphClientId' {
+  AfterEach { $env:AVD_GRAPH_CLIENT_ID = $null }
+  It 'is empty without a parameter or AVD_GRAPH_CLIENT_ID (the default app)' { $env:AVD_GRAPH_CLIENT_ID = $null; Get-AvdGraphClientId | Should -BeNullOrEmpty }
+  It 'reads AVD_GRAPH_CLIENT_ID, and the parameter wins' {
+    $env:AVD_GRAPH_CLIENT_ID = ' 11111111-1111-1111-1111-111111111111 '
+    Get-AvdGraphClientId | Should -Be '11111111-1111-1111-1111-111111111111'
+    Get-AvdGraphClientId -ClientId '22222222-2222-2222-2222-222222222222' | Should -Be '22222222-2222-2222-2222-222222222222'
+  }
+  It 'rejects a value that is not a GUID, naming how to clear it' {
+    $env:AVD_GRAPH_CLIENT_ID = 'AVD Landing Zone Operator'
+    { Get-AvdGraphClientId } | Should -Throw '*Remove-Item Env:AVD_GRAPH_CLIENT_ID*'
+  }
+}
+
 Describe 'Test-AvdHostPoolRegion' {
   BeforeEach {
     Clear-AvdCheckResult

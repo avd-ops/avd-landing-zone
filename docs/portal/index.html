@@ -161,6 +161,7 @@
         <select id="environment"><option>dev</option><option>test</option><option>prod</option></select>
       </label>
       <label class="field"><span>Test user (optional, for the demo)</span><input type="text" id="testUserUpn" autocomplete="off" placeholder="user@contoso.com"></label>
+      <label class="field"><span>Graph sign-in app client ID (optional)</span><input type="text" id="graphClientId" autocomplete="off" placeholder="from Initialize-AvdGraphApp.ps1" title="The AVD Landing Zone Operator app (docs/operations.md). Empty: Microsoft's default Graph app."></label>
     </div>
     <div class="row" style="margin-top:12px">
       <button class="secondary" id="reset">Start over</button>
@@ -330,7 +331,7 @@
   'use strict';
   var P = window.PortalCore;
   var $ = function (id) { return document.getElementById(id); };
-  var FIELDS = ['parameterFile', 'location', 'usersGroup', 'adminsGroup', 'namePrefix', 'environment', 'testUserUpn'];
+  var FIELDS = ['parameterFile', 'location', 'usersGroup', 'adminsGroup', 'namePrefix', 'environment', 'testUserUpn', 'graphClientId'];
 
   // ---------------------------------------------------------------- persistence (this browser only)
   function load(k, fallback) { try { var v = localStorage.getItem('avdlz.portal.' + k); return v === null ? fallback : JSON.parse(v); } catch (e) { return fallback; } }

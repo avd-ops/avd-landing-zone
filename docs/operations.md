@@ -8,6 +8,8 @@ PowerShell scripts in [`scripts/ops/`](../scripts/ops) that run against a **depl
 | `Test-AvdLandingZoneReadiness.ps1` | Preflight **after** deploying: is the landing zone ready for session hosts and users, **including the three post-deployment tenant steps**? Check mode by default; `-Fix` remediates. |
 | `Deploy-AvdDemo.ps1` | Deploys a demo host pool and session host into the landing zone, then validates that a user can sign in. |
 | `Remove-AvdDemo.ps1` | Removes the demo. `-IncludeLandingZone` tears down the whole landing zone. |
+| `Connect-AvdLandingZone.ps1` | Signs in to Microsoft Graph once for the whole Cloud Shell session; the other scripts reuse the sign-in ([decision 0016](decisions/0016-graph-operator-app.md)). |
+| `Initialize-AvdGraphApp.ps1` | One-time, by an administrator: creates the AVD Landing Zone Operator app, so operators sign in with no consent prompts. |
 | `Test-AvdUserConnection.ps1` | After you open the desktop: confirms from Azure telemetry that your sign-in reached it (Verified, Failed or Not verified). The deployment portal's Verify access step ([decision 0014](decisions/0014-verify-access.md)). |
 
 They share `AvdLandingZone.psm1`. The landing zone's resources, Entra groups and AVD service principal are discovered from its naming convention and the role assignments it created, so the only required inputs are `-NamePrefix` and `-Environment`.
@@ -19,6 +21,10 @@ They share `AvdLandingZone.psm1`. The landing zone's resources, Entra groups and
 git clone https://github.com/nickprignano/avd-landing-zone.git
 cd avd-landing-zone
 Set-AzContext -Subscription '<landing zone subscription>'
+
+# 0. Sign in to Microsoft Graph once for this session (one device code; the scripts below reuse it).
+#    With the operator app (see below), set its client ID first: $env:AVD_GRAPH_CLIENT_ID = '<client ID>'
+./scripts/ops/Connect-AvdLandingZone.ps1
 
 # 1. Before deploying: repeat until it comes back clean (-Fix remediates what it can).
 #    -Location picks the region; omit it for the file's default (northcentralus).
@@ -39,11 +45,27 @@ bash ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus -
 ./scripts/ops/Test-AvdUserConnection.ps1 -NamePrefix avdlz -Environment dev
 ```
 
-Microsoft Graph sign-in uses a device code in Cloud Shell: the script prints a code and waits until you enter it at https://microsoft.com/devicelogin. To sign in up front instead, so the code can't time out in the middle of a run (the scripts reuse an existing sign-in that has the scopes they need; this one covers the preflight, `-Fix` and cleanup):
+### Microsoft Graph sign-in
+
+In Cloud Shell, a Microsoft Graph sign-in uses a device code: the script prints a code and waits until you enter it at https://microsoft.com/devicelogin (it times out after 120 seconds). Every script asks for the same scopes ([decision 0016](decisions/0016-graph-operator-app.md)), so the first sign-in covers the rest of the session. Sign in up front with `./scripts/ops/Connect-AvdLandingZone.ps1`, so a code can't time out in the middle of a run (lesson 0029). It checks the sign-in with a real request and warns about any scope the token is missing.
+
+Scopes: `Application.ReadWrite.All`, `DelegatedPermissionGrant.ReadWrite.All`, `Policy.Read.All`, `Policy.ReadWrite.ConditionalAccess`, `Group.ReadWrite.All`, `Directory.Read.All`, `Device.ReadWrite.All`, `DeviceManagementManagedDevices.ReadWrite.All`. These are delegated: a script can do no more than your Entra ID roles allow (the table below).
+
+**The operator app (recommended).** Without it, the scripts sign in through Microsoft's shared "Microsoft Graph Command Line Tools" app, which needs consent for these scopes: an administrator's, for the ReadWrite ones. An administrator runs this once per tenant:
 
 ```powershell
-Connect-MgGraph -TenantId (Get-AzContext).Tenant.Id -UseDeviceCode -NoWelcome -Scopes 'Application.Read.All','Policy.Read.All','Group.Read.All','Directory.Read.All','Group.ReadWrite.All','Application.ReadWrite.All','DelegatedPermissionGrant.ReadWrite.All','Policy.ReadWrite.ConditionalAccess','Device.ReadWrite.All','DeviceManagementManagedDevices.ReadWrite.All'
-``` Required roles:
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+./scripts/ops/Initialize-AvdGraphApp.ps1 -SaveToProfile    # -OperatorsGroup 'AVD Admins' by default; -WhatIf to preview
+```
+
+It creates (or repairs) the **AVD Landing Zone Operator** app registration: a public client with no secret or certificate, the delegated permissions above, admin consent granted once, and **Assignment required** on. It assigns you and the operators group (default `AVD Admins`; assigning a group needs Microsoft Entra ID P1). Only assigned people can sign in through it, and its sign-ins appear under its own name in the sign-in logs, where Conditional Access can target it. It needs a Global Administrator, or a Privileged Role Administrator with an Application Administrator, and signs in through Microsoft's default app for that one run. Running it again changes only what is missing.
+
+The scripts use the app when `$env:AVD_GRAPH_CLIENT_ID` holds its client ID (or `Connect-AvdLandingZone.ps1 -ClientId`), and fall back to Microsoft's default app without it. The client ID is not a secret. `-SaveToProfile` adds the line that sets it to your PowerShell profile; Cloud Shell keeps the profile only when it has a storage account, so in an ephemeral session set it again, or put it in the deployment portal's settings, which add it to every command that signs in.
+
+**How long the sign-in lasts.** The sign-in belongs to the Cloud Shell session. Every script run in that session reuses it, until the session ends or you run `Disconnect-MgGraph`. Whether it survives a Cloud Shell reconnect is checked in the first real run (see the pull request that added this); until then, run `Connect-AvdLandingZone.ps1` again after a reconnect. It reuses a sign-in that still works and asks for a new code only when it doesn't. No token is stored by these scripts.
+
+Required roles:
 
 | For | Azure | Entra ID |
 |---|---|---|
