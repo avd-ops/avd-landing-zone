@@ -1,0 +1,9 @@
+PS /home/admin/avd-landing-zone> ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -NamePrefix avdlz -Environment dev
+...
+  [FAIL ] Profile share allows AES-128-GCM channel encryption
+          channelEncryption: AES-256-GCM;
+          -> Entra Kerberos sign-ins to the share are denied without it. Deploy the landing zone again with scripts/deploy/deploy.sh; the storage module allows AES-128-GCM and AES-256-GCM.
+...
+Deployment portal: paste this output into https://nickprignano.github.io/avd-landing-zone/portal/ for the next step.
+<<<AVDLZ-STATE {"v":1,"stage":"postdeploy","status":"notready","fix":false,"context":{"launch":{"workspaceObjectId":"a0a0a0a0-0000-4000-8000-000000000001","desktopObjectId":"b0b0b0b0-0000-4000-8000-000000000001","workspace":"vdws-avdlz-dev","appGroup":"vdag-avdlz-dev-desktop","tenantId":"55555555-5555-5555-5555-555555555555"},"wellArchitected":false,"environment":"dev","namePrefix":"avdlz"},"counts":{"pass":46,"fail":1,"warn":1,"fixed":0,"skip":0},"failures":[{"id":"smb-channel","area":"Landing zone","check":"Profile share allows AES-128-GCM channel encryption","detail":"channelEncryption: AES-256-GCM;","remediation":"Entra Kerberos sign-ins to the share are denied without it. Deploy the landing zone again with scripts/deploy/deploy.sh; the storage module allows AES-128-GCM and AES-256-GCM.","data":{"channelEncryption":"AES-256-GCM;"}}],"warnings":[{"id":"","area":"Step 2: Conditional Access","check":"Policy 'Admins MFA' excludes the storage app","detail":"Requires MFA for all apps for specific users/roles; review whether AVD users are in scope.","remediation":"Exclude the storage app if AVD users are covered."}]} AVDLZ-STATE>>>
+PS /home/admin/avd-landing-zone>

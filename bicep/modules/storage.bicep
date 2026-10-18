@@ -3,7 +3,8 @@
 //   - kind FileStorage: Premium file shares only exist on FileStorage accounts.
 //   - Entra Kerberos (AADKERB): Entra-joined session hosts get Kerberos tickets
 //     for the share from Entra ID. No domain controllers, no storage keys.
-//   - Shared key access disabled, SMB hardened to 3.1.1 + Kerberos + AES-256.
+//   - Shared key access disabled, SMB hardened to 3.1.1 + Kerberos + AES-256
+//     tickets, GCM channel encryption.
 //   - Share-level access via RBAC on the account; reachable only over its
 //     private endpoint.
 //
@@ -55,7 +56,10 @@ module account 'br/public:avm/res/storage/storage-account:0.33.1' = {
           versions: 'SMB3.1.1;'
           authenticationMethods: 'Kerberos;'
           kerberosTicketEncryption: 'AES-256;'
-          channelEncryption: 'AES-256-GCM;'
+          // AES-128-GCM must stay allowed: with AES-256-GCM alone, Azure Files rejects an Entra
+          // Kerberos SESSION_SETUP from a cloud-only user with STATUS_ACCESS_DENIED, and FSLogix
+          // fails with "Access is denied". CCM stays off.
+          channelEncryption: 'AES-128-GCM;AES-256-GCM;'
           multichannel: {
             enabled: true
           }

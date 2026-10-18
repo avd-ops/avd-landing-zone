@@ -429,6 +429,17 @@ test('state: ready without Security Defaults -> no Security Defaults step', () =
   assert.ok(!analyze('state-postdeploy-ready.txt').actions.some((x) => /Security Defaults/.test(x.title)));
 });
 
+test('state: profile share allows only AES-256-GCM -> deploy again, not -Fix (lesson 0028)', () => {
+  const r = analyze('state-postdeploy-smb-channel.txt');
+  assert.equal(r.status, 'notready');
+  assert.equal(r.actions[0].title, 'Deploy the landing zone again');
+  assert.match(r.actions[0].why, /AES-256-GCM/);
+  assert.match(last(r.actions[0].command), /^bash \.\/scripts\/deploy\/deploy\.sh -p parameters\/dev\.bicepparam /);
+  assert.ok(!r.actions.some((a) => /^Fix: Profile share/.test(a.title)), 'the failure is not repeated as a generic step');
+  assert.ok(!r.actions.some((a) => /-Fix/.test(a.command || '')), '-Fix does not change SMB settings');
+  assertSelfContained(r);
+});
+
 // ---------------------------------------------------------------- auto shutdown (decision 0011)
 test('state: auto shutdown locked the hosts -> resume command', () => {
   const r = analyze('state-power-locked.txt');
