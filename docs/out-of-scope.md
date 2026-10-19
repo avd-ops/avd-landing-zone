@@ -26,7 +26,7 @@ These belong to a sibling project; refer the work there and read its knowledge b
 
 ## Next layers to build
 
-- **Image pipeline** (Azure Image Builder → Azure Compute Gallery; decision 0013) and host rotation on new image versions. Planned next, before the second brain: see [image-pipeline-spec.md](image-pipeline-spec.md) and [second-brain-spec.md](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md) Q6.
+- **Image pipeline** (Azure Image Builder → Azure Compute Gallery; decision 0013) and host rotation on new image versions. Planned next, before the second brain: see [image-pipeline-spec.md](../build/specs/image-pipeline-spec.md) and [second-brain-spec.md](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md) Q6.
 - **App delivery**: App Attach, Intune apps, or baked into the image. An optional Liquidware tier (ProfileUnity, FlexApp through app attach, CommandCTRL) that runs against a landing zone from this repo lives in [avd-liquidware](https://github.com/nickprignano/avd-liquidware).
 - **Profile storage sizing**: provisioned size and IOPS for your user count; Azure NetApp Files for very large pools.
 - **Disaster recovery**: a secondary region and cross-region profile replication. Backup here is in-region.

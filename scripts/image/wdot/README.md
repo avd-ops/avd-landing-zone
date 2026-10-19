@@ -1,9 +1,9 @@
 # WDOT profile for the golden image
 
-The image build runs the [Windows Desktop Optimization Tool](https://github.com/The-Virtual-Desktop-Team/Windows-Desktop-Optimization-Tool) (WDOT, MIT License, by The Virtual Desktop Team) with this profile. See `docs/image-pipeline-spec.md` §5.5.
+The image build runs the [Windows Desktop Optimization Tool](https://github.com/The-Virtual-Desktop-Team/Windows-Desktop-Optimization-Tool) (WDOT, MIT License, by The Virtual Desktop Team) with this profile. See `build/specs/image-pipeline-spec.md` §5.5.
 
 - **`wdot.lock.json`** pins WDOT to a commit (release `v1.1`) and records the SHA-256 of every WDOT file the build runs. `Invoke-Wdot.ps1` downloads the commit's archive and refuses to run if any file's hash differs. A newer WDOT is a PR that updates the lock. The archive itself isn't pinned by hash, because GitHub doesn't promise stable archive bytes; the files are what run.
-- **`profile/`** holds the JSON files WDOT reads, generated from WDOT's `Configurations/Templates` at that commit (each item's `OptimizationState` set as below, written as indented JSON with ASCII escapes; lesson 0027 records how they were rebuilt). Every item's `OptimizationState` was reviewed. `profileSha256` in the lock covers them: a profile change without a lock update fails CI (`tests/ImageScripts.Tests.ps1`).
+- **`profile/`** holds the JSON files WDOT reads, generated from WDOT's `Configurations/Templates` at that commit (each item's `OptimizationState` set as below, written as indented JSON with ASCII escapes; lesson 0027 records how they were rebuilt). Every item's `OptimizationState` was reviewed. `profileSha256` in the lock covers them: a profile change without a lock update fails CI (`build/tests/ImageScripts.Tests.ps1`).
 
 ## What runs
 

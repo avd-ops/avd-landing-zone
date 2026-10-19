@@ -8,12 +8,10 @@ on:
       - 'bicep/**'
       - 'parameters/**'
       - 'scripts/**'
-      - 'tests/**'
+      - 'build/tests/**'
       - '.claude/hooks/**'
       - '.githooks/**'
-      - 'docs/portal/**'
-      - 'docs/index.html'
-      - 'docs/family/**'
+      - 'site/**'
       - 'PSScriptAnalyzerSettings.psd1'
       - 'bicepconfig.json'
       - 'ps-rule.yaml'
@@ -26,12 +24,10 @@ on:
       - 'bicep/**'
       - 'parameters/**'
       - 'scripts/**'
-      - 'tests/**'
+      - 'build/tests/**'
       - '.claude/hooks/**'
       - '.githooks/**'
-      - 'docs/portal/**'
-      - 'docs/index.html'
-      - 'docs/family/**'
+      - 'site/**'
       - 'PSScriptAnalyzerSettings.psd1'
       - 'bicepconfig.json'
       - 'ps-rule.yaml'
@@ -106,13 +102,13 @@ jobs:
           "$RUNNER_TEMP/bin/bicep" --version
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
-      # Unit tests, offline end-to-end scenarios (tests/offline) and template guards.
-      # Each one encodes a lesson from a real run: see docs/lessons.
+      # Unit tests, offline end-to-end scenarios (build/tests/offline) and template guards.
+      # Each one encodes a lesson from a real run: see build/lessons.
       - name: Pester
         shell: pwsh
         run: |
           Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
-          Invoke-Pester -Path ./tests -CI -Output Detailed
+          Invoke-Pester -Path ./build/tests -CI -Output Detailed
 
       - name: shellcheck (deploy script, session hook, pre-commit hook)
         run: shellcheck scripts/deploy/deploy.sh .claude/hooks/session-start.sh .githooks/pre-commit
@@ -128,7 +124,7 @@ jobs:
       # The portal engine against real Cloud Shell output and the scripts' state lines,
       # plus a guard that its commands only use parameters the scripts define.
       - name: node --test
-        run: node --test "tests/portal/*.test.mjs"
+        run: node --test "build/tests/portal/*.test.mjs"
 
   psrule:
     name: PSRule for Azure (Well-Architected)

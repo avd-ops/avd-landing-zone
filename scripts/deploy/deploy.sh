@@ -183,7 +183,7 @@ fi
 
 DEPLOY_NAME="avdlz-$(basename "$PARAM_FILE" .bicepparam)-$(date +%Y%m%d-%H%M%S)"
 
-# Machine-readable state for the deployment portal (docs/portal). Schema: docs/portal/README.md.
+# Machine-readable state for the deployment portal (site/portal). Schema: site/portal/README.md.
 PORTAL_URL="https://nickprignano.github.io/avd-landing-zone/portal/"
 json_str() { local s=${1//\\/\\\\}; s=${s//\"/\\\"}; printf '"%s"' "$s"; }
 portal_state() {

@@ -1,7 +1,7 @@
 # Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE). Not affiliated with the author's employer or with Microsoft.
 <#
 .SYNOPSIS
-  Golden image: Defender starts with current signatures (docs/image-pipeline-spec.md section 5.3).
+  Golden image: Defender starts with current signatures (build/specs/image-pipeline-spec.md section 5.3).
 .DESCRIPTION
   Tries Microsoft Update, then the Malware Protection Center, three times each, and fails when the
   signatures are still more than a day old. Runs on the image build VM, in Windows PowerShell 5.1.

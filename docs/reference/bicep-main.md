@@ -20,7 +20,7 @@ Entra ID-only, Intune-managed, private-by-default Azure Virtual Desktop landing 
 | `spokeAddressPrefix` | string | `'(address in the source)'` | Address space for the AVD spoke VNet. |
 | `sessionHostSubnetPrefix` | string | `'(address in the source)'` | Session host subnet (inside the spoke). /23 = ~500 hosts. |
 | `privateEndpointSubnetPrefix` | string | `'(address in the source)'` | Private endpoint subnet (inside the spoke). |
-| `deployImageBuildSubnets` | bool | `false` | Add the golden image build subnets to this spoke (docs/image-pipeline-spec.md). Only the image build environment needs them; off by default. |
+| `deployImageBuildSubnets` | bool | `false` | Add the golden image build subnets to this spoke (build/specs/image-pipeline-spec.md). Only the image build environment needs them; off by default. |
 | `imageBuildSubnetPrefix` | string | `'(address in the source)'` | Image build VM subnet (inside the spoke). |
 | `imageBuildAciSubnetPrefix` | string | `'(address in the source)'` | Image build container subnet, delegated to Azure Container Instances (inside the spoke). |
 | `hubVnetResourceId` | string | `''` | HubPeered only: resource ID of the hub VNet. |

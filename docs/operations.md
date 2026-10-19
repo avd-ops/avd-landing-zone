@@ -8,9 +8,9 @@ PowerShell scripts in [`scripts/ops/`](../scripts/ops) that run against a **depl
 | `Test-AvdLandingZoneReadiness.ps1` | Preflight **after** deploying: is the landing zone ready for session hosts and users, **including the three post-deployment tenant steps**? Check mode by default; `-Fix` remediates. |
 | `Deploy-AvdDemo.ps1` | Deploys a demo host pool and session host into the landing zone, then validates that a user can sign in. |
 | `Remove-AvdDemo.ps1` | Removes the demo. `-IncludeLandingZone` tears down the whole landing zone. |
-| `Connect-AvdLandingZone.ps1` | Signs in to Microsoft Graph once for the whole Cloud Shell session; the other scripts reuse the sign-in ([decision 0016](decisions/0016-graph-operator-app.md)). |
+| `Connect-AvdLandingZone.ps1` | Signs in to Microsoft Graph once for the whole Cloud Shell session; the other scripts reuse the sign-in ([decision 0016](../build/decisions/0016-graph-operator-app.md)). |
 | `Initialize-AvdGraphApp.ps1` | One-time, by an administrator: creates the avd-opsbot app, so operators sign in with no consent prompts. |
-| `Test-AvdUserConnection.ps1` | After you open the desktop: confirms from Azure telemetry that your sign-in reached it (Verified, Failed or Not verified). The deployment portal's Verify access step ([decision 0014](decisions/0014-verify-access.md)). |
+| `Test-AvdUserConnection.ps1` | After you open the desktop: confirms from Azure telemetry that your sign-in reached it (Verified, Failed or Not verified). The deployment portal's Verify access step ([decision 0014](../build/decisions/0014-verify-access.md)). |
 
 They share `AvdLandingZone.psm1`. The landing zone's resources, Entra groups and AVD service principal are discovered from its naming convention and the role assignments it created, so the only required inputs are `-NamePrefix` and `-Environment`.
 
@@ -47,7 +47,7 @@ bash ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus -
 
 ### Microsoft Graph sign-in
 
-In Cloud Shell, a Microsoft Graph sign-in uses a device code: the script prints a code and waits until you enter it at https://microsoft.com/devicelogin (it times out after 120 seconds). Every script asks for the same scopes ([decision 0016](decisions/0016-graph-operator-app.md)), so the first sign-in covers the rest of the session. Sign in up front with `./scripts/ops/Connect-AvdLandingZone.ps1`, so a code can't time out in the middle of a run (lesson 0029). It checks the sign-in with a real request and warns about any scope the token is missing.
+In Cloud Shell, a Microsoft Graph sign-in uses a device code: the script prints a code and waits until you enter it at https://microsoft.com/devicelogin (it times out after 120 seconds). Every script asks for the same scopes ([decision 0016](../build/decisions/0016-graph-operator-app.md)), so the first sign-in covers the rest of the session. Sign in up front with `./scripts/ops/Connect-AvdLandingZone.ps1`, so a code can't time out in the middle of a run (lesson 0029). It checks the sign-in with a real request and warns about any scope the token is missing.
 
 Scopes: `Application.ReadWrite.All`, `DelegatedPermissionGrant.ReadWrite.All`, `Policy.Read.All`, `Policy.ReadWrite.ConditionalAccess`, `Group.ReadWrite.All`, `Directory.Read.All`, `Device.ReadWrite.All`, `DeviceManagementManagedDevices.ReadWrite.All`. These are delegated: a script can do no more than your Entra ID roles allow (the table below).
 
@@ -119,7 +119,7 @@ The toggles start at what the parameter file deploys: dev and test stop at 20:00
 
 The estimate also shows the cost if the hosts ran around the clock. Usage-based charges are listed as not included: Log Analytics, data processed, backup, Defender and licenses. Each line must match exactly one price meter. A line that matches none, or several, is reported with the meters the API returned instead of being guessed, and is left out of the total. The portal shows the estimate after you paste the output. Reservations, savings plans and agreements lower these prices.
 
-The sizing covers one pooled host pool, which is what the landing zone deploys. The portal keeps it as a list of host pools, so more can be added later ([decision 0010](decisions/0010-sizing-and-cost.md)).
+The sizing covers one pooled host pool, which is what the landing zone deploys. The portal keeps it as a list of host pools, so more can be added later ([decision 0010](../build/decisions/0010-sizing-and-cost.md)).
 
 ## Pre-deployment preflight
 
@@ -187,13 +187,13 @@ The demo host's break-glass password is random and isn't stored anywhere. Use **
 - its deployment record;
 - the demo hosts' Entra ID and Intune device objects (`-KeepDevices` keeps them).
 
-If the Microsoft Graph sign-in times out, the script keeps the deployment record, which names the hosts. Run it again to finish the device objects ([lesson 0029](lessons/0029-device-cleanup-rerun.md)).
+If the Microsoft Graph sign-in times out, the script keeps the deployment record, which names the hosts. Run it again to finish the device objects ([lesson 0029](../build/lessons/0029-device-cleanup-rerun.md)).
 
 It supports `-WhatIf`.
 
 With `-IncludeLandingZone`, you must type the landing zone name to confirm (`-Force` skips this). It then removes:
 1. **Profile backup.** It disables vault immutability and soft delete, which would otherwise block the delete. It stops protection, deletes the recovery points, and unregisters the storage account, which releases the backup delete lock.
-2. **The five landing zone resource groups**, in dependency order. First it deletes the Log Analytics workspace permanently. Deleting its resource group would only soft-delete it for 14 days, and the next deployment under the same name would recover it and fail on the AVD Insights data collection rule ([lesson 0023](lessons/0023-log-analytics-soft-delete.md)).
+2. **The five landing zone resource groups**, in dependency order. First it deletes the Log Analytics workspace permanently. Deleting its resource group would only soft-delete it for 14 days, and the next deployment under the same name would recover it and fail on the AVD Insights data collection rule ([lesson 0023](../build/lessons/0023-log-analytics-soft-delete.md)).
 3. **Subscription-level resources:** `avdlz-*` policy assignments with their role assignments, the budget, the activity-log diagnostic setting, and deployment records.
 4. **The landing zone hosts' device objects.**
 5. **The storage account's Entra app.** Deleting the storage account moves its Entra Kerberos app (`[Storage Account] <account>.file.core.windows.net`) and service principal to Entra's deleted items for 30 days. They still list the account's names, and the next deployment reuses the name, so the cleanup purges them. It waits up to 2 minutes for them to appear there.
@@ -205,7 +205,7 @@ The Key Vault stays soft-deleted under purge protection for 90 days. To redeploy
 
 ## Auto shutdown
 
-The landing zone deploys an Azure Automation runbook, [`scripts/automation/Invoke-AvdPowerAction.ps1`](../scripts/automation/Invoke-AvdPowerAction.ps1), with three actions (see [decision 0011](decisions/0011-auto-shutdown.md) for why it is built this way):
+The landing zone deploys an Azure Automation runbook, [`scripts/automation/Invoke-AvdPowerAction.ps1`](../scripts/automation/Invoke-AvdPowerAction.ps1), with three actions (see [decision 0011](../build/decisions/0011-auto-shutdown.md) for why it is built this way):
 
 | Action | What it does | Started by |
 |---|---|---|
@@ -237,7 +237,7 @@ Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 
 ## Well-Architected review
 
-`-WellArchitected` adds a review of the **deployed** landing zone against the [Azure Well-Architected Framework](https://learn.microsoft.com/azure/well-architected/), grouped by pillar and ending with a scorecard. It needs only Reader; add `-SkipTenant -SkipNtfs` to leave out the tenant steps (no Graph sign-in). Findings are **warnings, never failures**: they are trade-offs to review, not deployment blockers. Why it is built this way: [decision 0009](decisions/0009-well-architected-review.md).
+`-WellArchitected` adds a review of the **deployed** landing zone against the [Azure Well-Architected Framework](https://learn.microsoft.com/azure/well-architected/), grouped by pillar and ending with a scorecard. It needs only Reader; add `-SkipTenant -SkipNtfs` to leave out the tenant steps (no Graph sign-in). Findings are **warnings, never failures**: they are trade-offs to review, not deployment blockers. Why it is built this way: [decision 0009](../build/decisions/0009-well-architected-review.md).
 
 | Pillar | Checks |
 |---|---|
@@ -256,7 +256,7 @@ Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 
 ## Deployment portal
 
-Every script ends with a machine-readable line (`<<<AVDLZ-STATE {...} AVDLZ-STATE>>>`): the stage, whether it passed, the context for the next command, and each failure with a stable id. Paste the output into the [deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/) and it tells you what to run next. The format is described in [`docs/portal/README.md`](portal/README.md).
+Every script ends with a machine-readable line (`<<<AVDLZ-STATE {...} AVDLZ-STATE>>>`): the stage, whether it passed, the context for the next command, and each failure with a stable id. Paste the output into the [deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/) and it tells you what to run next. The format is described in [`site/portal/README.md`](../site/portal/README.md).
 
 If the portal gives the wrong advice or you are stuck, use **Report a problem** in the portal. It builds a GitHub issue from the output you pasted. Before anything leaves your browser, it removes email addresses, IDs, subscription and resource names, your name prefix and group names, and secrets. You review the report, tick that it contains nothing private, and submit it on GitHub. Issues are public.
 
@@ -266,7 +266,7 @@ Preflight and demo return **0** when nothing failed and **1** otherwise, so you 
 
 ## Verify access: `Test-AvdUserConnection.ps1`
 
-Confirms from the connection logs that a real sign-in reached the desktop ([decision 0014](decisions/0014-verify-access.md), [spec](verify-access-spec.md) §6.5). Open the desktop first, as yourself, then run it in Cloud Shell:
+Confirms from the connection logs that a real sign-in reached the desktop ([decision 0014](../build/decisions/0014-verify-access.md), [spec](../build/specs/verify-access-spec.md) §6.5). Open the desktop first, as yourself, then run it in Cloud Shell:
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }

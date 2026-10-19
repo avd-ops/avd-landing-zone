@@ -1,4 +1,4 @@
-// Golden image pipeline: the gallery, definition and identities (docs/image-pipeline-spec.md).
+// Golden image pipeline: the gallery, definition and identities (build/specs/image-pipeline-spec.md).
 // Deploy once, after the build environment's landing zone has the build subnets
 // (AVD_IMAGE_BUILD_SUBNETS=true). See docs/images.md.
 

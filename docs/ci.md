@@ -4,11 +4,12 @@ Workflows:
 
 | Workflow | Trigger | Jobs |
 |---|---|---|
-| [`validate.yml`](../.github/workflows/validate.yml) | PRs and pushes to `master` touching Bicep, parameters, scripts or config | **bicep** (lint + build template and param files) · **scripts** (PSScriptAnalyzer over `scripts/`, Pester: unit tests, offline end-to-end scenarios (`tests/offline`) and template guards, with a standalone Bicep CLI; shellcheck) · **psrule** (Well-Architected rules, a gate) · **what-if** (opt-in) |
+| [`validate.yml`](../.github/workflows/validate.yml) | PRs and pushes to `master` touching Bicep, parameters, scripts or config | **bicep** (lint + build template and param files) · **scripts** (PSScriptAnalyzer over `scripts/`, Pester: unit tests, offline end-to-end scenarios (`build/tests/offline`) and template guards, with a standalone Bicep CLI; shellcheck) · **psrule** (Well-Architected rules, a gate) · **what-if** (opt-in) |
 | [`secret-scan.yml`](../.github/workflows/secret-scan.yml) | Every PR and push to `master` | **gitleaks** over the full history. Accepted false positives live in [`.gitleaksignore`](../.gitleaksignore); the same scan runs before each commit through `.githooks/pre-commit` ([CONTRIBUTING.md](../CONTRIBUTING.md#secret-scanning)) |
 | [`lanes.yml`](../.github/workflows/lanes.yml) | Every PR and push to `master` | **no-hcl**: fails on any Terraform, Packer or other HCL file, which belongs to nerdio-hcl ([out-of-scope.md](out-of-scope.md#another-projects-lane)) |
 | [`deploy.yml`](../.github/workflows/deploy.yml) | Manual (`workflow_dispatch`) | Deploys `parameters/<env>.bicepparam` to the matching GitHub Environment, with optional what-if only |
 | [`image-build.yml`](../.github/workflows/image-build.yml) | Third Monday of the month (a daily cron on days 15–21 that skips all but Monday), and manual with `force` and `emergency` | Builds the month's golden image with Azure Image Builder through `scripts/ops/Start-AvdImageBuild.ps1`, keeps the customization log as an artifact and opens an `image-build` issue. Signs in through the `images` GitHub Environment's federated identity. Setup: [images.md](images.md) |
+| [`pages.yml`](../.github/workflows/pages.yml) | Pushes to `master` touching `site/`, and manual | Publishes `site/` (the deployment portal, the region latency page) to GitHub Pages. One-time setup: **Settings → Pages → Source: GitHub Actions**. Until that is set, the last published site stays up |
 
 **Advisory AI review** comes from GitHub Copilot code review, not a workflow: Copilot follows [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) (the review checklist, distilled from `CLAUDE.md`). Request it on a PR, or have a branch ruleset on `master` request it automatically (**Settings → Rules → Rulesets → Automatically request Copilot code review**). It needs no repository secret, and it reviews fork PRs too. It only comments: no AI review satisfies a review requirement ([second-brain-spec.md](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md) §9.3).
 
@@ -74,7 +75,7 @@ az bicep lint --file bicep/main.bicep
 AVD_USERS_GROUP_ID=x AVD_ADMINS_GROUP_ID=x AVD_SERVICE_PRINCIPAL_ID=x AVD_LOCAL_ADMIN_PASSWORD=Placeholder-1234 \
   az bicep build-params --file parameters/prod.bicepparam --stdout > /dev/null
 pwsh -c "Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1"
-pwsh -c "Invoke-Pester ./tests"
+pwsh -c "Invoke-Pester ./build/tests"
 shellcheck scripts/deploy/deploy.sh
 gitleaks git --redact .
 ```

@@ -1,7 +1,7 @@
 # Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE). Not affiliated with the author's employer or with Microsoft.
 <#
 .SYNOPSIS
-  Golden image: a smaller image, cleaned narrowly (docs/image-pipeline-spec.md section 5.3).
+  Golden image: a smaller image, cleaned narrowly (build/specs/image-pipeline-spec.md section 5.3).
 .DESCRIPTION
   Component store cleanup, the Windows Update download cache, and the WDOT working folder.
   Logs and event logs stay: Test-GoldenImage.ps1 reads them (that's why WDOT's DiskCleanup

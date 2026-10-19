@@ -171,7 +171,7 @@ else {
 $summary = Write-AvdSummary
 if ($PassThru) { return $summary }
 
-# Machine-readable result for the deployment portal (docs/portal).
+# Machine-readable result for the deployment portal (site/portal).
 if ($PreDeployment) {
   $plan = if ($outcome) { $outcome.Plan } else { $null }
   $portalContext = @{

@@ -1,5 +1,5 @@
 // =====================================================================
-// Golden image pipeline: the shared parts (docs/image-pipeline-spec.md, decision 0013)
+// Golden image pipeline: the shared parts (build/specs/image-pipeline-spec.md, decision 0013)
 // Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE). Not affiliated with the author's employer or with Microsoft.
 //
 // One gallery per name prefix, shared by dev, test and prod, so every
@@ -149,7 +149,7 @@ module images 'modules/gallery.bicep' = {
 }
 
 // AIB: Contributor on the staging group. The build workflow: Reader there and on the
-// customization logs, to report a failed build (docs/lessons/0012).
+// customization logs, to report a failed build (build/lessons/0012).
 module staging 'modules/stagingAccess.bicep' = {
   name: 'avdlz-images-staging'
   scope: rgStaging

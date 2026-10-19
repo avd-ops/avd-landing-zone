@@ -1,5 +1,5 @@
 {
-  "description": "Services the landing zone depends on (docs/image-pipeline-spec.md section 5.5). They must stay Skip in the WDOT profile (tests/ImageScripts.Tests.ps1), and Test-GoldenImage.ps1 checks that none is Disabled on the built image.",
+  "description": "Services the landing zone depends on (build/specs/image-pipeline-spec.md section 5.5). They must stay Skip in the WDOT profile (build/tests/ImageScripts.Tests.ps1), and Test-GoldenImage.ps1 checks that none is Disabled on the built image.",
   "services": [
     "dmwappushservice",
     "WinDefend",

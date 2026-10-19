@@ -68,59 +68,70 @@ See [`docs/operations.md`](docs/operations.md). Users in the AVD Users group can
 
 ## Repo layout
 
+The repo is split by who it is for. **If you only want to deploy and run the landing zone, you need the top-level folders `bicep/`, `parameters/`, `scripts/`, `contracts/` and `docs/`**, which is exactly what the zip on each [release](releases/README.md) holds. `site/` is the website and `build/` is how the project itself is built and tested.
+
 ```
 avd-landing-zone/
-├── bicep/
+├── bicep/                         # what you deploy
 │   ├── main.bicep                 # subscription-scope orchestration
 │   ├── demo/main.bicep            # demo host pool inside a deployed landing zone
-│   └── modules/
-│       ├── governance.bicep       # policy, Defender, budget, activity log
-│       ├── monitoring.bicep       # Log Analytics, AVD Insights DCR, alerts
-│       ├── network.bicep          # spoke, NSGs, NAT Gateway / hub routing, peering
-│       ├── privateDns.bicep       # privatelink zones (standalone)
-│       ├── keyVault.bicep         # break-glass credential
-│       ├── storage.bicep          # Azure Files + Entra Kerberos for FSLogix
-│       ├── backup.bicep           # Azure Backup for the profile share
-│       ├── controlPlane.bicep     # host pool, app group, workspace, autoscale
-│       └── sessionHosts.bicep     # VMs, run commands, host RBAC
+│   ├── images/                    # golden image gallery and monthly build
+│   └── modules/                   # governance, monitoring, network, privateDns, keyVault,
+│                                  # storage, backup, controlPlane, sessionHosts, autoShutdown
 ├── bicepconfig.json               # linter: security rules are errors
-├── parameters/
-│   ├── dev.bicepparam             # tenant values read from environment variables
-│   └── prod.bicepparam
+├── parameters/                    # dev, test, prod, images: tenant values come from environment variables
 ├── scripts/
 │   ├── deploy/deploy.sh           # providers, features, lookups, deploy
-│   ├── ops/                       # Cloud Shell: preflight (-Fix), demo deploy + validation, cleanup
+│   ├── ops/                       # Cloud Shell: preflight (-Fix), demo deploy + validation, cleanup, image build
+│   ├── automation/                # auto shutdown runbook
+│   ├── image/                     # golden image customization steps
 │   └── sessionhost/               # embedded into Run Commands at compile time
-│       ├── Set-FSLogixConfiguration.ps1
-│       └── Register-AvdAgent.ps1
-├── tests/                         # Pester: unit tests, offline scenarios (tests/offline), template guards
-├── ps-rule.yaml                   # PSRule for Azure configuration
-├── docs/
-└── .github/workflows/
-    ├── validate.yml               # lint, analysis, PSRule, what-if
-    └── deploy.yml                 # manual, environment-gated deployment
+├── contracts/                     # vendored avd-second-brain contracts the scripts read
+├── docs/                          # how to deploy, operate and understand it
+├── releases/                      # how to get a released version, and each release's notes
+│
+├── site/                          # the website (GitHub Pages, .github/workflows/pages.yml)
+│   ├── index.html, family/        # the AVD family site
+│   ├── portal/                    # the deployment portal
+│   └── region-latency/
+│
+├── build/                         # how the project is built: not needed to use it
+│   ├── tests/                     # Pester unit tests, offline scenarios, template guards; portal tests
+│   ├── lessons/                   # what real runs taught, each with its guard
+│   ├── decisions/                 # why things are the way they are
+│   └── specs/                     # design specs and their red-team reviews
+├── scripts/kb/                    # knowledge capture and handoff hooks (left out of releases)
+├── ps-rule.yaml, .ps-rule/        # PSRule for Azure (CI, and the -WellArchitected review)
+└── .github/workflows/             # validate, deploy, image-build, pages, secret-scan, lanes
 ```
 
 ## Documentation
+
+**Using it**
 
 - [`docs/design-decisions.md`](docs/design-decisions.md): the opinions this repo takes and how it compares with the LZA
 - [`docs/architecture.md`](docs/architecture.md): resource layout, traffic flows, identity and RBAC model
 - [`docs/deploy.md`](docs/deploy.md): prerequisites, deployment, post-deployment steps, scaling out, teardown
 - [`docs/operations.md`](docs/operations.md): preflight with fix mode, Well-Architected review, demo host pool with sign-in validation, cleanup
-- [`docs/rebuild-spec.md`](docs/rebuild-spec.md): one prompt to rebuild this from an empty repo, with the protocol to count the prompts it takes
 - [`docs/images.md`](docs/images.md): golden images, step 1: setting up and running the monthly image build
-- [`docs/image-pipeline-spec.md`](docs/image-pipeline-spec.md): proposed spec for a golden image pipeline (Azure Image Builder → Compute Gallery) and blue/green host rotation
-- [avd-second-brain](https://github.com/nickprignano/avd-second-brain): the second brain for the whole AVD lifecycle, shared with avd-current-state and avd-readiness-stratusphere. Its [operations spec](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md) is this landing zone's self-healing, self-learning brain (moved there; the runtime still deploys from here). What this repo exchanges with it: [`docs/second-brain.md`](docs/second-brain.md)
+- [Deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/) ([how it works](site/portal/README.md)): region by latency, then the next command from each pasted Cloud Shell output
 - [`docs/demo.md`](docs/demo.md): a live demo in a 30-minute slot (dev built the night before, test deployed live beside it)
-- [Family site](https://nickprignano.github.io/avd-landing-zone/) ([source](docs/index.html)): one page for this repo and its four siblings (avd-current-state, avd-swarm, avd-second-brain, avd-liquidware) and how they fit together
-- [Deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/) ([how it works](docs/portal/README.md)): region by latency, then the next command from each pasted Cloud Shell output
+- [Family site](https://nickprignano.github.io/avd-landing-zone/) ([source](site/index.html)): one page for this repo and its four siblings (avd-current-state, avd-swarm, avd-second-brain, avd-liquidware) and how they fit together
 - [`docs/ci.md`](docs/ci.md): validation and deployment pipelines, OIDC setup
 - [`docs/gotchas.md`](docs/gotchas.md): the things that bite
-- [`docs/lessons`](docs/lessons/README.md): what real deployments taught, each with the guard that now catches it
-- [`docs/decisions`](docs/decisions/README.md): the choices that shape the repo, and why
 - [`docs/out-of-scope.md`](docs/out-of-scope.md): what this repo does not do
 - [`docs/setup-azure-account.md`](docs/setup-azure-account.md): starting from zero on a personal card (lab use)
 - [`CHANGELOG.md`](CHANGELOG.md): what changed, from each merged PR's `Changelog:` line
+- [`releases/`](releases/README.md): released versions and how to pin one
+- [avd-second-brain](https://github.com/nickprignano/avd-second-brain): the second brain for the whole AVD lifecycle, shared with avd-current-state and avd-readiness-stratusphere. Its [operations spec](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md) is this landing zone's self-healing, self-learning brain (moved there; the runtime still deploys from here). What this repo exchanges with it: [`docs/second-brain.md`](docs/second-brain.md)
+
+**Building it**
+
+- [`build/lessons`](build/lessons/README.md): what real deployments taught, each with the guard that now catches it
+- [`build/decisions`](build/decisions/README.md): the choices that shape the repo, and why
+- [`build/specs/image-pipeline-spec.md`](build/specs/image-pipeline-spec.md): proposed spec for a golden image pipeline (Azure Image Builder → Compute Gallery) and blue/green host rotation
+- [`build/specs/verify-access-spec.md`](build/specs/verify-access-spec.md): verifying access from the operator's device
+- [`build/specs/rebuild-spec.md`](build/specs/rebuild-spec.md): one prompt to rebuild this from an empty repo, with the protocol to count the prompts it takes
 
 ## Entry points
 
@@ -131,23 +142,23 @@ Each links its reference page, generated from the script's help or the template'
 | Script | What it does |
 |---|---|
 | [`scripts/automation/Invoke-AvdPowerAction.ps1`](docs/reference/scripts-automation-Invoke-AvdPowerAction.md) | Stops, locks or resumes the landing zone's session hosts (auto shutdown, decision 0011). |
-| [`scripts/image/custom/Invoke-CustomImageStep.ps1`](docs/reference/scripts-image-custom-Invoke-CustomImageStep.md) | Golden image: the adopter's own step, run after WDOT and before cleanup (docs/image-pipeline-spec.md section 5.3). |
-| [`scripts/image/Disable-AutomaticUpdates.ps1`](docs/reference/scripts-image-Disable-AutomaticUpdates.md) | Golden image: Windows and Microsoft 365 Apps don't update themselves on hosts (docs/image-pipeline-spec.md section 5.6). |
-| [`scripts/image/Disable-StorageSense.ps1`](docs/reference/scripts-image-Disable-StorageSense.md) | Golden image: turns Storage Sense off (docs/image-pipeline-spec.md section 5.3). |
-| [`scripts/image/Enable-TimeZoneRedirection.ps1`](docs/reference/scripts-image-Enable-TimeZoneRedirection.md) | Golden image: sessions use the client's time zone (docs/image-pipeline-spec.md section 5.3). |
-| [`scripts/image/Invoke-ImageCleanup.ps1`](docs/reference/scripts-image-Invoke-ImageCleanup.md) | Golden image: a smaller image, cleaned narrowly (docs/image-pipeline-spec.md section 5.3). |
-| [`scripts/image/Invoke-Wdot.ps1`](docs/reference/scripts-image-Invoke-Wdot.md) | Golden image: runs the Windows Desktop Optimization Tool (WDOT) with the reviewed profile (docs/image-pipeline-spec.md section 5.5, scripts/image/wdot/README.md). |
-| [`scripts/image/Set-SessionTimeLimit.ps1`](docs/reference/scripts-image-Set-SessionTimeLimit.md) | Golden image: disconnected sessions end after a set time (docs/image-pipeline-spec.md section 5.7). |
-| [`scripts/image/Test-GoldenImage.ps1`](docs/reference/scripts-image-Test-GoldenImage.md) | Golden image: build-time validation (docs/image-pipeline-spec.md section 5.4). |
-| [`scripts/image/Update-DefenderSignature.ps1`](docs/reference/scripts-image-Update-DefenderSignature.md) | Golden image: Defender starts with current signatures (docs/image-pipeline-spec.md section 5.3). |
+| [`scripts/image/custom/Invoke-CustomImageStep.ps1`](docs/reference/scripts-image-custom-Invoke-CustomImageStep.md) | Golden image: the adopter's own step, run after WDOT and before cleanup (build/specs/image-pipeline-spec.md section 5.3). |
+| [`scripts/image/Disable-AutomaticUpdates.ps1`](docs/reference/scripts-image-Disable-AutomaticUpdates.md) | Golden image: Windows and Microsoft 365 Apps don't update themselves on hosts (build/specs/image-pipeline-spec.md section 5.6). |
+| [`scripts/image/Disable-StorageSense.ps1`](docs/reference/scripts-image-Disable-StorageSense.md) | Golden image: turns Storage Sense off (build/specs/image-pipeline-spec.md section 5.3). |
+| [`scripts/image/Enable-TimeZoneRedirection.ps1`](docs/reference/scripts-image-Enable-TimeZoneRedirection.md) | Golden image: sessions use the client's time zone (build/specs/image-pipeline-spec.md section 5.3). |
+| [`scripts/image/Invoke-ImageCleanup.ps1`](docs/reference/scripts-image-Invoke-ImageCleanup.md) | Golden image: a smaller image, cleaned narrowly (build/specs/image-pipeline-spec.md section 5.3). |
+| [`scripts/image/Invoke-Wdot.ps1`](docs/reference/scripts-image-Invoke-Wdot.md) | Golden image: runs the Windows Desktop Optimization Tool (WDOT) with the reviewed profile (build/specs/image-pipeline-spec.md section 5.5, scripts/image/wdot/README.md). |
+| [`scripts/image/Set-SessionTimeLimit.ps1`](docs/reference/scripts-image-Set-SessionTimeLimit.md) | Golden image: disconnected sessions end after a set time (build/specs/image-pipeline-spec.md section 5.7). |
+| [`scripts/image/Test-GoldenImage.ps1`](docs/reference/scripts-image-Test-GoldenImage.md) | Golden image: build-time validation (build/specs/image-pipeline-spec.md section 5.4). |
+| [`scripts/image/Update-DefenderSignature.ps1`](docs/reference/scripts-image-Update-DefenderSignature.md) | Golden image: Defender starts with current signatures (build/specs/image-pipeline-spec.md section 5.3). |
 | [`scripts/ops/Connect-AvdLandingZone.ps1`](docs/reference/scripts-ops-Connect-AvdLandingZone.md) | Signs in to Microsoft Graph once for the whole Cloud Shell session, so the preflight, -Fix, the demo and the cleanup don't each ask for a device code. |
 | [`scripts/ops/ConvertFrom-AvdTargetState.ps1`](docs/reference/scripts-ops-ConvertFrom-AvdTargetState.md) | Turns an approved target-state manifest from the migration factory into the preflight and deploy.sh commands for one host pool. |
 | [`scripts/ops/Deploy-AvdDemo.ps1`](docs/reference/scripts-ops-Deploy-AvdDemo.md) | Deploys a demo host pool and session host into an existing landing zone, then validates that a user can sign in. |
 | [`scripts/ops/Initialize-AvdGraphApp.ps1`](docs/reference/scripts-ops-Initialize-AvdGraphApp.md) | One-time setup of the "avd-opsbot" app registration, so operators sign in to Microsoft Graph once per Cloud Shell session with no consent prompts (decision 0016). |
 | [`scripts/ops/Remove-AvdDemo.ps1`](docs/reference/scripts-ops-Remove-AvdDemo.md) | Removes the demo host pool deployed by Deploy-AvdDemo.ps1, and optionally the whole landing zone. |
-| [`scripts/ops/Start-AvdImageBuild.ps1`](docs/reference/scripts-ops-Start-AvdImageBuild.md) | Builds one golden image version with Azure Image Builder (docs/image-pipeline-spec.md section 5.2). |
+| [`scripts/ops/Start-AvdImageBuild.ps1`](docs/reference/scripts-ops-Start-AvdImageBuild.md) | Builds one golden image version with Azure Image Builder (build/specs/image-pipeline-spec.md section 5.2). |
 | [`scripts/ops/Test-AvdLandingZoneReadiness.ps1`](docs/reference/scripts-ops-Test-AvdLandingZoneReadiness.md) | Preflight for the AVD landing zone, in two stages: -PreDeployment before deploying: is this subscription and tenant ready for the landing zone described by the parameter file? (default) after deploying: is the landing zone ready for session hosts and users, including the three post-deployment tenant steps? Check mode by default; -Fix remediates what it can. |
-| [`scripts/ops/Test-AvdUserConnection.ps1`](docs/reference/scripts-ops-Test-AvdUserConnection.md) | Confirms from Azure telemetry that a user's sign-in reached the landing zone's desktop: the deployment portal's Verify access step (decision 0014, docs/verify-access-spec.md). |
+| [`scripts/ops/Test-AvdUserConnection.ps1`](docs/reference/scripts-ops-Test-AvdUserConnection.md) | Confirms from Azure telemetry that a user's sign-in reached the landing zone's desktop: the deployment portal's Verify access step (decision 0014, build/specs/verify-access-spec.md). |
 <!-- generated:entry-points end -->
 
 ## Contributing

@@ -8,9 +8,9 @@
 set -uo pipefail
 
 repo="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-if [ -f "$repo/docs/lessons/README.md" ]; then
-  echo "=== Lessons from real runs (docs/lessons). Read the relevant one before changing that area. ==="
-  sed -n '/^| #/,/^$/p' "$repo/docs/lessons/README.md"
+if [ -f "$repo/build/lessons/README.md" ]; then
+  echo "=== Lessons from real runs (build/lessons). Read the relevant one before changing that area. ==="
+  sed -n '/^| #/,/^$/p' "$repo/build/lessons/README.md"
 fi
 
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
@@ -79,6 +79,6 @@ command -v bicep >/dev/null 2>&1 && s+=("$(have ok bicep)") || s+=("$(have no bi
 command -v shellcheck >/dev/null 2>&1 && s+=("$(have ok shellcheck)") || s+=("$(have no shellcheck)")
 command -v gitleaks >/dev/null 2>&1 && s+=("$(have ok gitleaks)") || s+=("$(have no gitleaks)")
 [ -f "$tools/modules/PSScriptAnalyzer/PSScriptAnalyzer.psd1" ] && s+=("$(have ok PSScriptAnalyzer)") || s+=("$(have no PSScriptAnalyzer)")
-[ -d "$tools/modules/Pester" ] && s+=("$(have ok Pester)") || s+=("Pester unavailable (Gallery blocked): run the offline scenarios directly with pwsh -File tests/offline/<Name>.Scenario.ps1")
+[ -d "$tools/modules/Pester" ] && s+=("$(have ok Pester)") || s+=("Pester unavailable (Gallery blocked): run the offline scenarios directly with pwsh -File build/tests/offline/<Name>.Scenario.ps1")
 echo "=== Tools: ${s[*]} (log: $log) ==="
 exit 0

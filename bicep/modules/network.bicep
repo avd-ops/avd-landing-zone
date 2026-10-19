@@ -7,7 +7,7 @@
 //                 routed to the hub firewall, DNS from the hub.
 // The private endpoint subnet enforces NSG rules on its endpoints.
 // Optionally (deployImageBuildSubnets), two subnets for the golden image build
-// (docs/image-pipeline-spec.md): the Azure Image Builder build VM, and the
+// (build/specs/image-pipeline-spec.md): the Azure Image Builder build VM, and the
 // container instance that drives an isolated build. Same egress as the hosts.
 
 param location string
@@ -161,7 +161,7 @@ module privateEndpointNsg 'br/public:avm/res/network/network-security-group:0.5.
 
 // Image build subnets: no inbound from the internet; the build container reaches the
 // build VM over WinRM (5986) and SSH (22) inside the VNet. Verify the ports against a
-// real isolated build (docs/image-pipeline-spec.md section 11).
+// real isolated build (build/specs/image-pipeline-spec.md section 11).
 module imageBuildNsg 'br/public:avm/res/network/network-security-group:0.5.3' = if (deployImageBuildSubnets) {
   name: 'nsg-image-build'
   params: {

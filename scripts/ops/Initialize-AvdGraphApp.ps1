@@ -38,7 +38,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Must match Get-AvdGraphScope in AvdLandingZone.psm1 (tests/AvdLandingZone.Tests.ps1 compares them).
+# Must match Get-AvdGraphScope in AvdLandingZone.psm1 (build/tests/AvdLandingZone.Tests.ps1 compares them).
 $operatorScopes = @(
   'Application.ReadWrite.All', 'DelegatedPermissionGrant.ReadWrite.All', 'Policy.Read.All', 'Policy.ReadWrite.ConditionalAccess',
   'Group.ReadWrite.All', 'Directory.Read.All', 'Device.ReadWrite.All', 'DeviceManagementManagedDevices.ReadWrite.All'

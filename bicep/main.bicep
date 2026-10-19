@@ -68,7 +68,7 @@ param sessionHostSubnetPrefix string = '10.100.0.0/23'
 @description('Private endpoint subnet (inside the spoke).')
 param privateEndpointSubnetPrefix string = '10.100.2.0/27'
 
-@description('Add the golden image build subnets to this spoke (docs/image-pipeline-spec.md). Only the image build environment needs them; off by default.')
+@description('Add the golden image build subnets to this spoke (build/specs/image-pipeline-spec.md). Only the image build environment needs them; off by default.')
 param deployImageBuildSubnets bool = false
 
 @description('Image build VM subnet (inside the spoke).')

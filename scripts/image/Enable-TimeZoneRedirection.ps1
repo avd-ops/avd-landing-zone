@@ -1,7 +1,7 @@
 # Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE). Not affiliated with the author's employer or with Microsoft.
 <#
 .SYNOPSIS
-  Golden image: sessions use the client's time zone (docs/image-pipeline-spec.md section 5.3).
+  Golden image: sessions use the client's time zone (build/specs/image-pipeline-spec.md section 5.3).
 .DESCRIPTION
   Runs on the image build VM, in Windows PowerShell 5.1, as an inline Azure Image Builder customizer.
 #>

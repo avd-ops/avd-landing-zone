@@ -2,3 +2,16 @@
 contracts/schemas/*.json -text
 contracts/examples/*.json -text
 contracts/fact-register.json -text
+# Release and tag archives (the "Source code" zip on each GitHub release) carry only what a
+# person needs to deploy and run the landing zone: see releases/README.md.
+/build export-ignore
+/site export-ignore
+/.claude export-ignore
+/.githooks export-ignore
+/.github export-ignore
+/PSScriptAnalyzerSettings.psd1 export-ignore
+/.gitleaksignore export-ignore
+/CLAUDE.md export-ignore
+/AGENTS.md export-ignore
+/scripts/kb export-ignore
+/docs/accepted-findings.json export-ignore
