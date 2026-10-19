@@ -768,12 +768,46 @@ function Test-AvdLandingZoneRbac {
 # Checks - Entra tenant (the three post-deployment steps live here)
 # =====================================================================
 function Get-AvdStorageKerberosApp {
+  <#
+    The app Azure registers when Entra Kerberos is enabled on the storage account. It can only be
+    found by its display name, and anyone who can register an app can use that name, so a
+    user-registered look-alike is told apart by what Azure's app never has: owners. Returns $null
+    when there is no such app, and an object with .Rejected set (and no Application) when the apps
+    with this name can't be settled to the one Azure created.
+  #>
   param([Parameter(Mandatory)] $Lz)
   $name = "[Storage Account] $($Lz.StorageFqdn)"
-  $app = Invoke-AvdGraph -Uri (Get-AvdGraphFilterUri -Collection applications -Filter "displayName eq '$name'" -Select 'id,appId,displayName,tags,requiredResourceAccess') | Select-Object -First 1
-  if (-not $app) { return $null }
+  $apps = @(Invoke-AvdGraph -Uri (Get-AvdGraphFilterUri -Collection applications -Filter "displayName eq '$name'" -Select 'id,appId,displayName,tags,requiredResourceAccess,createdDateTime'))
+  if (-not $apps.Count) { return $null }
+  $owned = [System.Collections.Generic.List[string]]::new()
+  $candidates = @(foreach ($a in $apps) {
+      $owners = @(Invoke-AvdGraph -Uri "v1.0/applications/$($a.id)/owners?`$select=id")
+      if ($owners.Count) { $owned.Add("$($a.appId) ($($owners.Count) owner(s), created $($a.createdDateTime))") } else { $a }
+    })
+  if ($candidates.Count -ne 1) {
+    $why = if ($candidates.Count) { "$($candidates.Count) apps with this name have no owners" }
+    else { "every app with this name has owners, which the app Azure creates never has: $($owned -join '; ')" }
+    return [pscustomobject]@{ Name = $name; Application = $null; ServicePrincipal = $null; Rejected = $why }
+  }
+  $app = $candidates[0]
   $sp = Invoke-AvdGraph -Uri (Get-AvdGraphFilterUri -Collection servicePrincipals -Filter "appId eq '$($app.appId)'" -Select 'id,appId,displayName') | Select-Object -First 1
-  return [pscustomobject]@{ Name = $name; Application = $app; ServicePrincipal = $sp }
+  return [pscustomobject]@{ Name = $name; Application = $app; ServicePrincipal = $sp; Rejected = $null }
+}
+
+function Get-AvdDirectoryAdminId {
+  <# Members of the directory roles that are expected to create and own the landing zone's groups. #>
+  [CmdletBinding()]
+  param()
+  # Role template IDs are the same in every tenant: Global, Privileged Role, Groups and User Administrator.
+  # Active assignments only (PIM-eligible roles must be activated), as for the role checks in the preflight.
+  $templates = @('62e90394-69f5-4237-9190-012177145e10', 'e8611ab8-c189-46e8-94e1-60213ab1f814', 'fdd7a751-b60b-444a-984c-02652fe8fa1c', 'fe930be7-5e62-47db-91af-98c3a49a38b1')
+  $ids = [System.Collections.Generic.List[string]]::new()
+  foreach ($t in $templates) {
+    foreach ($role in @(Invoke-AvdGraph -Uri (Get-AvdGraphFilterUri -Collection directoryRoles -Filter "roleTemplateId eq '$t'" -Select 'id'))) {
+      foreach ($m in @(Invoke-AvdGraph -Uri "v1.0/directoryRoles/$($role.id)/members?`$select=id")) { if ($m.id) { $ids.Add($m.id) } }
+    }
+  }
+  return @($ids)
 }
 
 function Test-AvdGroupMembership {
@@ -1580,6 +1614,11 @@ function Invoke-AvdReadinessCheck {
     if (-not $storageApp) {
       Add-AvdCheckResult 'Step 1: admin consent' 'Storage account Entra app exists' 'Fail' -Detail "Not found: [Storage Account] $($Lz.StorageFqdn)" -Remediation 'It is created when Entra Kerberos (AADKERB) is enabled on the account; redeploy the storage module.'
     }
+    elseif ($storageApp.Rejected) {
+      # Consent and the Conditional Access MFA exclusion go to whichever app is picked, so none is picked.
+      Add-AvdCheckResult 'Step 1: admin consent' 'Storage account Entra app exists' 'Fail' -Id 'storage-app-ambiguous' -Detail "$($storageApp.Name): $($storageApp.Rejected). Steps 1 and 2 wait until this is settled." `
+        -Remediation 'In Entra ID > App registrations, find the apps with this name: the one Azure created has no owner. Remove the ones you did not expect, then run this again.'
+    }
     else {
       Add-AvdCheckResult 'Step 1: admin consent' 'Storage account Entra app exists' 'Pass' -Detail $storageApp.Application.appId
       Test-AvdStorageAdminConsent -StorageApp $storageApp -Fix:$Fix
@@ -1694,6 +1733,24 @@ function Resolve-AvdGroup {
     if (-not $g.securityEnabled) {
       Add-AvdCheckResult $area "$Label group '$($g.displayName)'" 'Fail' -Detail 'Not a security group; Azure RBAC needs a security group.' -Remediation 'Use a security-enabled group.'
       return $null
+    }
+    if (-not [guid]::TryParse($NameOrId, [ref]$guid)) {
+      # Found by name: anyone who can create groups could have made one with this name, and it would get
+      # VM Admin Login, the break-glass secret and elevated share access. Its owners must be administrators
+      # (or you). A group given by object ID was picked deliberately and is used as it is.
+      $owners = @(Invoke-AvdGraph -Uri "v1.0/groups/$($g.id)/owners?`$select=id,userPrincipalName,displayName")
+      if ($owners.Count) {
+        $me = (Invoke-AvdGraph -Uri 'v1.0/me?$select=id').id
+        $admins = @(Get-AvdDirectoryAdminId)
+        $outside = @($owners | Where-Object { $_.id -ne $me -and $admins -notcontains $_.id })
+        if ($outside.Count) {
+          $who = @($outside | ForEach-Object { if ($_.userPrincipalName) { $_.userPrincipalName } else { $_.displayName } }) -join ', '
+          Add-AvdCheckResult $area "$Label group '$($g.displayName)' is owned by administrators" 'Fail' -Id 'group-owner' -Data @{ group = $g.id; owners = @($outside.id) } `
+            -Detail "$($g.id) is owned by $who, who holds none of the Global, Privileged Role, Groups or User Administrator roles. A group anyone created must not get the landing zone's rights." `
+            -Remediation 'Pass the object ID of a group an administrator created, or remove those owners and run this again.'
+          return $null
+        }
+      }
     }
     Add-AvdCheckResult $area "$Label group '$($g.displayName)' exists" 'Pass' -Detail $g.id
     return $g

@@ -40,6 +40,11 @@
     'b24988ac-6180-42a0-ab88-20f7382dd24c', // Contributor
     'acdd72a7-3385-48ef-bd42-f606fba81ae7', // Reader
     '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1', // Storage Blob Data Reader
+    // Entra directory role templates (group owner check in the preflight and deploy.sh)
+    '62e90394-69f5-4237-9190-012177145e10', // Global Administrator
+    'e8611ab8-c189-46e8-94e1-60213ab1f814', // Privileged Role Administrator
+    'fdd7a751-b60b-444a-984c-02652fe8fa1c', // Groups Administrator
+    'fe930be7-5e62-47db-91af-98c3a49a38b1', // User Administrator
     // Windows policy registry keys in WDOT's profile (scripts/image/wdot/profile/PolicyRegSettings.json)
     '309dce9b-bef4-4119-9921-a851fb12f0f4',
     '67144949-5132-4859-8036-a737b43825d8',

@@ -42,4 +42,14 @@ Invoke-Deploy 'running'
 # First deployment: no hosts resource group yet, so no VM calls.
 $env:FAKE_HOSTS_RG_EXISTS = 'false'
 Invoke-Deploy 'first'
+
+# A group found by name whose owner is not an administrator (red team LZ-1): refused before anything
+# else. Owned by a Global Administrator, it is accepted; given by object ID, owners are not checked.
+$env:FAKE_HOSTS_RG_EXISTS = 'true'; $env:FAKE_GROUP_OWNERS = 'u-eve'; $env:FAKE_ADMIN_IDS = 'admin-1'
+Invoke-Deploy 'owned-group'
+$env:FAKE_GROUP_OWNERS = 'admin-1'
+Invoke-Deploy 'admin-owned-group'
+$env:FAKE_GROUP_OWNERS = 'u-eve'
+Invoke-Deploy 'group-by-id' @('--admins-group', '22222222-2222-2222-2222-222222222222', '--users-group', '11111111-1111-1111-1111-111111111111')
+$env:FAKE_GROUP_OWNERS = ''; $env:FAKE_ADMIN_IDS = ''
 Remove-Item $log -ErrorAction SilentlyContinue

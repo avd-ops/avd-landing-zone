@@ -467,12 +467,24 @@ function Invoke-MgGraphRequest { param($Method,$Uri,$Body,$ContentType,$OutputTy
     "oauth2PermissionGrants\?.*clientId eq '([^']+)'" { $c=$Matches[1]; @{value=@(@($global:St.grants) | ? { -not $_.clientId -or $_.clientId -eq $c })}; break }
     '^v1.0/me\?' { @{id='me-1';userPrincipalName='nick@contoso.com'}; break }
     'groups/[0-9a-f-]+/members' { @{value=@(@{id='u1'})} }
+    # Owners of a group found by name ($global:St.groupOwners; none unless a scenario sets them), and the
+    # directory roles whose members may own the landing zone's groups: only Global Administrator is activated.
+    'groups/[0-9a-f-]+/owners' { @{value=@(@($global:St.groupOwners) | ? { $_ })} }
+    "directoryRoles\?.*roleTemplateId eq '([0-9a-f-]+)'" { @{value=@(if ($Matches[1] -like '62e90394*') { @{id='role-ga'} })} }
+    'directoryRoles/role-ga/members' { @{value=@(@{id='admin-1'})} }
+    # The storage account's Entra app has no owners, as the one Azure creates never has. A scenario can add a
+    # user-registered app of the same name beside it ($global:St.storageAppImposter = 'beside') or in its place ('only').
+    'applications/app-obj/owners' { @{value=@()} }
+    'applications/app-fake/owners' { @{value=@(@{id='u-eve'})} }
     "groups\?.*displayName eq '([^']+)'" { $n=$Matches[1]; @{value=@($global:St.groups | ? { $_.displayName -eq $n })} }
     "servicePrincipals\?.*appId eq '9cdead84" { @{value=@(if ($global:St.avdSp) { @{id='33333333-3333-3333-3333-333333333333';appId='9cdead84-a844-4324-93f2-b2e6bb768d07'} })} }
     'me/memberOf' { @{value=@(@{displayName='Global Administrator'})} }
     'groups/(\w{8}-[\w-]+)\?' { @{id=$Matches[1];displayName="grp-$($Matches[1].Substring(0,4))";onPremisesSecurityIdentifier=$null} }
     'subscribedSkus' { @{value=@(@{servicePlans=@(@{servicePlanName='INTUNE_A';provisioningStatus='Success'})})} }
-    '^v1.0/applications\?' { @{value=@(@{id='app-obj';appId=$appId;displayName='[Storage Account] x';tags=$global:St.tags;requiredResourceAccess=@(@{resourceAppId='00000003-0000-0000-c000-000000000000';resourceAccess=@(@{id='s1';type='Scope'},@{id='s2';type='Scope'},@{id='s3';type='Scope'})})})} }
+    '^v1.0/applications\?' { @{value=@(
+        $(if ($global:St.storageAppImposter -ne 'only') { @{id='app-obj';appId=$appId;displayName='[Storage Account] x';createdDateTime='2026-09-30T00:00:00Z';tags=$global:St.tags;requiredResourceAccess=@(@{resourceAppId='00000003-0000-0000-c000-000000000000';resourceAccess=@(@{id='s1';type='Scope'},@{id='s2';type='Scope'},@{id='s3';type='Scope'})})} })
+        $(if ($global:St.storageAppImposter) { @{id='app-fake';appId='66666666-6666-6666-6666-666666666666';displayName='[Storage Account] x';createdDateTime='2026-09-29T00:00:00Z';tags=@();requiredResourceAccess=@()} })
+      )} }
     # As in a real tenant (lesson 0030): Device.ReadWrite.All is issued in tokens but not listed here.
     "servicePrincipals\?.*appId eq '00000003" { @{value=@(@{id='graph-sp';oauth2PermissionScopes=@(@{id='s1';value='openid'},@{id='s2';value='profile'},@{id='s3';value='User.Read'},@{id='s4';value='offline_access'},
       @{id='s5';value='Application.ReadWrite.All'},@{id='s6';value='DelegatedPermissionGrant.ReadWrite.All'},@{id='s7';value='Policy.Read.All'},@{id='s8';value='Policy.ReadWrite.ConditionalAccess'},

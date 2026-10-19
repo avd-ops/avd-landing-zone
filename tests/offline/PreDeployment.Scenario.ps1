@@ -54,3 +54,11 @@ Invoke-ScenarioStep 'vault-recovered' { & ./scripts/ops/Test-AvdLandingZoneReadi
 # estimate and state line say so.
 $global:St.deletedVaults = @()
 Invoke-ScenarioStep 'power-off' { & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @pre -AutoShutdownTime none -StartVmOnConnect false -ActiveHoursPerWeek 168 }
+
+# A group of the right name that an ordinary user created, and so owns, must not get the landing
+# zone's rights (red team LZ-1): fail. Owned by an administrator or by you, it passes.
+$global:St.groupOwners = @(@{ id = 'u-eve'; userPrincipalName = 'eve@contoso.com' })
+Invoke-ScenarioStep 'owned-group' { & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @pre }
+$global:St.groupOwners = @(@{ id = 'admin-1'; userPrincipalName = 'admin@contoso.com' }, @{ id = 'me-1'; userPrincipalName = 'nick@contoso.com' })
+Invoke-ScenarioStep 'admin-owned-group' { & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @pre }
+$global:St.groupOwners = $null
