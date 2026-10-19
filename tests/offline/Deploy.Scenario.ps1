@@ -42,4 +42,12 @@ Invoke-Deploy 'running'
 # First deployment: no hosts resource group yet, so no VM calls.
 $env:FAKE_HOSTS_RG_EXISTS = 'false'
 Invoke-Deploy 'first'
+
+# Locked by auto shutdown (a budget alert): refused before any host is touched, unless --unlock.
+# A what-if only reports it.
+$env:FAKE_HOSTS_RG_EXISTS = 'true'; $env:FAKE_NOT_RUNNING = $stopped; $env:FAKE_POWER_LOCK = 'budget 2026-10-19T03:00:00Z'
+Invoke-Deploy 'locked'
+Invoke-Deploy 'locked-whatif' @('--what-if')
+Invoke-Deploy 'locked-unlock' @('--unlock')
+$env:FAKE_POWER_LOCK = ''
 Remove-Item $log -ErrorAction SilentlyContinue

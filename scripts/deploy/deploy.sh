@@ -6,12 +6,14 @@
 #   ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus \
 #       --users-group "AVD Users" --admins-group "AVD Admins" [--what-if] \
 #       [--hosts 3 --vm-size Standard_D8as_v5 --max-sessions 16 --profile-quota 600] \
-#       [--auto-shutdown 20:00|none --start-vm-on-connect true|false]
+#       [--auto-shutdown 20:00|none --start-vm-on-connect true|false] [--unlock]
 #
 # -l is the region the landing zone is deployed to (it sets AVD_LOCATION, which
 # the parameter files read). The sizing flags (from the deployment portal's sizing
 # step) override the parameter file's session hosts and profile share the same way;
 # the power flags (its Cost step) override the scheduled stop and Start VM on Connect.
+# While the hosts are locked by auto shutdown (a budget alert, decision 0011) the
+# deployment is refused: run Resume first, or pass --unlock to deploy anyway.
 #
 # Environment variables (any flag above overrides):
 #   AVD_USERS_GROUP_ID, AVD_ADMINS_GROUP_ID   Entra group object IDs
@@ -31,6 +33,7 @@ MAX_SESSIONS=""
 PROFILE_QUOTA=""
 AUTO_SHUTDOWN=""
 START_ON_CONNECT=""
+UNLOCK=false
 AVD_APP_ID="9cdead84-a844-4324-93f2-b2e6bb768d07"   # Azure Virtual Desktop first-party app
 
 usage() {
@@ -51,6 +54,7 @@ while [[ $# -gt 0 ]]; do
     --profile-quota) PROFILE_QUOTA="$2"; shift 2 ;;
     --auto-shutdown) AUTO_SHUTDOWN="$2"; shift 2 ;;
     --start-vm-on-connect) START_ON_CONNECT="$2"; shift 2 ;;
+    --unlock) UNLOCK=true; shift ;;
     *) usage ;;
   esac
 done
@@ -178,6 +182,26 @@ NAME_PREFIX=${NAME_PREFIX//-/}; NAME_PREFIX=${NAME_PREFIX,,}   # cleanPrefix in 
 HOSTS_RG="rg-$NAME_PREFIX-$ENV_NAME-hosts"
 STOPPED_HOSTS=()
 if [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(az group exists -n "$HOSTS_RG")" == "true" ]]; then
+  # --- Hosts locked by auto shutdown (decision 0011) ---
+  # Lock tags the host pool, drains and tags the hosts and turns Start VM on Connect off. A
+  # deployment would start every host, replace the tags and turn Start VM on Connect back on,
+  # silently undoing what the budget alert bought. So it is refused until Resume has run.
+  POWER_LOCK=$(az resource show -g "rg-$NAME_PREFIX-$ENV_NAME-avd" -n "vdpool-$NAME_PREFIX-$ENV_NAME" \
+    --resource-type Microsoft.DesktopVirtualization/hostPools --query 'tags."avdlz-power-lock"' -o tsv 2>/dev/null || true)
+  if [[ -n "$POWER_LOCK" ]]; then
+    if $WHATIF; then
+      echo "==> The session hosts are locked by auto shutdown ($POWER_LOCK). The deployment itself is refused until Resume runs (or --unlock)."
+    elif $UNLOCK; then
+      echo "==> The session hosts are locked by auto shutdown ($POWER_LOCK); deploying anyway (--unlock)."
+      echo "    The deployment removes the lock tag and the scaling exclusion. The hosts stay in drain mode until Resume runs."
+    else
+      echo "==> The session hosts are locked by auto shutdown ($POWER_LOCK). Not deploying." >&2
+      echo "    A deployment would start the hosts and turn Start VM on Connect back on. Run Resume first:" >&2
+      echo "      ./scripts/automation/Invoke-AvdPowerAction.ps1 -Action Resume -NamePrefix $NAME_PREFIX -Environment $ENV_NAME" >&2
+      echo "    or pass --unlock to deploy over the lock (the hosts stay drained until Resume)." >&2
+      exit 1
+    fi
+  fi
   echo "==> Checking the session hosts' power state in $HOSTS_RG"
   mapfile -t STOPPED_HOSTS < <(az vm list -d -g "$HOSTS_RG" --query "[?powerState!='VM running'].id" -o tsv)
 fi
