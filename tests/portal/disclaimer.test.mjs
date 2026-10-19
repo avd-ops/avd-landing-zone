@@ -17,9 +17,10 @@ test('LICENSE is MIT with the as-is, no-warranty clause', () => {
 test('README says personal project, not for production, as is, not affiliated with the employer', () => {
   const r = read('README.md');
   const top = r.split('\n## ')[0];
-  for (const re of [/Personal project/i, /Not for production/i, /Do not run it in production/i, /"as is", without warranty/i, /not affiliated with, endorsed by or supported by my employer/i]) {
+  for (const re of [/Personal project/i, /Not for production/i, /Do not run it in production/i, /"as is", without warranty/i, /not affiliated with, endorsed by or supported by my employer/i, /Research and learning only/i, /forks are welcome/i]) {
     assert.match(top, re, `README intro is missing ${re}`);
   }
+  assert.match(r, /## Contributing/);
   assert.match(r, /## License and disclaimer/);
 });
 
