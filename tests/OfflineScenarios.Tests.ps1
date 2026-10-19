@@ -134,6 +134,10 @@ Describe 'Pre-deployment: empty subscription, then a blocked prod deployment' {
     $s.context.power.autoShutdownTime | Should -Be 'none'
     $s.context.power.startVmOnConnect | Should -BeFalse
     $s.context.sizing | Should -BeNullOrEmpty                   # power alone is not a sizing
+    $c = $s.context.estimate.lines | Where-Object key -eq 'compute'
+    $c.quantity | Should -Be 728                                 # 1 host x 168 h x 52 / 12
+    $c.note | Should -Be '168 h/week each (no Start VM on Connect: hosts stay up through the working day; no scheduled stop)'
+    ((Get-PortalState $out)[1].context.estimate.lines | Where-Object key -eq 'compute').note | Should -Match 'Start VM on Connect starts hosts on demand; stopped daily at 20:00'
   }
   It 'refuses a group found by name whose owner is not an administrator, and accepts one owned by administrators' {
     Get-StepExit $out 'owned-group' | Should -Be 1
@@ -141,10 +145,6 @@ Describe 'Pre-deployment: empty subscription, then a blocked prod deployment' {
     $out | Should -Match 'owned by eve@contoso\.com'
     ((Get-PortalState $out)[11].failures | Where-Object id -eq 'group-owner').Count | Should -Be 2
     Get-StepExit $out 'admin-owned-group' | Should -Be 0
-    $c = $s.context.estimate.lines | Where-Object key -eq 'compute'
-    $c.quantity | Should -Be 728                                 # 1 host x 168 h x 52 / 12
-    $c.note | Should -Be '168 h/week each (no Start VM on Connect: hosts stay up through the working day; no scheduled stop)'
-    ((Get-PortalState $out)[1].context.estimate.lines | Where-Object key -eq 'compute').note | Should -Match 'Start VM on Connect starts hosts on demand; stopped daily at 20:00'
   }
   It 'check mode points at -Fix for the vault' {
     ((Get-PortalState $out)[3].failures | Where-Object id -eq 'kv-softdeleted').remediation | Should -Match 'Rerun with -Fix to recover it into rg-avdlz-prod-management'
