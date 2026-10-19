@@ -117,6 +117,7 @@ Configuring ACLs for Entra identities depends on your identity type (hybrid vs c
 ## 7. Day-2 operations
 
 - **Scale out:** raise `sessionHostCount` and redeploy. Existing hosts are untouched (their run commands see `IsRegistered = 1` and exit).
+- **Redeploying while auto shutdown has the hosts locked** (a budget alert): `deploy.sh` refuses, because the deployment would start the hosts, replace the lock and exclusion tags and turn Start VM on Connect back on. Run Resume first, or pass `--unlock` ([operations.md](operations.md#auto-shutdown)).
 - **Redeploying with hosts stopped:** a deployment updates the hosts' run commands, which Azure allows only on a running VM. `deploy.sh` starts any host that isn't running, says so, and deallocates it again afterwards, so the power state stays as it was ([lesson 0026](lessons/0026-redeploy-stopped-hosts.md)).
 - **New image:** change `sessionHostImage` or move to an Azure Compute Gallery image. Replace hosts by deploying a new `sessionHostNamePrefix`, drain the old hosts, then delete them. A golden image pipeline with resumable rotation is proposed in [image-pipeline-spec.md](image-pipeline-spec.md).
 - **Exclude a host from autoscale:** tag the VM `avd-scaling-exclude`.

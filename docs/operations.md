@@ -216,6 +216,7 @@ The landing zone deploys an Azure Automation runbook, [`scripts/automation/Invok
 - **Parameter file defaults:** `dev.bicepparam` stops idle hosts at 20:00 Central every day. Both files lock the hosts on a budget alert. The portal's Cost step, or `deploy.sh --auto-shutdown HH:mm|none`, changes the scheduled stop (`AVD_AUTO_SHUTDOWN_TIME`).
 - **The budget trigger needs a budget:** set `AVD_MONTHLY_BUDGET` and `AVD_ALERT_EMAIL` before `deploy.sh`. The budget covers the whole subscription. Budgets are evaluated a few times a day, so a lock follows the overspend by hours, not minutes.
 - **Checking:** the post-deployment preflight warns while the hosts are locked and gives the Resume command, and so does the portal.
+- **Deploying while locked:** `deploy.sh` refuses to deploy while the host pool carries the `avdlz-power-lock` tag, because a deployment would start every host, replace the lock and exclusion tags and turn Start VM on Connect back on. Run Resume first. `--unlock` deploys anyway; the hosts then stay in drain mode until Resume runs.
 
 Run it by hand from Cloud Shell, with your own sign-in (`-WhatIf` shows what it would do):
 

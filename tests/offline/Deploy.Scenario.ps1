@@ -43,6 +43,14 @@ Invoke-Deploy 'running'
 $env:FAKE_HOSTS_RG_EXISTS = 'false'
 Invoke-Deploy 'first'
 
+# Locked by auto shutdown (a budget alert): refused before any host is touched, unless --unlock.
+# A what-if only reports it.
+$env:FAKE_HOSTS_RG_EXISTS = 'true'; $env:FAKE_NOT_RUNNING = $stopped; $env:FAKE_POWER_LOCK = 'budget 2026-10-19T03:00:00Z'
+Invoke-Deploy 'locked'
+Invoke-Deploy 'locked-whatif' @('--what-if')
+Invoke-Deploy 'locked-unlock' @('--unlock')
+$env:FAKE_POWER_LOCK = ''; $env:FAKE_NOT_RUNNING = ''
+
 # A group found by name whose owner is not an administrator (red team LZ-1): refused before anything
 # else. Owned by a Global Administrator, it is accepted; given by object ID, owners are not checked.
 $env:FAKE_HOSTS_RG_EXISTS = 'true'; $env:FAKE_GROUP_OWNERS = 'u-eve'; $env:FAKE_ADMIN_IDS = 'admin-1'

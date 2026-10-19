@@ -3,6 +3,7 @@
 # calls scripts/deploy/deploy.sh makes. State comes from the environment:
 #   FAKE_HOSTS_RG_EXISTS  true|false   whether rg-<prefix>-<env>-hosts exists (false = first deployment)
 #   FAKE_NOT_RUNNING      VM resource IDs whose power state isn't 'VM running', one per line
+#   FAKE_POWER_LOCK       the host pool's avdlz-power-lock tag (empty = not locked)
 #   FAKE_DEPLOY_EXIT      exit code of 'az deployment sub create'
 #   FAKE_GROUP_OWNERS     owner object IDs of a group found by name, one per line (empty = no owners)
 #   FAKE_ADMIN_IDS        members of the Global Administrator role, one per line
@@ -23,6 +24,7 @@ case "$1 $2" in
       *) : ;;
     esac ;;
   "group exists") echo "${FAKE_HOSTS_RG_EXISTS:-false}" ;;
+  "resource show") [[ -n "${FAKE_POWER_LOCK:-}" ]] && printf '%s\n' "$FAKE_POWER_LOCK" ;;
   "vm list") [[ -n "${FAKE_NOT_RUNNING:-}" ]] && printf '%s\n' "$FAKE_NOT_RUNNING" ;;
   "vm start"|"vm deallocate") exit 0 ;;
   "deployment sub")
