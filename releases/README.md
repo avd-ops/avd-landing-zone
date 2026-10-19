@@ -29,7 +29,7 @@ git clone --branch v1.0.0 --depth 1 https://github.com/nickprignano/avd-landing-
 cd ~/avd-landing-zone
 ```
 
-Then follow [docs/deploy.md](../docs/deploy.md) and run its commands from that folder. The [deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/) follows `master`: each of its commands switches the checkout to `master` and pulls, so use the portal with `master`, not with a release.
+Then follow [docs/deploy.md](../docs/deploy.md) and [docs/operations.md](../docs/operations.md), running their commands from that folder but skipping any clone/update preamble that checks out `master` or pulls. Keep the checkout at the release tag. The [deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/) also switches to `master` and pulls, so use it only with `master`, not with a release.
 
 ## Notes for each release
 
