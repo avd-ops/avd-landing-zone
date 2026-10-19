@@ -1,0 +1,7 @@
+# Knowledge capture for this repo (ai-brain decision 0011), read by scripts/kb/capture_check.py.
+# This repo has no knowledge base of its own: its lessons go to avd-second-brain's KB, and a PR
+# that changes code links the lesson there with a `KB: <link>` line in its body, or carries the
+# `no-kb` label and a `No KB entry: <reason>` line. AVD pilot through 2026-10-31, review 2026-11-01.
+
+capture_hook = "block"
+kb_repos = ["nickprignano/avd-second-brain"]
