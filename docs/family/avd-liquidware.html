@@ -81,8 +81,10 @@ footer{margin-top:3.5rem;padding-top:1.25rem;border-top:1px solid var(--line);fo
 <li>Provided "as is", without warranty of any kind, under each repo's license. You use it at your own risk and own the Azure charges it incurs.</li>
 <li><strong>Contributions and forks are welcome and encouraged.</strong> See <a href="../index.html#contribute">Contribute</a>.</li></ul></div>
 <h2>What it does</h2><ul><li>One entry point, Deploy-LiquidwareTier.ps1, built slice by slice and read-only so far.</li><li>Stratusphere UX in Azure: preflight, the Hub, Database and Collector appliances, Connector ID Key rollout and teardown.</li><li>Reads the landing zone by its naming convention and never changes its default deployment.</li><li>Bring your own Liquidware licenses. No binaries or license material live in the repo.</li></ul>
-<h2>Try it in a lab</h2><pre># Read-only checks against an existing landing zone
-pwsh ./scripts/Deploy-LiquidwareTier.ps1</pre>
+<h2>Try it in a lab</h2><pre># Azure Cloud Shell (PowerShell)
+if (-not (Test-Path ~/avd-liquidware)) { git clone https://github.com/nickprignano/avd-liquidware.git ~/avd-liquidware }
+Set-Location ~/avd-liquidware; git checkout -q main; git pull -q --ff-only
+./scripts/Deploy-LiquidwareTier.ps1 -NamePrefix avdlz -Environment dev -Component ProfileUnity,FlexApp,Stratusphere -Action Check</pre>
 <p>Full prerequisites and steps are in the <a href="https://github.com/nickprignano/avd-liquidware#readme">README</a>.</p>
 <h2>Read more</h2><ul><li><a href="https://github.com/nickprignano/avd-liquidware">Repository on GitHub</a></li><li><a href="https://github.com/nickprignano/avd-liquidware/blob/HEAD/docs/spec.md">Tier spec</a></li><li><a href="https://github.com/nickprignano/avd-liquidware/blob/HEAD/docs/deploy-spec.md">Deploy spec</a></li><li><a href="https://github.com/nickprignano/avd-liquidware/blob/HEAD/docs/knowledge/README.md">Knowledge base</a></li><li><a href="https://github.com/nickprignano/avd-liquidware#contributing">Contributing</a></li></ul>
 <footer><p>Every repo is open source under MIT (avd-liquidware's knowledge base tooling under Apache-2.0). Azure, Azure Virtual Desktop, Microsoft Entra, Intune and FSLogix are trademarks of Microsoft. Liquidware, ProfileUnity, FlexApp, Stratusphere and CommandCTRL are trademarks of Liquidware.</p>

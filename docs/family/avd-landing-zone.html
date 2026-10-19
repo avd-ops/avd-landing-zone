@@ -81,11 +81,12 @@ footer{margin-top:3.5rem;padding-top:1.25rem;border-top:1px solid var(--line);fo
 <li>Provided "as is", without warranty of any kind, under each repo's license. You use it at your own risk and own the Azure charges it incurs.</li>
 <li><strong>Contributions and forks are welcome and encouraged.</strong> See <a href="../index.html#contribute">Contribute</a>.</li></ul></div>
 <h2>What it does</h2><ul><li>One opinionated path: no domain controllers, no line of sight to on-premises, no post-deployment scripts.</li><li>FSLogix on Premium Azure Files with Entra Kerberos and no storage keys; session hosts on Trusted Launch with encryption at host.</li><li>No default outbound access, AVD Private Link, Azure Policy, Defender for Cloud and a budget that switches hosts off when it runs out.</li><li>Strict Bicep linting, PSScriptAnalyzer, PSRule for Azure and what-if on every pull request; deploys through an environment-gated workflow.</li><li>A deployment portal in the browser that sizes the host pool and walks you through Cloud Shell, one pasted output at a time.</li></ul>
-<h2>Try it in a lab</h2><pre># Azure Cloud Shell
-pwsh ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -PreDeployment \
-  -ParameterFile parameters/dev.bicepparam -UsersGroup &quot;AVD Users&quot; -AdminsGroup &quot;AVD Admins&quot;
-./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus \
-  --users-group &quot;AVD Users&quot; --admins-group &quot;AVD Admins&quot; --what-if</pre>
+<h2>Try it in a lab</h2><pre># Azure Cloud Shell (PowerShell)
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+./scripts/ops/Connect-AvdLandingZone.ps1
+./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -PreDeployment -ParameterFile parameters/dev.bicepparam -Location northcentralus -UsersGroup &#x27;AVD Users&#x27; -AdminsGroup &#x27;AVD Admins&#x27;
+bash ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus --users-group &#x27;AVD Users&#x27; --admins-group &#x27;AVD Admins&#x27; --what-if</pre>
 <p>Full prerequisites and steps are in the <a href="https://github.com/nickprignano/avd-landing-zone#readme">README</a>.</p>
 <h2>Read more</h2><ul><li><a href="https://github.com/nickprignano/avd-landing-zone">Repository on GitHub</a></li><li><a href="https://nickprignano.github.io/avd-landing-zone/portal/">Deployment portal</a></li><li><a href="https://github.com/nickprignano/avd-landing-zone/blob/HEAD/docs/design-decisions.md">Design decisions</a></li><li><a href="https://github.com/nickprignano/avd-landing-zone/blob/HEAD/docs/lessons/README.md">Lessons</a></li><li><a href="https://github.com/nickprignano/avd-landing-zone#contributing">Contributing</a></li></ul>
 <footer><p>Every repo is open source under MIT (avd-liquidware's knowledge base tooling under Apache-2.0). Azure, Azure Virtual Desktop, Microsoft Entra, Intune and FSLogix are trademarks of Microsoft. Liquidware, ProfileUnity, FlexApp, Stratusphere and CommandCTRL are trademarks of Liquidware.</p>
