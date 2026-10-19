@@ -1,7 +1,7 @@
 # Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE). Not affiliated with the author's employer or with Microsoft.
 <#
 .SYNOPSIS
-  Golden image: Windows and Microsoft 365 Apps don't update themselves on hosts (docs/image-pipeline-spec.md section 5.6).
+  Golden image: Windows and Microsoft 365 Apps don't update themselves on hosts (build/specs/image-pipeline-spec.md section 5.6).
 .DESCRIPTION
   The image is the single source of patches; hosts are replaced monthly. The Windows Update
   service stays available: Defender signatures and Intune use it. Intune update rings that

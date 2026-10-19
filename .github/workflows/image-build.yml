@@ -1,6 +1,6 @@
 name: image-build
 
-# Builds the month's golden image with Azure Image Builder (docs/image-pipeline-spec.md section 5,
+# Builds the month's golden image with Azure Image Builder (build/specs/image-pipeline-spec.md section 5,
 # docs/images.md). A new version is excluded from "latest", and no landing zone uses it until a
 # person promotes it, so a scheduled build needs no approval.
 #

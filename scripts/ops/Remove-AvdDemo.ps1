@@ -102,7 +102,7 @@ function Remove-AvdStorageAppLeftover {
     Enabling Entra Kerberos creates the app '[Storage Account] <account>.file.core.windows.net'.
     Deleting the storage account moves the app and its service principal to Entra's deleted items
     for 30 days, still listing the account's names. The account name is deterministic, so the next
-    deployment's app would claim the same names: purge the leftovers (docs/rebuild-spec.md, rule 26).
+    deployment's app would claim the same names: purge the leftovers (build/specs/rebuild-spec.md, rule 26).
   #>
   [CmdletBinding(SupportsShouldProcess)]
   param([Parameter(Mandatory)][string] $StorageFqdn)
@@ -159,7 +159,7 @@ if ($lz.RgExists.Demo) {
 $demoDeployment = "avdlz-demo-$($lz.BaseName)"
 $demoRecord = Get-AzDeployment -Name $demoDeployment -ErrorAction SilentlyContinue
 # Once the hosts are gone, only the deployment record still names them, so a rerun can finish
-# a device cleanup that failed (a Graph sign-in that timed out, docs/lessons/0029).
+# a device cleanup that failed (a Graph sign-in that timed out, build/lessons/0029).
 if (-not $demoHosts.Count -and $demoRecord -and -not $KeepDevices) {
   $record = Invoke-AvdArm -Path "$sub/providers/Microsoft.Resources/deployments/$demoDeployment`?api-version=2021-04-01" -AllowNotFound
   $demoHosts = @($record.properties.outputs.sessionHostNames.value | Where-Object { $_ })

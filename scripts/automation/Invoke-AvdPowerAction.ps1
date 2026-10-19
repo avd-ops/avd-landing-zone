@@ -18,7 +18,7 @@
 
   No modules: ARM REST with a token from the managed identity endpoint (or Get-AzAccessToken in
   Cloud Shell). Written for Windows PowerShell 5.1, the Automation sandbox default: no
-  PowerShell 7-only syntax (docs/lessons/0011).
+  PowerShell 7-only syntax (build/lessons/0011).
 
 .EXAMPLE
   ./scripts/automation/Invoke-AvdPowerAction.ps1 -Action Resume -NamePrefix avdlz -Environment dev
@@ -55,7 +55,7 @@ function Get-ArmToken {
 }
 
 function Get-ErrorText {
-  # Everything the API returned (docs/lessons/0012). 5.1 keeps the body on the response stream;
+  # Everything the API returned (build/lessons/0012). 5.1 keeps the body on the response stream;
   # PowerShell 7 puts it in ErrorDetails.
   param($ErrorRecord)
   $status = ''; $body = ''
@@ -77,7 +77,7 @@ function Invoke-Arm {
 }
 
 function Get-ArmList {
-  # Every item, following nextLink; stops on an error, an empty page or 20 pages (docs/lessons/0008).
+  # Every item, following nextLink; stops on an error, an empty page or 20 pages (build/lessons/0008).
   param([Parameter(Mandatory)][string] $Path)
   $next = $Path; $page = 0
   while ($next -and $page -lt 20) {

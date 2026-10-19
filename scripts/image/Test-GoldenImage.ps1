@@ -1,7 +1,7 @@
 # Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE). Not affiliated with the author's employer or with Microsoft.
 <#
 .SYNOPSIS
-  Golden image: build-time validation (docs/image-pipeline-spec.md section 5.4).
+  Golden image: build-time validation (build/specs/image-pipeline-spec.md section 5.4).
 .DESCRIPTION
   Runs as Azure Image Builder's validate step, on the customized build VM, before AIB
   generalizes it: sysprep's own result comes from the AIB run status, and the QA host is the

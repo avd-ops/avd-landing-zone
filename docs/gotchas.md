@@ -23,7 +23,7 @@ Check these in order:
 3. The user isn't in AVD Users, so has no **SMB Share Contributor** role.
 4. **DNS**: on a host, `Resolve-DnsName <storage>.file.core.windows.net` must return a `10.x` address. In hub mode with custom DNS, the hub must resolve `privatelink.file.core.windows.net` (pass central zones with `centralPrivateDnsZoneResourceIds`).
 5. **Kerberos**: `klist get cifs/<storage>.file.core.windows.net` on the host should return a ticket. No ticket: check that `WinHttpAutoProxySvc` and `iphlpsvc` are running ([Microsoft lists both as required](https://learn.microsoft.com/azure/storage/files/storage-files-identity-auth-hybrid-identities-enable); a hardening baseline may have disabled them). The demo host check reports this.
-6. **SMB channel encryption**: a ticket but still "Access is denied" (SESSION_SETUP returns `STATUS_ACCESS_DENIED`) happens when the share allows only AES-256-GCM. Allow AES-128-GCM too; the storage module does, and the readiness check fails without it ([lesson 0028](lessons/0028-smb-channel-encryption-entra-kerberos.md)).
+6. **SMB channel encryption**: a ticket but still "Access is denied" (SESSION_SETUP returns `STATUS_ACCESS_DENIED`) happens when the share allows only AES-256-GCM. Allow AES-128-GCM too; the storage module does, and the readiness check fails without it ([lesson 0028](../build/lessons/0028-smb-channel-encryption-entra-kerberos.md)).
 
 The `Microsoft-FSLogix-Apps/Operational` log is shipped to Log Analytics, and the *FSLogix profile errors* alert fires on errors.
 
@@ -50,7 +50,7 @@ Subnets have no default outbound access. In `HubPeered` mode, set `hubFirewallPr
 Azure Backup puts a delete lock on protected storage accounts. Stop protection and delete the backup data first.
 
 ### Key Vault name after teardown
-The vault name is deterministic (prefix + environment + subscription + region hash) and purge protection keeps a deleted vault for 90 days. Redeploying the same name in that window fails. The pre-deployment preflight with `-Fix` recovers the vault into its resource group, creating the group again if needed. The deployment then reuses the vault and the prefix can stay. Otherwise change `namePrefix` ([lesson 0022](lessons/0022-key-vault-recovery.md)).
+The vault name is deterministic (prefix + environment + subscription + region hash) and purge protection keeps a deleted vault for 90 days. Redeploying the same name in that window fails. The pre-deployment preflight with `-Fix` recovers the vault into its resource group, creating the group again if needed. The deployment then reuses the vault and the prefix can stay. Otherwise change `namePrefix` ([lesson 0022](../build/lessons/0022-key-vault-recovery.md)).
 
 ### Orphaned devices
 Deleting VMs doesn't remove their Entra ID and Intune device objects. Clean them up, or rebuilt hosts with the same names will be confusing to manage.

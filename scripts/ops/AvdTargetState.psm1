@@ -3,7 +3,7 @@
 <#
   Reads an avd-target-state/v1 manifest (avd-second-brain contract C14) for
   ConvertFrom-AvdTargetState.ps1. Pure functions: they take documents already read
-  from disk and return data, so they are tested offline (tests/TargetState.Tests.ps1).
+  from disk and return data, so they are tested offline (build/tests/TargetState.Tests.ps1).
 #>
 
 function Get-AvdTargetStateDecision {

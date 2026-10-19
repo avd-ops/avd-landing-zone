@@ -1,5 +1,5 @@
 // =====================================================================
-// Golden image pipeline: one build (docs/image-pipeline-spec.md section 5.2)
+// Golden image pipeline: one build (build/specs/image-pipeline-spec.md section 5.2)
 // Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE). Not affiliated with the author's employer or with Microsoft.
 //
 // A short-lived Azure Image Builder template, named after the version it builds.

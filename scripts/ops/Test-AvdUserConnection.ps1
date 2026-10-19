@@ -3,7 +3,7 @@
 <#
 .SYNOPSIS
   Confirms from Azure telemetry that a user's sign-in reached the landing zone's desktop: the
-  deployment portal's Verify access step (decision 0014, docs/verify-access-spec.md).
+  deployment portal's Verify access step (decision 0014, build/specs/verify-access-spec.md).
 
 .DESCRIPTION
   Run from Azure Cloud Shell (PowerShell) after opening the desktop. It reads WVDConnections,

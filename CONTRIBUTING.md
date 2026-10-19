@@ -6,6 +6,16 @@ This is a personal research and learning project, not affiliated with the author
 
 This is an **opinionated** landing zone: Entra ID-only, Intune-managed, private by default, greenfield. Contributions that harden or simplify that path are the best fit here. Another identity model or brownfield options belong in a fork, or in the [AVD LZA](https://github.com/Azure/avdaccelerator), which already covers them: the narrow scope is the point (see [`docs/design-decisions.md`](docs/design-decisions.md)).
 
+## Where things go
+
+The repo is split by who it is for (README, [Repo layout](README.md#repo-layout)):
+
+- **What a person needs to deploy and run the landing zone** stays at the top level: `bicep/`, `parameters/`, `scripts/`, `contracts/` and `docs/` (how to use it). A release's zip holds only these ([releases/](releases/README.md)).
+- **The website** goes in `site/`, which GitHub Pages publishes.
+- **How the project is built** goes in `build/`: tests, lessons, decisions, and specs with their red-team reviews.
+
+Nothing in `bicep/`, `parameters/` or `scripts/` may read from `site/` or `build/`, because a release doesn't have them (`build/tests/portal/layout.test.mjs`).
+
 ## Before you open a PR
 
 Run the same checks CI runs ([`docs/ci.md`](docs/ci.md#running-the-checks-locally)):
@@ -15,11 +25,11 @@ az bicep lint --file bicep/main.bicep
 AVD_USERS_GROUP_ID=x AVD_ADMINS_GROUP_ID=x AVD_SERVICE_PRINCIPAL_ID=x AVD_LOCAL_ADMIN_PASSWORD=Placeholder-1234 \
   az bicep build-params --file parameters/prod.bicepparam --stdout > /dev/null
 pwsh -c "Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1"
-pwsh -c "Invoke-Pester ./tests"
+pwsh -c "Invoke-Pester ./build/tests"
 shellcheck scripts/deploy/deploy.sh
 ```
 
-`./tests` holds three kinds of test: unit tests for the ops module, **offline end-to-end scenarios** (`tests/offline`: the real scripts against a mock of Azure and Graph), and **template guards** (compile the Bicep and assert on it). The last two need the Bicep CLI on `PATH`.
+`./build/tests` holds three kinds of test: unit tests for the ops module, **offline end-to-end scenarios** (`build/tests/offline`: the real scripts against a mock of Azure and Graph), and **template guards** (compile the Bicep and assert on it). The last two need the Bicep CLI on `PATH`.
 
 If your change touches resources, include `deploy.sh --what-if` output from a test subscription in the PR.
 
@@ -38,9 +48,9 @@ The hook runs `gitleaks` over the staged changes and blocks the commit if it fin
 Real deployments and Cloud Shell runs are the source of truth. When one fails for a reason the tests didn't catch:
 1. **Fix it.**
 2. **Add a guard** (a test, an offline scenario or a preflight check) that fails if it comes back.
-3. **Record a lesson** in [`docs/lessons`](docs/lessons/README.md).
+3. **Record a lesson** in [`build/lessons`](build/lessons/README.md).
 
-The routine is written up in [`.claude/skills/retro/SKILL.md`](.claude/skills/retro/SKILL.md), and the PR template asks for it. Choices that shape the repo are recorded in [`docs/decisions`](docs/decisions/README.md). [`CLAUDE.md`](CLAUDE.md) collects the standing rules.
+The routine is written up in [`.claude/skills/retro/SKILL.md`](.claude/skills/retro/SKILL.md), and the PR template asks for it. Choices that shape the repo are recorded in [`build/decisions`](build/decisions/README.md). [`CLAUDE.md`](CLAUDE.md) collects the standing rules.
 
 ## Conventions
 

@@ -1,6 +1,6 @@
 # Golden images: setup and builds
 
-How to set up and run step 1 of the [image pipeline](image-pipeline-spec.md): a monthly golden image, built by Azure Image Builder (AIB) into an Azure Compute Gallery. Promotion to hosts (rotation, the QA pool, automated validation) comes in later steps; until then, landing zones keep using the marketplace image.
+How to set up and run step 1 of the [image pipeline](../build/specs/image-pipeline-spec.md): a monthly golden image, built by Azure Image Builder (AIB) into an Azure Compute Gallery. Promotion to hosts (rotation, the QA pool, automated validation) comes in later steps; until then, landing zones keep using the marketplace image.
 
 **Not verified against a real tenant yet.** The spec's §11 lists what to confirm on the first real build. Report what differs; it becomes a lesson and a guard (decision 0006).
 

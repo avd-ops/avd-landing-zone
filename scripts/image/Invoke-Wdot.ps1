@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
   Golden image: runs the Windows Desktop Optimization Tool (WDOT) with the reviewed profile
-  (docs/image-pipeline-spec.md section 5.5, scripts/image/wdot/README.md).
+  (build/specs/image-pipeline-spec.md section 5.5, scripts/image/wdot/README.md).
 .DESCRIPTION
   Downloads WDOT at the commit pinned in wdot.lock.json and refuses to run when any file's
   SHA-256 differs from the lock, or when the archive holds a function file the lock doesn't
@@ -15,7 +15,7 @@
 
 function Get-AvdWdotProfileHash {
   # SHA-256 over each *.json file in ordinal name order: "<name>`n" followed by the file's bytes.
-  # The lock's profileSha256 is this value; tests/ImageScripts.Tests.ps1 recomputes it.
+  # The lock's profileSha256 is this value; build/tests/ImageScripts.Tests.ps1 recomputes it.
   [CmdletBinding()]
   [OutputType([string])]
   param([Parameter(Mandatory)][string] $Path)

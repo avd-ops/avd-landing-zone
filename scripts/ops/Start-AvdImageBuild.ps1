@@ -2,7 +2,7 @@
 # Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE). Not affiliated with the author's employer or with Microsoft.
 <#
 .SYNOPSIS
-  Builds one golden image version with Azure Image Builder (docs/image-pipeline-spec.md section 5.2).
+  Builds one golden image version with Azure Image Builder (build/specs/image-pipeline-spec.md section 5.2).
 
 .DESCRIPTION
   Run by .github/workflows/image-build.yml (or from Azure Cloud Shell at the repo root):

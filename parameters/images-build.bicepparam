@@ -1,4 +1,4 @@
-// Golden image pipeline: one build (docs/image-pipeline-spec.md section 5.2).
+// Golden image pipeline: one build (build/specs/image-pipeline-spec.md section 5.2).
 // scripts/ops/Start-AvdImageBuild.ps1 sets the AVD_IMAGE_* values for each build; the
 // defaults only let CI compile this file.
 

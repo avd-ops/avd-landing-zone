@@ -5,7 +5,7 @@
 | What | Where | Status |
 |---|---|---|
 | The operations brain's **spec** and red team | avd-second-brain [`docs/operations-spec.md`](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md) (moved from here, section numbers unchanged) | Proposed |
-| The operations brain's **runtime**: `brain.bicep`, detections, playbooks, exceptions, executor, kill switch | This repo, once built ([decision 0012](decisions/0012-second-brain.md)) | Not built |
+| The operations brain's **runtime**: `brain.bicep`, detections, playbooks, exceptions, executor, kill switch | This repo, once built ([decision 0012](../build/decisions/0012-second-brain.md)) | Not built |
 | Lessons and decisions | This repo; avd-second-brain searches them in place and cites `avd-landing-zone@<commit>:<path>` (contract C7) | Built |
 
 ## Contracts with the brain

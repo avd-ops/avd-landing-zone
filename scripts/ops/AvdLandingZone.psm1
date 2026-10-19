@@ -56,9 +56,9 @@ $script:PortalUrl = 'https://nickprignano.github.io/avd-landing-zone/portal/'
 
 function Get-AvdPortalState {
   <#
-    Machine-readable result of a run for the deployment portal (docs/portal): what stage ran,
+    Machine-readable result of a run for the deployment portal (site/portal): what stage ran,
     whether it succeeded, the context needed to build the next command, and every failure and
-    warning with its stable Id and Data. Schema: docs/portal/README.md.
+    warning with its stable Id and Data. Schema: site/portal/README.md.
   #>
   param(
     [Parameter(Mandatory)][ValidateSet('predeploy', 'postdeploy', 'demo', 'cleanup', 'verify')][string] $Stage,
@@ -716,7 +716,7 @@ function Test-AvdLandingZoneResource {
     $auth = $sa.AzureFilesIdentityBasedAuth.DirectoryServiceOptions
     if ($auth -eq 'AADKERB') { Add-AvdCheckResult $area 'Storage uses Entra Kerberos (AADKERB)' 'Pass' }
     else { Add-AvdCheckResult $area 'Storage uses Entra Kerberos (AADKERB)' 'Fail' -Detail "DirectoryServiceOptions: $auth" -Remediation 'Redeploy the landing zone storage module.' }
-    # With AES-256-GCM as the only channel encryption, Azure Files denies Entra Kerberos sessions (docs/lessons/0028).
+    # With AES-256-GCM as the only channel encryption, Azure Files denies Entra Kerberos sessions (build/lessons/0028).
     $smb = (Invoke-AvdArm -Path "$($sa.Id)/fileServices/default?api-version=2023-05-01").properties.protocolSettings.smb
     $channel = "$($smb.channelEncryption)"
     if (-not $channel -or $channel -match 'AES-128-GCM') { Add-AvdCheckResult $area 'Profile share allows AES-128-GCM channel encryption' 'Pass' -Detail $(if ($channel) { $channel } else { 'Azure default' }) }
@@ -1155,7 +1155,7 @@ function Get-AvdRunCommandState {
 # Well-Architected review of the deployed landing zone (-WellArchitected)
 # =====================================================================
 # Findings are warnings, never failures: they are design trade-offs to review, and a dev
-# landing zone makes several on purpose (docs/decisions/0009-well-architected-review.md).
+# landing zone makes several on purpose (build/decisions/0009-well-architected-review.md).
 $script:WafPillars = @('Reliability', 'Security', 'Cost Optimization', 'Operational Excellence', 'Performance Efficiency')
 $script:AdvisorPillar = @{ HighAvailability = 'Reliability'; Security = 'Security'; Cost = 'Cost Optimization'; OperationalExcellence = 'Operational Excellence'; Performance = 'Performance Efficiency' }
 
@@ -2181,7 +2181,7 @@ function Test-AvdPreDeployment {
 }
 
 # =====================================================================
-# Golden image pipeline (docs/image-pipeline-spec.md)
+# Golden image pipeline (build/specs/image-pipeline-spec.md)
 # =====================================================================
 function Get-AvdLatestVersion {
   <# The highest of a list of dotted versions, compared as numbers (never as strings: red-team M1). #>
