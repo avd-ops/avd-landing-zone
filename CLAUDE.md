@@ -59,4 +59,5 @@ Without Pester, run an offline scenario directly: `pwsh -File tests/offline/Post
 
 ## Git and PRs
 - Work on the designated branch; open PRs only when asked. The PR template asks for a Lessons section.
+- **Knowledge capture and handoffs** ([AGENTS.md](AGENTS.md); ai-brain decisions 0011 and 0012): a PR that changes code carries `KB: <link>` to the lesson in avd-second-brain's KB, or the `no-kb` label and a `No KB entry: <reason>` line (`kb-capture` check, Stop hook). Before starting work, check this repo's open `handoff` issues (the SessionStart hook lists them).
 - **Before resetting the branch to `origin/master`, check that no open PR still needs it:** `git merge-base --is-ancestor origin/<branch> origin/master` must succeed. Otherwise build on the branch. (0017)
