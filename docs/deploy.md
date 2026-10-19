@@ -30,8 +30,8 @@ The host pool is deployed in the same region, so the region must offer AVD host 
 
 | Variable | Required | Set by |
 |---|---|---|
-| `AVD_USERS_GROUP_ID` | yes | `deploy.sh --users-group <name>` or you |
-| `AVD_ADMINS_GROUP_ID` | yes | `deploy.sh --admins-group <name>` or you |
+| `AVD_USERS_GROUP_ID` | yes | `deploy.sh --users-group <name or object ID>` or you. A group given by name must have no owner outside the administrator roles (anyone who can create groups could have made one with that name) |
+| `AVD_ADMINS_GROUP_ID` | yes | `deploy.sh --admins-group <name or object ID>` or you, same check |
 | `AVD_SERVICE_PRINCIPAL_ID` | yes | `deploy.sh` (looks up app `9cdead84-a844-4324-93f2-b2e6bb768d07`) |
 | `AVD_LOCAL_ADMIN_PASSWORD` | no | `deploy.sh` generates a random one if unset. Applied only to hosts it creates; see [gotchas](gotchas.md#the-break-glass-password-is-random-and-set-at-host-creation) |
 | `AVD_ALERT_EMAIL` | no | you |

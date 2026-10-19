@@ -192,6 +192,7 @@ Describe 'Microsoft Graph scopes (decision 0016)' {
       'v1\.0/identity/conditionalAccess'                    = 'Policy.ReadWrite.ConditionalAccess'
       'v1\.0/groups|collection groups'                      = 'Group.ReadWrite.All'
       'v1\.0/(me|users|subscribedSkus|organization)\b'      = 'Directory.Read.All'
+      'v1\.0/directoryRoles|collection directoryRoles'      = 'Directory.Read.All'
       'v1\.0/devices|collection devices'                    = 'Device.ReadWrite.All'
       'v1\.0/deviceManagement|collection deviceManagement/managedDevices' = 'DeviceManagementManagedDevices.ReadWrite.All'
     }

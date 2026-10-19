@@ -27,6 +27,18 @@ $channel = & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @lz 6>&1 | Out-Strin
 $global:St.smbChannel = $null
 Write-Host "RESULT smb-channel failed=$($channel -match '\[FAIL \] Profile share allows AES-128-GCM') notReady=$($channel -match '"status":"notready"')"
 
+# A user-registered app with the storage app's display name (red team LZ-2). Beside the real one, the
+# real one (no owners) is used; alone, after a teardown and before the account is redeployed, nothing
+# is consented or excluded from Conditional Access. Not in the state-line list.
+$global:St.storageAppImposter = 'beside'; $excluded = @($global:St.caExclude)
+$beside = & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @lz -Fix -Force 6>&1 | Out-String
+$global:St.storageAppImposter = 'only'; $global:St.caExclude = @()
+$only = & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @lz -Fix -Force 6>&1 | Out-String
+$global:St.storageAppImposter = $null; $global:St.caExclude = $excluded
+$besideReady = $beside -match '"status":"ready"'; $besideApp = $beside -match '\[PASS \] Storage account Entra app exists\s+55555555-'
+$onlyFailed = $only -match '\[FAIL \] Storage account Entra app exists'; $onlyExcluded = @($global:St.caExclude | Where-Object { $_ -eq '66666666-6666-6666-6666-666666666666' }).Count
+Write-Host "RESULT storage-app-imposter besideReady=$besideReady besideApp=$besideApp onlyFailed=$onlyFailed onlyExcluded=$onlyExcluded"
+
 Invoke-ScenarioStep 'demo' { & ./scripts/ops/Deploy-AvdDemo.ps1 @lz -TestUserUpn alex@contoso.com }
 # A hardening baseline that stops a Kerberos client service fails the host check by name. Not in the state-line list.
 $global:St.kerberosServicesStopped = @('iphlpsvc')

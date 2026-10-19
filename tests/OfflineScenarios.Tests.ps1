@@ -36,6 +36,7 @@ Describe 'Post-deployment: preflight, demo and cleanup' {
   It 'is clean when checked again' { Get-StepExit $out 'recheck' | Should -Be 0 }
   It 'warns when Security Defaults is on, without blocking' { $out | Should -Match 'RESULT security-defaults warned=True stillReady=True' }
   It 'fails when the profile share allows only AES-256-GCM channel encryption (lesson 0028)' { $out | Should -Match 'RESULT smb-channel failed=True notReady=True' }
+  It 'tells the storage app Azure created from a user-registered one of the same name by its owners' { $out | Should -Match 'RESULT storage-app-imposter besideReady=True besideApp=True onlyFailed=True onlyExcluded=0' }
   It 'fails the demo host check by name when a Kerberos client service is stopped' { $out | Should -Match 'RESULT kerberos-services failed=True named=True' }
   It 'deploys and validates the demo, then removes it' {
     Get-StepExit $out 'demo' | Should -Be 0
@@ -109,7 +110,7 @@ Describe 'Pre-deployment: empty subscription, then a blocked prod deployment' {
   }
   It 'gives the portal the context and structured failures it needs' {
     $s = Get-PortalState $out
-    ($s | ForEach-Object { "$($_.stage):$($_.status)" }) -join ' ' | Should -Be 'predeploy:notready predeploy:ready predeploy:ready predeploy:notready predeploy:notready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:ready'
+    ($s | ForEach-Object { "$($_.stage):$($_.status)" }) -join ' ' | Should -Be 'predeploy:notready predeploy:ready predeploy:ready predeploy:notready predeploy:notready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:notready predeploy:ready'
     $s[1].context.parameterFile | Should -Be 'parameters/dev.bicepparam'
     $s[1].context.location | Should -Be 'northcentralus'
     $s[1].context.usersGroup | Should -Be 'AVD Users'
@@ -137,6 +138,13 @@ Describe 'Pre-deployment: empty subscription, then a blocked prod deployment' {
     $c.quantity | Should -Be 728                                 # 1 host x 168 h x 52 / 12
     $c.note | Should -Be '168 h/week each (no Start VM on Connect: hosts stay up through the working day; no scheduled stop)'
     ((Get-PortalState $out)[1].context.estimate.lines | Where-Object key -eq 'compute').note | Should -Match 'Start VM on Connect starts hosts on demand; stopped daily at 20:00'
+  }
+  It 'refuses a group found by name whose owner is not an administrator, and accepts one owned by administrators' {
+    Get-StepExit $out 'owned-group' | Should -Be 1
+    $out | Should -Match '\[FAIL \] AVD Users group ''AVD Users'' is owned by administrators'
+    $out | Should -Match 'owned by eve@contoso\.com'
+    ((Get-PortalState $out)[11].failures | Where-Object id -eq 'group-owner').Count | Should -Be 2
+    Get-StepExit $out 'admin-owned-group' | Should -Be 0
   }
   It 'check mode points at -Fix for the vault' {
     ((Get-PortalState $out)[3].failures | Where-Object id -eq 'kv-softdeleted').remediation | Should -Match 'Rerun with -Fix to recover it into rg-avdlz-prod-management'
@@ -242,8 +250,16 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     Get-Result 'locked-unlock-calls' | Should -Be 'group-exists,vm-list,vm-start,deployment-create,vm-deallocate'
     $out | Should -Match 'deploying anyway \(--unlock\)'
   }
+  It 'refuses a group found by name whose owner is not an administrator, before touching anything' {
+    Get-StepExit $out 'owned-group' | Should -Be 1
+    Get-Result 'owned-group-calls' | Should -Be ''
+    $out | Should -Match "Entra group 'AVD Users' \(00000000-0000-0000-0000-0000000000a1\) has an owner who is not an administrator"
+    Get-StepExit $out 'admin-owned-group' | Should -Be 0
+    Get-Result 'admin-owned-group-calls' | Should -Be 'group-exists,vm-list,deployment-create'
+    Get-StepExit $out 'group-by-id' | Should -Be 0
+  }
   It 'makes no az call the fake does not know' {
-    foreach ($s in 'stopped', 'stopped-fails', 'whatif', 'running', 'first', 'locked', 'locked-whatif', 'locked-unlock') { Get-Result "$s-unmocked" | Should -Be 'False' }
+    foreach ($s in 'stopped', 'stopped-fails', 'whatif', 'running', 'first', 'locked', 'locked-whatif', 'locked-unlock', 'owned-group', 'admin-owned-group', 'group-by-id') { Get-Result "$s-unmocked" | Should -Be 'False' }
   }
 }
 

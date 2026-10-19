@@ -5,13 +5,24 @@
 #   FAKE_NOT_RUNNING      VM resource IDs whose power state isn't 'VM running', one per line
 #   FAKE_POWER_LOCK       the host pool's avdlz-power-lock tag (empty = not locked)
 #   FAKE_DEPLOY_EXIT      exit code of 'az deployment sub create'
+#   FAKE_GROUP_OWNERS     owner object IDs of a group found by name, one per line (empty = no owners)
+#   FAKE_ADMIN_IDS        members of the Global Administrator role, one per line
 echo "az $*" >> "$FAKE_AZ_LOG"
 case "$1 $2" in
   "bicep version"|"provider register"|"feature register") exit 0 ;;
   "account show") [[ "$*" == *"--query name"* ]] && echo "Fake subscription" || echo '{}' ;;
   "provider show"|"feature show") echo Registered ;;
-  "ad group") echo 00000000-0000-0000-0000-0000000000a1 ;;
+  "ad group") case "$3" in
+      owner) [[ -n "${FAKE_GROUP_OWNERS:-}" ]] && printf '%s\n' "$FAKE_GROUP_OWNERS" ;;
+      *) echo 00000000-0000-0000-0000-0000000000a1 ;;
+    esac ;;
+  "ad signed-in-user") echo 00000000-0000-0000-0000-0000000000a9 ;;
   "ad sp") echo 00000000-0000-0000-0000-0000000000a2 ;;
+  "rest --method") case "$*" in
+      *"directoryRoles?"*62e90394*) echo role-ga ;;
+      *directoryRoles/role-ga/members*) [[ -n "${FAKE_ADMIN_IDS:-}" ]] && printf '%s\n' "$FAKE_ADMIN_IDS" ;;
+      *) : ;;
+    esac ;;
   "group exists") echo "${FAKE_HOSTS_RG_EXISTS:-false}" ;;
   "resource show") [[ -n "${FAKE_POWER_LOCK:-}" ]] && printf '%s\n' "$FAKE_POWER_LOCK" ;;
   "vm list") [[ -n "${FAKE_NOT_RUNNING:-}" ]] && printf '%s\n' "$FAKE_NOT_RUNNING" ;;

@@ -99,8 +99,36 @@ fi
 az provider register -n Microsoft.Compute >/dev/null
 
 # --- Entra ID lookups ---
+# A group given by name must not be one an ordinary user created with that name: it would get VM
+# Admin Login, the break-glass secret and elevated share access. Its owners must be administrators
+# (or you). A group given by object ID was picked deliberately and is used as it is.
+admin_role_member_ids() {
+  # Active members of Global, Privileged Role, Groups and User Administrator (role template IDs).
+  local t r
+  for t in 62e90394-69f5-4237-9190-012177145e10 e8611ab8-c189-46e8-94e1-60213ab1f814 fdd7a751-b60b-444a-984c-02652fe8fa1c fe930be7-5e62-47db-91af-98c3a49a38b1; do
+    for r in $(az rest --method get --url "https://graph.microsoft.com/v1.0/directoryRoles?\$filter=roleTemplateId eq '$t'" --query "value[].id" -o tsv 2>/dev/null); do
+      az rest --method get --url "https://graph.microsoft.com/v1.0/directoryRoles/$r/members?\$select=id" --query "value[].id" -o tsv 2>/dev/null
+    done
+  done
+}
 resolve_group() {
-  az ad group show --group "$1" --query id -o tsv 2>/dev/null || { echo "Entra group not found: $1" >&2; exit 1; }
+  local id owners allowed o
+  id=$(az ad group show --group "$1" --query id -o tsv 2>/dev/null) || { echo "Entra group not found: $1" >&2; exit 1; }
+  if [[ ! $1 =~ ^[0-9a-fA-F-]{36}$ ]]; then
+    owners=$(az ad group owner list --group "$id" --query "[].id" -o tsv 2>/dev/null || true)
+    if [[ -n "$owners" ]]; then
+      allowed=$(printf '%s\n' "$(az ad signed-in-user show --query id -o tsv 2>/dev/null || true)" "$(admin_role_member_ids)")
+      for o in $owners; do
+        grep -qx "$o" <<<"$allowed" || {
+          echo "Entra group '$1' ($id) has an owner who is not an administrator; a group anyone created must not get the landing zone's rights." >&2
+          echo "Pass the object ID of a group an administrator created (AVD_USERS_GROUP_ID / AVD_ADMINS_GROUP_ID), or remove that owner." >&2
+          exit 1
+        }
+      done
+    fi
+    echo "    $1 -> $id" >&2
+  fi
+  echo "$id"
 }
 [[ -n "$USERS_GROUP" ]] && AVD_USERS_GROUP_ID=$(resolve_group "$USERS_GROUP")
 [[ -n "$ADMINS_GROUP" ]] && AVD_ADMINS_GROUP_ID=$(resolve_group "$ADMINS_GROUP")
