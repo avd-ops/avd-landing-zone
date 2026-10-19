@@ -9,7 +9,7 @@ parameters/*.local.bicepparam
 
 # Bicep build output (bicep build / build-params write <name>.json beside the source).
 # Only there: a repo-wide *.json rule once kept the image pipeline's JSON data files out
-# of a PR (docs/lessons/0027). Data files the templates load must be committed.
+# of a PR (build/lessons/0027). Data files the templates load must be committed.
 bicep/**/*.json
 parameters/**/*.json
 

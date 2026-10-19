@@ -1,5 +1,5 @@
 {
-  "description": "Vendored copies of avd-second-brain contracts C14 and C15. Each must be byte-identical to the file at brainCommit; tests/TargetState.Tests.ps1 checks the hashes. To update: copy the files from avd-second-brain at a new commit, then update brainCommit and the hashes in the same PR.",
+  "description": "Vendored copies of avd-second-brain contracts C14 and C15. Each must be byte-identical to the file at brainCommit; build/tests/TargetState.Tests.ps1 checks the hashes. To update: copy the files from avd-second-brain at a new commit, then update brainCommit and the hashes in the same PR.",
   "source": "https://github.com/nickprignano/avd-second-brain",
   "brainCommit": "29435abb79905ce91651013e368c824aab63ee8c",
   "files": {

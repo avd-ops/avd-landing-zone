@@ -15,6 +15,7 @@ The **Source code (zip)** on each [GitHub release](https://github.com/nickprigna
 | `parameters/` | the parameter files (tenant values come from environment variables) |
 | `scripts/` | `deploy.sh`, the Cloud Shell ops scripts, the auto shutdown runbook, the image steps |
 | `contracts/` | the avd-second-brain contracts the scripts read |
+| `.ps-rule/`, `ps-rule.yaml` | the accepted PSRule suppressions the `-WellArchitected` review reads |
 | `docs/` | how to deploy, operate and understand it |
 | `README.md`, `LICENSE`, `CONTRIBUTING.md`, `releases/` | |
 
@@ -22,14 +23,16 @@ The website (`site/`), the tests, lessons, decisions and specs (`build/`), and t
 
 ## Use a release
 
-In [Azure Cloud Shell](https://shell.azure.com), clone at the tag so every command runs the released code:
+In [Azure Cloud Shell](https://shell.azure.com), clone the repo and check out the tag, so every command runs the released code:
 
 ```bash
-git clone --branch v1.0.0 --depth 1 https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone
-cd ~/avd-landing-zone
+git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone
+cd ~/avd-landing-zone && git checkout v1.0.0
 ```
 
-Then follow [docs/deploy.md](../docs/deploy.md) and run its commands from that folder. The [deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/) follows `master`: each of its commands switches the checkout to `master` and pulls, so use the portal with `master`, not with a release.
+Use a full clone, not `--depth 1 --branch <tag>` or the zip. `deploy.sh` pins the auto shutdown runbook to the commit being deployed only when it can see that commit on a GitHub branch; from a tag-only shallow clone or a zip it falls back to the runbook on `master`.
+
+Then follow [docs/deploy.md](../docs/deploy.md) and [docs/operations.md](../docs/operations.md) from that folder, **without their first lines**: each block starts by cloning or updating the repo (`git checkout -q master; git pull -q --ff-only` or `git pull --ff-only`), which would move you off the release. Run only the lines after it. The [deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/) adds the same preamble to every command, so use the portal with `master`, not with a release.
 
 ## Notes for each release
 

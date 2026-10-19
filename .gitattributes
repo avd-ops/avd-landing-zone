@@ -9,8 +9,6 @@ contracts/fact-register.json -text
 /.claude export-ignore
 /.githooks export-ignore
 /.github export-ignore
-/.ps-rule export-ignore
-/ps-rule.yaml export-ignore
 /PSScriptAnalyzerSettings.psd1 export-ignore
 /.gitleaksignore export-ignore
 /CLAUDE.md export-ignore

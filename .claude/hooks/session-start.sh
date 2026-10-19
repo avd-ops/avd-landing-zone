@@ -8,9 +8,9 @@
 set -uo pipefail
 
 repo="${CLAUDE_PROJECT_DIR:-$(pwd)}"
-if [ -f "$repo/docs/lessons/README.md" ]; then
+if [ -f "$repo/build/lessons/README.md" ]; then
   echo "=== Lessons from real runs (build/lessons). Read the relevant one before changing that area. ==="
-  sed -n '/^| #/,/^$/p' "$repo/docs/lessons/README.md"
+  sed -n '/^| #/,/^$/p' "$repo/build/lessons/README.md"
 fi
 
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
