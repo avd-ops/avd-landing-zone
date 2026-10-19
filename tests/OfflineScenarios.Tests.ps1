@@ -228,8 +228,22 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     Get-Result 'running-calls' | Should -Be 'group-exists,vm-list,deployment-create'
     Get-Result 'first-calls' | Should -Be 'group-exists,deployment-create'
   }
+  It 'refuses to deploy while auto shutdown has the hosts locked, before touching a host' {
+    Get-StepExit $out 'locked' | Should -Be 1
+    Get-Result 'locked-calls' | Should -Be 'group-exists'
+    $out | Should -Match 'locked by auto shutdown \(budget 2026-10-19T03:00:00Z\)\. Not deploying'
+    $out | Should -Match 'Invoke-AvdPowerAction\.ps1 -Action Resume -NamePrefix avdlz -Environment dev'
+    Get-StepExit $out 'locked-whatif' | Should -Be 0   # a what-if changes nothing, so it only says so
+    Get-Result 'locked-whatif-calls' | Should -Be 'group-exists,vm-list,deployment-what-if'
+    $out | Should -Match 'The deployment itself is refused until Resume runs'
+  }
+  It 'deploys over the lock with --unlock and says the hosts stay drained' {
+    Get-StepExit $out 'locked-unlock' | Should -Be 0
+    Get-Result 'locked-unlock-calls' | Should -Be 'group-exists,vm-list,vm-start,deployment-create,vm-deallocate'
+    $out | Should -Match 'deploying anyway \(--unlock\)'
+  }
   It 'makes no az call the fake does not know' {
-    foreach ($s in 'stopped', 'stopped-fails', 'whatif', 'running', 'first') { Get-Result "$s-unmocked" | Should -Be 'False' }
+    foreach ($s in 'stopped', 'stopped-fails', 'whatif', 'running', 'first', 'locked', 'locked-whatif', 'locked-unlock') { Get-Result "$s-unmocked" | Should -Be 'False' }
   }
 }
 
