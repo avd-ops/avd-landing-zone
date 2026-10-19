@@ -1,8 +1,10 @@
 # Contributing
 
-This is a personal project, not affiliated with the author's employer, and not intended for production use. Contributions are accepted under the [MIT License](LICENSE), as is and without warranty.
+Contributions and forks are welcome and encouraged. Open an issue for a bug, a question or an idea, or a pull request with a fix, a test, a doc or a lesson from a real run. Forking it to fit your own environment is just as welcome.
 
-This is an **opinionated** landing zone: Entra ID-only, Intune-managed, private by default, greenfield. Contributions that harden or simplify that path are welcome. Contributions that add another identity model or brownfield options will usually be declined, because the [AVD LZA](https://github.com/Azure/avdaccelerator) already covers them and the narrow scope is the point (see [`docs/design-decisions.md`](docs/design-decisions.md)).
+This is a personal research and learning project, not affiliated with the author's employer, and not intended for production use. Contributions are accepted under the [MIT License](LICENSE), as is and without warranty.
+
+This is an **opinionated** landing zone: Entra ID-only, Intune-managed, private by default, greenfield. Contributions that harden or simplify that path are the best fit here. Another identity model or brownfield options belong in a fork, or in the [AVD LZA](https://github.com/Azure/avdaccelerator), which already covers them: the narrow scope is the point (see [`docs/design-decisions.md`](docs/design-decisions.md)).
 
 ## Before you open a PR
 
