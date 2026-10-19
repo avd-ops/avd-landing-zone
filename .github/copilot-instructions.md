@@ -26,3 +26,4 @@ You are an advisory reviewer. Never approve, and never say a change is safe to m
 18. **The default deployment must not change** in time, resources or required parameters unless the PR says so. Optional features stay behind a flag that is off by default.
 19. **Guardrails:** say plainly whether a change to guardrails in the operations brain spec §9.2 (avd-second-brain `docs/operations-spec.md`) or `docs/image-pipeline-spec.md` raises or lowers capability.
 20. **American English** in docs, script output, the portal and comments (recorded fixtures excepted). New entry-point scripts and templates keep the one-line "personal project, not for production" notice.
+21. **Stay in the AVD lane.** No Terraform, Packer or other HCL, and no Nerdio or Liquidware product code here: flag it as belonging to nerdio-hcl or avd-liquidware (`docs/out-of-scope.md`, avd-second-brain decision 0012).
