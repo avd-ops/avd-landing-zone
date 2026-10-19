@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>avd-second-brain | AVD family</title>
+<meta name="description" content="One memory across the AVD lifecycle: what each estate looked like, what broke, what the organization learned, and why each rule is what it is.">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&family=Schibsted+Grotesk:wght@600;700&family=Source+Sans+3:wght@400;600&display=swap">
+<style>
+/* Layout: one narrow reading column; the lifecycle runs as a strip of stages, the brain as the band under them. */
+:root{
+  --bg:#f4f6f9; --surface:#ffffff; --fg:#152232; --muted:#566578; --line:#d7dee8;
+  --accent:#0f5fa8; --accent-soft:#e3eef9; --tier:#9a5b12; --tier-soft:#f7ecdc;
+  --warn-bg:#fff6e0; --warn-line:#e2b74a; --warn-fg:#4d3a07;
+  --display:"Schibsted Grotesk","Segoe UI",system-ui,sans-serif;
+  --body:"Source Sans 3","Segoe UI",system-ui,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1620; --surface:#16202c; --fg:#e4ebf3; --muted:#9aa9ba; --line:#2a3646;
+  --accent:#6cb0f0; --accent-soft:#16304a; --tier:#e5a95a; --tier-soft:#3a2a14;
+  --warn-bg:#2e2610; --warn-line:#8a6d1e; --warn-fg:#f3e3b0; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1620; --surface:#16202c; --fg:#e4ebf3; --muted:#9aa9ba; --line:#2a3646;
+  --accent:#6cb0f0; --accent-soft:#16304a; --tier:#e5a95a; --tier-soft:#3a2a14;
+  --warn-bg:#2e2610; --warn-line:#8a6d1e; --warn-fg:#f3e3b0; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:17px/1.6 var(--body);margin:0}
+.wrap{max-width:60rem;margin:0 auto;padding-block:0 4rem;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+a{color:var(--accent)} a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+header.top{display:flex;flex-wrap:wrap;gap:.5rem 1.25rem;align-items:baseline;padding-block:1.25rem;border-bottom:1px solid var(--line)}
+header.top .brand{font:700 1.05rem var(--display);color:var(--fg);text-decoration:none;margin-right:auto}
+header.top nav{display:flex;flex-wrap:wrap;gap:.25rem 1rem;font-size:.95rem}
+header.top nav a{text-decoration:none;color:var(--muted)} header.top nav a[aria-current]{color:var(--fg);font-weight:600}
+h1,h2,h3{font-family:var(--display);line-height:1.2;text-wrap:balance}
+h1{font-size:clamp(2rem,5vw,2.9rem);margin:2.5rem 0 .75rem;letter-spacing:-.01em}
+h2{font-size:1.45rem;margin:2.75rem 0 .75rem} h3{font-size:1.1rem;margin:0 0 .35rem}
+p,li{max-width:65ch} .lede{font-size:1.2rem;color:var(--muted)}
+code,.mono{font-family:var(--mono);font-size:.85em}
+.warn{background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--warn-fg);border-radius:6px;padding:.9rem 1.1rem;margin:1.5rem 0;font-size:.95rem}
+.warn strong:first-child{display:block;margin-bottom:.25rem}
+.warn ul{margin:.25rem 0 0;padding-left:1.2rem}
+.eyebrow{font:600 .75rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.lifecycle{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.75rem;margin-top:1rem}
+.stage{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:1rem;display:flex;flex-direction:column;gap:.35rem;min-width:0}
+.stage h3 a{text-decoration:none;color:var(--fg)} .stage h3 a:hover{color:var(--accent)}
+.stage p{margin:0;font-size:.95rem;color:var(--muted)}
+.brainband{grid-column:1/-1;background:var(--accent-soft);border-color:transparent}
+.tierband{grid-column:1/-1;background:var(--tier-soft);border-color:transparent}
+.tierband .eyebrow{color:var(--tier)}
+.chips{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.25rem}
+.chip{font:500 .72rem var(--mono);border:1px solid var(--line);border-radius:999px;padding:.1rem .5rem;color:var(--muted);background:var(--bg)}
+.status{font:600 .72rem var(--mono);text-transform:uppercase;letter-spacing:.06em;padding:.15rem .5rem;border-radius:4px;align-self:flex-start}
+.s-built{background:#d9f2e3;color:#14532d} .s-design{background:#eee6fb;color:#4c1d95} .s-slice{background:#fdecc8;color:#713f12}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .s-built{background:#123824;color:#a7e8c0}
+ :root:not([data-theme="light"]) .s-design{background:#2c1f4a;color:#d4c4fb} :root:not([data-theme="light"]) .s-slice{background:#3d2e0e;color:#f5d58a}}
+:root[data-theme="dark"] .s-built{background:#123824;color:#a7e8c0} :root[data-theme="dark"] .s-design{background:#2c1f4a;color:#d4c4fb} :root[data-theme="dark"] .s-slice{background:#3d2e0e;color:#f5d58a}
+.tbl{overflow-x:auto;margin:1rem 0} table{border-collapse:collapse;width:100%;font-size:.95rem}
+th,td{text-align:left;vertical-align:top;padding:.55rem .7rem;border-bottom:1px solid var(--line)} th{font-family:var(--display);font-size:.85rem;color:var(--muted)}
+td:first-child{white-space:nowrap}
+pre{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:.9rem 1rem;overflow-x:auto;font:.82rem/1.55 var(--mono)}
+.principles{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:1rem 1.5rem;padding:0;list-style:none}
+.principles li strong{display:block;font-family:var(--display)}
+footer{margin-top:3.5rem;padding-top:1.25rem;border-top:1px solid var(--line);font-size:.85rem;color:var(--muted)}
+.cta{display:inline-block;margin:.5rem .5rem 0 0;padding:.5rem .95rem;border-radius:6px;background:var(--accent);color:var(--bg);text-decoration:none;font-weight:600}
+.cta.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+@media (max-width:44rem){.lifecycle{grid-template-columns:minmax(0,1fr)} td:first-child{white-space:normal}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap"><header class="top"><a class="brand" href="../index.html">AVD family</a><nav aria-label="Repos"><a href="../index.html">Overview</a><a href="avd-landing-zone.html">avd-landing-zone</a><a href="avd-current-state.html">avd-current-state</a><a href="avd-swarm.html">avd-swarm</a><a href="avd-second-brain.html" aria-current="page">avd-second-brain</a><a href="avd-liquidware.html">avd-liquidware</a></nav></header>
+<p class="eyebrow" style="margin-top:2.5rem">Remember and learn</p>
+<h1 style="margin-top:.25rem">avd-second-brain</h1>
+<p class="lede">One memory across the AVD lifecycle: what each estate looked like, what broke, what the organization learned, and why each rule is what it is.</p>
+<span class="status s-built">Built, growing</span>
+<div class="warn" role="note"><strong>Personal project. Research and learning only. Not for production. No warranty.</strong>
+<ul><li>Built on my own time for research and learning. Not affiliated with, endorsed by or supported by my employer, Liquidware or Microsoft.</li>
+<li>Don't run any of it in production or against tenants that matter. Test in a dedicated lab subscription and tenant first.</li>
+<li>Provided "as is", without warranty of any kind, under each repo's license. You use it at your own risk and own the Azure charges it incurs.</li>
+<li><strong>Contributions and forks are welcome and encouraged.</strong> See <a href="../index.html#contribute">Contribute</a>.</li></ul></div>
+<h2>What it does</h2><ul><li>A knowledge base of generalized facts: app catalog, rules with their history, sizing calibration and shared runbooks.</li><li>Estate vaults keep one customer's estate in that customer's own private repo. Tenant data never comes back here.</li><li>A docs consistency check and a generated handbook keep every repo's docs in step with the code and the contracts.</li><li>The family knowledge base: topic pages, decision records, known errors and the sources watched to keep it current.</li><li>Models propose, people approve. Knowledge changes only through a pull request a person merges.</li></ul>
+<h2>Try it in a lab</h2><pre># Azure Cloud Shell (PowerShell)
+if (-not (Test-Path ~/avd-second-brain)) { git clone https://github.com/nickprignano/avd-second-brain.git ~/avd-second-brain }
+Set-Location ~/avd-second-brain; git checkout -q main; git pull -q --ff-only
+./scripts/Sync-BrainSources.ps1
+./scripts/Find-BrainKnowledge.ps1 &#x27;fslogix kerberos&#x27;
+./scripts/Find-BrainKnowledge.ps1 -Calibration</pre>
+<p>Full prerequisites and steps are in the <a href="https://github.com/nickprignano/avd-second-brain#readme">README</a>.</p>
+<h2>Read more</h2><ul><li><a href="https://github.com/nickprignano/avd-second-brain">Repository on GitHub</a></li><li><a href="https://github.com/nickprignano/avd-second-brain/blob/HEAD/docs/architecture.md">Architecture</a></li><li><a href="https://github.com/nickprignano/avd-second-brain/blob/HEAD/docs/contracts.md">Contracts</a></li><li><a href="https://github.com/nickprignano/avd-second-brain/blob/HEAD/wiki/README.md">Handbook</a></li><li><a href="https://github.com/nickprignano/avd-second-brain#contributing">Contributing</a></li></ul>
+<footer><p>Every repo is open source under MIT (avd-liquidware's knowledge base tooling under Apache-2.0). Azure, Azure Virtual Desktop, Microsoft Entra, Intune and FSLogix are trademarks of Microsoft. Liquidware, ProfileUnity, FlexApp, Stratusphere and CommandCTRL are trademarks of Liquidware.</p>
+<p>This site is built from each repo's README. Something wrong? Open an issue or a pull request in the repo it came from.</p></footer></div>
+</body>
+</html>
