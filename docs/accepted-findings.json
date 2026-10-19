@@ -1,0 +1,89 @@
+{
+  "about": "Docs findings this repo accepts, by key, with the reason (avd-second-brain docs/docs-spec.md section 12). The docs check leaves them out; D11 can't be accepted. Remove an entry when its text changes or the file is built.",
+  "accepted": [
+    {
+      "key": "9817f41dc780",
+      "check": "D1",
+      "path": ".github/copilot-instructions.md",
+      "reason": "Names a file that moved to avd-second-brain, as the sentence says."
+    },
+    {
+      "key": "4261d2c3d3d7",
+      "check": "D1",
+      "path": "docs/second-brain.md",
+      "reason": "Names a file that moved to avd-second-brain, as the sentence says."
+    },
+    {
+      "key": "1303b96b9e66",
+      "check": "D1",
+      "path": "build/decisions/0015-foundry-cua.md",
+      "reason": "Designed in a spec, not built yet; the path is where it will live."
+    },
+    {
+      "key": "0b99404768dd",
+      "check": "D1",
+      "path": "build/specs/image-pipeline-redteam.md",
+      "reason": "Designed in a spec, not built yet; the path is where it will live."
+    },
+    {
+      "key": "86bbb376c0ce",
+      "check": "D1",
+      "path": "build/specs/image-pipeline-redteam.md",
+      "reason": "Designed in a spec, not built yet; the path is where it will live."
+    },
+    {
+      "key": "37d7b92f483c",
+      "check": "D1",
+      "path": "build/specs/image-pipeline-spec.md",
+      "reason": "Designed in a spec, not built yet; the path is where it will live."
+    },
+    {
+      "key": "0a23aad89798",
+      "check": "D1",
+      "path": "build/specs/image-pipeline-spec.md",
+      "reason": "Designed in a spec, not built yet; the path is where it will live."
+    },
+    {
+      "key": "a472cd67394c",
+      "check": "D1",
+      "path": "build/specs/image-pipeline-spec.md",
+      "reason": "Designed in a spec, not built yet; the path is where it will live."
+    },
+    {
+      "key": "bd6cce2a5d73",
+      "check": "D1",
+      "path": "build/specs/second-brain-redteam.md",
+      "reason": "Names a file that moved to avd-second-brain, as the sentence says."
+    },
+    {
+      "key": "8361556033c5",
+      "check": "D1",
+      "path": "build/specs/second-brain-spec.md",
+      "reason": "Names a file that moved to avd-second-brain, as the sentence says."
+    },
+    {
+      "key": "09f8419c2416",
+      "check": "D1",
+      "path": "build/specs/second-brain-spec.md",
+      "reason": "Names a file that moved to avd-second-brain, as the sentence says."
+    },
+    {
+      "key": "68b5b922ab36",
+      "check": "D1",
+      "path": "build/specs/verify-access-spec.md",
+      "reason": "Designed in a spec, not built yet; the path is where it will live."
+    },
+    {
+      "key": "9a8a9c1e40ba",
+      "check": "D1",
+      "path": "build/specs/verify-access-spec.md",
+      "reason": "Designed in a spec, not built yet; the path is where it will live."
+    },
+    {
+      "key": "6023cedad4ae",
+      "check": "D1",
+      "path": "build/specs/verify-access-spec.md",
+      "reason": "Designed in a spec, not built yet; the path is where it will live."
+    }
+  ]
+}

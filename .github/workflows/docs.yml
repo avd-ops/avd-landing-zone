@@ -1,0 +1,22 @@
+name: docs
+
+# The docs consistency check from avd-second-brain (its docs/docs-spec.md, decision 0004), pinned to
+# a commit of that repo: the same SHA twice, so the facts of record a PR is checked against are fixed
+# and reviewable. Bumping the pin is a PR here. Read-only: it parses scripts, never runs them, and
+# writes a findings artifact (contract C13). During the rollout only D11 (generated text that looks
+# like tenant data) fails it.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    permissions:
+      contents: read
+    uses: nickprignano/avd-second-brain/.github/workflows/docs-check.yml@fccd64473c69727036e5a3976d782ab6407103d9
+    with:
+      repo-name: avd-landing-zone
+      brain-ref: fccd64473c69727036e5a3976d782ab6407103d9

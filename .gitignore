@@ -21,3 +21,6 @@ reports/
 .vscode/
 *.swp
 testResults.xml
+
+# Python bytecode (scripts/kb)
+__pycache__/

@@ -12,3 +12,6 @@ contracts/fact-register.json -text
 /PSScriptAnalyzerSettings.psd1 export-ignore
 /.gitleaksignore export-ignore
 /CLAUDE.md export-ignore
+/AGENTS.md export-ignore
+/scripts/kb export-ignore
+/docs/accepted-findings.json export-ignore

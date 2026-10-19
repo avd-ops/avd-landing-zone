@@ -390,7 +390,7 @@
       "path": "/groups/*/concurrency/byHour",
       "grain": "group",
       "unit": "sessions",
-      "privacy": "count",
+      "privacy": "group-behavior",
       "status": "specified",
       "evidences": [
         "hostPool.hosts"
@@ -403,7 +403,21 @@
       "path": "/groups/*/perUser/p95CpuPercentOfCore",
       "grain": "group",
       "unit": "%",
-      "privacy": "measure",
+      "privacy": "group-behavior",
+      "status": "specified",
+      "evidences": [
+        "hostPool.vmSize",
+        "hostPool.maxSessions"
+      ]
+    },
+    {
+      "id": "c12.group.perUser.p50CpuPercentOfCore",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/perUser/p50CpuPercentOfCore",
+      "grain": "group",
+      "unit": "%",
+      "privacy": "group-behavior",
       "status": "specified",
       "evidences": [
         "hostPool.vmSize",
@@ -417,7 +431,21 @@
       "path": "/groups/*/perUser/p95MemoryMiB",
       "grain": "group",
       "unit": "MiB",
-      "privacy": "measure",
+      "privacy": "group-behavior",
+      "status": "specified",
+      "evidences": [
+        "hostPool.vmSize",
+        "hostPool.maxSessions"
+      ]
+    },
+    {
+      "id": "c12.group.perUser.p50MemoryMiB",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/perUser/p50MemoryMiB",
+      "grain": "group",
+      "unit": "MiB",
+      "privacy": "group-behavior",
       "status": "specified",
       "evidences": [
         "hostPool.vmSize",
@@ -431,7 +459,20 @@
       "path": "/groups/*/perUser/p95DiskIops",
       "grain": "group",
       "unit": "iops",
-      "privacy": "measure",
+      "privacy": "group-behavior",
+      "status": "specified",
+      "evidences": [
+        "hostPool.vmSize"
+      ]
+    },
+    {
+      "id": "c12.group.perUser.p50DiskIops",
+      "tier": "forensic",
+      "contract": "C12",
+      "path": "/groups/*/perUser/p50DiskIops",
+      "grain": "group",
+      "unit": "iops",
+      "privacy": "group-behavior",
       "status": "specified",
       "evidences": [
         "hostPool.vmSize"
@@ -458,7 +499,7 @@
       "path": "/groups/*/perHost/p95CpuPercent",
       "grain": "group",
       "unit": "%",
-      "privacy": "measure",
+      "privacy": "group-behavior",
       "status": "specified",
       "evidences": [
         "hostPool.vmSize",
@@ -472,7 +513,7 @@
       "path": "/groups/*/perHost/p95MemoryPercent",
       "grain": "group",
       "unit": "%",
-      "privacy": "measure",
+      "privacy": "group-behavior",
       "status": "specified",
       "evidences": [
         "hostPool.vmSize",
@@ -486,7 +527,7 @@
       "path": "/groups/*/logonSeconds/p95",
       "grain": "group",
       "unit": "seconds",
-      "privacy": "measure",
+      "privacy": "group-behavior",
       "status": "specified",
       "evidences": []
     },
@@ -497,7 +538,7 @@
       "path": "/groups/*/uxScoreMedian",
       "grain": "group",
       "unit": "score",
-      "privacy": "measure",
+      "privacy": "group-behavior",
       "status": "specified",
       "evidences": []
     },
@@ -508,7 +549,7 @@
       "path": "/groups/*/profile/p95SizeGiB",
       "grain": "group",
       "unit": "GiB",
-      "privacy": "measure",
+      "privacy": "group-behavior",
       "status": "specified",
       "evidences": [
         "hostPool.profileQuotaGiB"
@@ -521,7 +562,7 @@
       "path": "/groups/*/profile/logonIopsPerUser",
       "grain": "group",
       "unit": "iops",
-      "privacy": "measure",
+      "privacy": "group-behavior",
       "status": "specified",
       "evidences": [
         "hostPool.profileQuotaGiB"
@@ -534,7 +575,7 @@
       "path": "/groups/*/rttMsP95",
       "grain": "group",
       "unit": "ms",
-      "privacy": "measure",
+      "privacy": "group-behavior",
       "status": "specified",
       "evidences": [
         "region"
@@ -547,7 +588,7 @@
       "path": "/groups/*/apps/catalog",
       "grain": "group",
       "unit": "app",
-      "privacy": "public",
+      "privacy": "group-behavior",
       "status": "specified",
       "evidences": [
         "identity",
