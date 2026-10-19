@@ -1,0 +1,28 @@
+name: lanes
+
+# No HCL in the AVD repos (avd-second-brain decision 0012). Terraform, Packer and any other HCL
+# belong to nerdio-hcl; this repo is Bicep and PowerShell. No path filter: an HCL file can land
+# anywhere. docs/out-of-scope.md lists the other lanes.
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  no-hcl:
+    name: No HCL (Terraform, Packer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse HCL files
+        run: |
+          files=$(git ls-files '*.tf' '*.tfvars' '*.tf.json' '*.hcl' '*.pkr.json')
+          if [ -n "$files" ]; then
+            for f in $files; do echo "::error file=$f::HCL belongs to nerdio-hcl, not the AVD repos (avd-second-brain decision 0012)"; done
+            exit 1
+          fi
+          echo "No HCL files."

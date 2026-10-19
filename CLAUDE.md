@@ -55,6 +55,8 @@ Without Pester, run an offline scenario directly: `pwsh -File tests/offline/Post
 
 - **American English** in docs, script output, the portal and comments (a portal test fails on British spellings; recorded fixtures are exempt).
 
+- **Stay in the AVD lane** (avd-second-brain decision 0012). This repo is native AVD, Azure, Entra and Microsoft 365 automation in Bicep and PowerShell. If an ask is in another project's lane ([docs/out-of-scope.md](docs/out-of-scope.md#another-projects-lane): any HCL and everything Nerdio go to nerdio-hcl, the Liquidware tier to avd-liquidware), say which project and repo own it, link it, and stop. Before researching a topic, read the owner's `llms.txt` (one file listing its knowledge base) and link what it already knows instead of re-learning it. CI fails on an HCL file (`lanes.yml`).
+
 ## Git and PRs
 - Work on the designated branch; open PRs only when asked. The PR template asks for a Lessons section.
 - **Before resetting the branch to `origin/master`, check that no open PR still needs it:** `git merge-base --is-ancestor origin/<branch> origin/master` must succeed. Otherwise build on the branch. (0017)
