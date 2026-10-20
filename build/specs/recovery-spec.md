@@ -1,8 +1,9 @@
 # Spec: backup, recovery and disaster recovery
 
-- **Status:** Proposed. Spec only: nothing here is built, and nothing has run against a real tenant. No spend.
+- **Status:** Proposed, partly built (offline only, nothing has run against a real tenant, no spend): the recovery region setting, the preflight's Recovery checks and the vaulted tier's key access setting (sections 4.1 and 6.1). The rest is planned in the landing zone itself.
 - **Date:** 2026-10-20
 - **Scope:** what a landing zone deployed by this repo needs to come back after a loss (a deleted resource, a bad change, a lost subscription or a region outage), using the same plumbing as the run recorder: run folders, hash manifests, verified copies, the private companion repo and the copy hook. The default landing zone deployment does not change: everything here is opt-in, except one check that reports what is and isn't protected.
+- **Same-tenant recovery lives here** (the owner, 2026-10-20). Any region and any subscription the operator can deploy to inside their own tenant is in scope for this repo. Recovery into a separate tenant, another cloud, and recovery run on a schedule without an operator are outside it; anything that offers them builds on these scripts and their run records instead of repeating them.
 - **Builds on:** the run recorder spec (`build/specs/run-recorder-spec.md`, draft PR #72: R9, sections 6.3, 6.5, 9.2, 9.3 and 9.3a), avd-second-brain decisions 0016 (never delete the last copy) and 0017 (never leave the meter running), draft PR #37, and contract C17 `avd-run-record/v1` (avd-second-brain draft PR #36).
 
 This is a personal project, not for production, provided as is. Section 12 lists every fact this spec relies on, where it was checked, and what is still unverified.
@@ -34,7 +35,7 @@ Every recovery action is a run: it writes a C17 run record with a new use case, 
 - **Backing up Microsoft-managed components.** The AVD control plane, Entra ID itself and Microsoft 365 data are Microsoft's (F2, F10). OneDrive and SharePoint resilience is out of scope, as it is in Microsoft's multiregion guide (F3).
 - **Copying secrets anywhere.** Secrets are regenerated on recovery, never exported (section 3.3).
 - **Active-active host pools.** Microsoft describes them as complex and costly (F4); they are listed in section 4 for completeness only.
-- **Copies beyond this repo's targets.** Copies outside the operator's own subscription and their companion repo go through the copy hook to an archive the operator chooses (run recorder section 9.2 step 4); this spec only defines what it hands to the hook.
+- **Copies beyond this repo's targets.** Copies outside the operator's own tenant and their companion repo go through the copy hook to an archive the operator chooses (run recorder section 9.2 step 4); this spec only defines what it hands to the hook.
 
 ## 3. What to protect
 
@@ -76,8 +77,13 @@ Rules across tiers:
 - **Standby is a meter left running** (decision 0017). R2's second share and the hosts' disks bill every day. R2 needs `-KeepRunning <reason>` once, recorded on the standby's tags, and appears in every still-billing list as a standing resource with its daily cost. Without it, R2 isn't deployed.
 - **Deallocated hosts must start every 90 days** for a few hours to refresh the token that connects them to the control plane (F13). R2's status check fails a host that hasn't started in 80 days; the start is a scheduled job with its own shutdown, so the meter stops again.
 
-### 4.1 The sandbox can't test R1 or R2 as written
-The project's own sandbox has a policy that allows resource groups only in northcentralus. Cross-region restore, a second-region gallery replica and a standby region all need a second region. Until the owner changes that policy (an open question, section 14), sandbox recovery tests are same-region: restore to an alternate share and redeploy to a new prefix, which proves R0 and the restore half of R1.
+### 4.1 The recovery region and the landing zone's own guardrail
+The project's sandbox allowed resource groups only in northcentralus, and the cause was the landing zone itself: its allowed-locations guardrail (`bicep/modules/governance.bicep`) defaulted to `[location]`. Cross-region restore, a gallery replica in a second region and a standby region all need another one. Built:
+
+- `main.bicep` has `recoveryLocation` (empty by default), read from `AVD_RECOVERY_LOCATION` by the dev, test and prod parameter files with the `empty()` guard (lesson 0004). `allowedLocations` defaults to `location` plus `recoveryLocation` when it is set, so the default deployment is unchanged and setting the variable and deploying again opens exactly one more region. A template test guards both.
+- The preflight's Recovery section checks the region against every allowed-locations assignment that applies (section 6.1), so a management group's policy that also blocks it is named rather than discovered mid-restore.
+
+For the sandbox: `export AVD_RECOVERY_LOCATION=southcentralus` (northcentralus's pair) before the next deployment. That changes a policy assignment in the owner's subscription, so it waits for the owner's go like any other run.
 
 ## 5. Principles
 
@@ -103,7 +109,7 @@ For each item in section 3.1 it prints one result with an `id`:
 | `dr-iac` | The landing zone's last deployment names a commit that exists on the remote | Deployed from an uncommitted or unpushed tree |
 | `dr-config` | Age of the newest configuration snapshot with a verified copy | Older than the tier's RPO, or no verified copy |
 | `dr-profile-backup` | Last successful backup job and newest recovery point for the profile share | Older than 26 hours, or the last job failed |
-| `dr-profile-backup-access` | Whether the profile storage account allows what Azure Backup needs to back up and restore it | See U1: Microsoft says the source account must allow storage account key access (F14), and the landing zone turns it off |
+| `dr-profile-backup-access` | Whether the profile storage account allows what Azure Backup needs to back up and restore it | Snapshot tier: key access off and public network access not disabled (F19). Vaulted tier: key access off (F14). Same verdict as the preflight's `profile-backup-access` (section 6.1) |
 | `dr-profile-offsite` (R1+) | A vaulted recovery point exists and the vault's redundancy and Cross Region Restore match the tier | Snapshot tier only, or Cross Region Restore off |
 | `dr-image` | Each gallery image version in use has a replica in the recovery region, or a buildable template at the same commit | No replica (R1+), or template not in git |
 | `dr-keyvault` | Soft delete and purge protection on, and the secrets the landing zone needs are listed by name | Either off |
@@ -113,6 +119,18 @@ For each item in section 3.1 it prints one result with an `id`:
 | `dr-tested` | Date and result of the last recovery test for the tier | None in 90 days |
 
 The last line is a state line the portal can read (`STATE: recovery tier=R0 met=6/9 ...`), and `-AsJson` prints the same results for the run record. A check that can't read something (no permission, API error) reports the full error per lesson 0012, and counts as not met.
+
+### 6.1 Built: the preflight's Recovery section
+Some of this belongs in the preflight an operator already runs, so it is there now, as warnings (recovery is optional and never blocks a deployment or a sign-in). Pure functions in `AvdLandingZone.psm1`, unit tests, and offline scenario steps in `PreDeployment` and `PostDeployment`:
+
+| id | Stage | Check | Pure function |
+|---|---|---|---|
+| `recovery-region-policy` | Both | The recovery region (`-RecoveryLocation` or `AVD_RECOVERY_LOCATION`) is allowed by every enforced allowed-locations assignment at the subscription, inherited ones included. Before deployment, the landing zone's own guardrail counts as allowing it when this deployment adds it. Says whether to deploy again (own guardrail) or ask the assignment's owner (anyone else's) | `Get-AvdLocationPolicyVerdict` |
+| `recovery-quota` | Both | vCPU quota in the recovery region for the host size; quota is not capacity (F11), and the remediation says so | |
+| `profile-backup-access` | After | F14 and F19 against the account's `allowSharedKeyAccess` and `publicNetworkAccess` | `Get-AvdProfileBackupVerdict` |
+| `profile-backup` | After | Protection state, health, last backup status and age (over 26 hours warns), from the vault's protected items. A failed last backup on an account without key access points at `UserErrorStorageKeyBasedAuthenticationNotPermitted` | `Get-AvdProfileBackupVerdict` |
+
+`Get-AvdRecoveryStatus.ps1` maps the same verdicts to `dr-profile-backup` and `dr-profile-backup-access` instead of repeating them. The Well-Architected `profile-backup` check now fails an item whose last backup wasn't healthy, and `storage-hardening` accepts key access when the vault's policy is vaulted (it has `vaultRetentionPolicy`). None of these ids are portal states yet; they show as warnings with their id.
 
 ## 7. The configuration snapshot: `Export-AvdConfiguration.ps1`
 
@@ -223,12 +241,13 @@ Checked on 2026-10-20 against Microsoft Learn and the Azure retail prices API.
 | F16 | Test failover pattern for pooled active-passive: a test group (GRP-TEST) assigned to the standby pool's application groups; full failover reassigns all application groups | Multiregion BCDR guide, pooled host pool scenario |
 | F17 | Share snapshots stay with the share; a permanently deleted share loses its snapshot-tier recovery points | *Secure your Azure Files*; Azure Files backup troubleshooting (UserErrorRestoreAFSInDeleteState) |
 | F18 | Retail prices, northcentralus, read 2026-10-20 (section 13): Azure Files protected instance $5/month; Azure Files Vaulted protected instance $12/month; Vaulted data stored LRS $0.0492, ZRS $0.0576, GRS $0.0912 per GB-month; Premium ZRS Files provisioned $0.20 and snapshots $0.17 per GB-month; Standard HDD LRS snapshots $0.05 per GB-month; P10 disk $19.71/month; E4as v5 Windows $0.41/hour; inter-region transfer $0.02/GB | Azure retail prices API (prices.azure.com) |
+| F19 | Azure Files backup prerequisites: the storage account either permits access with account keys or has public network access disabled. A backup refused for lack of key access fails with `UserErrorStorageKeyBasedAuthenticationNotPermitted` | *Back up Azure Files*, prerequisites (learn.microsoft.com/azure/backup/backup-azure-files); *Troubleshoot problems while backing up Azure Files* |
 
 Unverified, to check before building or in the first test:
 
 | # | Open fact | How it gets checked |
 |---|---|---|
-| U1 | **Whether the landing zone's profile backup works at all.** The storage account has shared key access off (`bicep/modules/storage.bicep`, design decision 2), and F14 says Azure Backup needs it on. Either backup jobs fail today, or the support matrix is out of date. No real run has checked a backup job or a restore | The first status check against a real landing zone reads the job history; T-profile in the sandbox. If F14 holds, the choice between keys on and a different backup path is the owner's (section 14) |
+| U1 | **Whether the landing zone's snapshot-tier profile backup works with key access off.** Two Microsoft pages differ: F19 accepts key access off when public network access is disabled (the landing zone disables it), and the support matrix (F14) asks for key access on the vaulted tier. Decided (section 14): key access stays off for the snapshot tier and turns on only with `profileBackupTier = 'Vaulted'`. Still unverified: a real snapshot-tier backup job with keys off | The post-deployment preflight's `profile-backup` reads the last backup status on the first real landing zone; T-profile in the sandbox |
 | U2 | Whether the Azure Files protected instance price depends on share size bands | Azure Backup pricing page and the estimator's meter match at estimate time (R7) |
 | U3 | How gallery replica storage is billed (provisioned or used size) for a 127 GiB image | Compute Gallery pricing docs; first R1 test's actuals |
 | U4 | Restore time for a share of the sandbox's size, from snapshot and from vault tier | T-profile measures it |
@@ -250,10 +269,10 @@ Defender for Storage, if on, bills per storage account per month (run recorder 9
 
 ## 14. Open questions for the owner
 
-1. **U1, profile backup and shared keys.** If Azure Backup needs storage account key access, the options are: allow key access on the profile account (weakens design decision 2), keep it off and protect profiles only by export to the run store and Cloud Cache, or put backup on a separate account fed by a host-side copy. Recommended: confirm with the first real status check before choosing.
-2. **Sandbox region policy.** Allow one recovery region (southcentralus is northcentralus's pair) for R1 and R2 tests, or keep tests same-region (section 4.1)?
+1. **U1, profile backup and shared keys.** Decided 2026-10-20: key access on only with the vaulted tier. `main.bicep` has `profileBackupTier` (`Snapshot` by default, or `Vaulted`) and passes `enableProfileBackup && profileBackupTier == 'Vaulted'` to the storage module's `allowSharedKeyAccess`. SMB stays Kerberos-only and the account private-endpoint only, so a key can't mount the share; it would still work against the storage REST API from inside the network. A template test guards it.
+2. **Sandbox region policy.** Decided 2026-10-20: fix it in the landing zone (section 4.1) and check it in the preflight (section 6.1). Setting the sandbox's recovery region is a deployment, so it waits for the owner's go.
 3. **Default tier.** Recommend R0 for the sandbox and demo, with R1 documented; R2 only on request.
-4. **Restoring into another subscription** with Azure Backup's own cross-subscription restore: in scope for this repo, or kept outside it? This spec leaves it out until you decide.
+4. **Restoring into another subscription in the same tenant**, with Azure Backup's own cross-subscription restore. Decided 2026-10-20: in scope here (same-tenant recovery, Scope above).
 5. **Test interval.** Every 90 days per tier (recommended), or only before a release?
 
 ## 15. Phases
@@ -265,5 +284,5 @@ Defender for Storage, if on, bills per storage account per month (run recorder 9
 | **P2, offline** | `Export-AvdConfiguration.ps1`, the AVD-scoped identity snapshot, the drift diff; `Test-AvdRecoveryCopies.ps1` against a fake GitHub API | $0 |
 | **P3, first real status check** | Read-only against the sandbox's landing zone: answers U1 | $0 (reads) |
 | **P4, first recovery test** | T-profile, T-config, T-signin in the sandbox, same region | Printed estimate, the owner's go |
-| **P5** | R1 pieces (vaulted backup option, gallery replica), only after question 2 | Same |
+| **P5** | R1 pieces: the vaulted tier in `backup.bicep` (reads `profileBackupTier`; key access is already wired), gallery replica | Same |
 | **P6** | R2 standby and T-failover, only on request | Same |

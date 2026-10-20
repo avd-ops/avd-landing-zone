@@ -37,6 +37,7 @@ The host pool is deployed in the same region, so the region must offer AVD host 
 | `AVD_ALERT_EMAIL` | no | you |
 | `AVD_MONTHLY_BUDGET` | no (prod) | you |
 | `AVD_LOCATION` | no | `deploy.sh -l`, or the preflight's `-Location`. Defaults to `northcentralus` |
+| `AVD_RECOVERY_LOCATION` | no | you, or the preflight's `-RecoveryLocation`: a second region the policy guardrail also allows, for restores and recovery tests ([recovery spec](../build/specs/recovery-spec.md)). The preflight checks policy and quota there. Empty = none |
 | `AVD_RUNBOOK_URI` | no | `deploy.sh`: the auto-shutdown runbook at the commit being deployed. Defaults to the repo's `master` |
 | `AVD_SESSION_HOST_COUNT`, `AVD_SESSION_HOST_VM_SIZE`, `AVD_MAX_SESSION_LIMIT`, `AVD_PROFILE_QUOTA_GIB` | no | `deploy.sh --hosts --vm-size --max-sessions --profile-quota`, or the preflight's `-SessionHostCount -SessionHostVmSize -MaxSessionLimit -ProfileShareQuotaGiB`; the [deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/)'s sizing step fills them in. Empty = the file's values |
 | `AVD_AUTO_SHUTDOWN_TIME`, `AVD_START_VM_ON_CONNECT` | no | `deploy.sh --auto-shutdown HH:mm\|none --start-vm-on-connect true\|false`, or the preflight's `-AutoShutdownTime -StartVmOnConnect`; the portal's Cost step fills them in. Empty = the file's values; `none` = no scheduled stop |

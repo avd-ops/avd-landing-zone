@@ -247,3 +247,26 @@ Describe 'Profile share SMB channel encryption (build/lessons/0028)' {
     $channel | Should -Not -Match 'CCM'
   }
 }
+
+Describe 'Recovery region and profile backup tier (build/specs/recovery-spec.md)' {
+  It 'allows only location by default, and adds AVD_RECOVERY_LOCATION when set (set-but-empty = none, lesson 0004)' {
+    $t = Get-CompiledTemplate 'parameters/dev.bicepparam'
+    $t.parameters.recoveryLocation.defaultValue | Should -Be ''
+    $t.parameters.allowedLocations.defaultValue | Should -Be "[union(createArray(parameters('location')), if(empty(parameters('recoveryLocation')), createArray(), createArray(parameters('recoveryLocation'))))]"
+    foreach ($file in 'parameters/dev.bicepparam', 'parameters/test.bicepparam', 'parameters/prod.bicepparam') {
+      $read = { param($v) $env:AVD_RECOVERY_LOCATION = $v; try { ((& $script:bicep build-params $file --stdout | ConvertFrom-Json).parametersJson | ConvertFrom-Json).parameters.recoveryLocation.value } finally { $env:AVD_RECOVERY_LOCATION = '' } }
+      & $read '' | Should -Be '' -Because $file
+      & $read 'southcentralus' | Should -Be 'southcentralus' -Because $file
+    }
+  }
+  It 'keeps storage key access off unless the vaulted backup tier needs it' {
+    $t = Get-CompiledTemplate 'parameters/dev.bicepparam'
+    $t.parameters.profileBackupTier.defaultValue | Should -Be 'Snapshot'
+    $storage = Find-Deployment $t 'avdlz-storage'
+    $storage.properties.parameters.allowSharedKeyAccess.value | Should -Be "[and(parameters('enableProfileBackup'), equals(parameters('profileBackupTier'), 'Vaulted'))]"
+    $account = Find-Deployment $storage['properties']['template'] 'storage-account'
+    $account.properties.parameters.allowSharedKeyAccess.value | Should -Be "[parameters('allowSharedKeyAccess')]"
+    $account.properties.parameters.publicNetworkAccess.value | Should -Be 'Disabled'
+    $account.properties.parameters.fileServices.value.protocolSettings.smb.authenticationMethods | Should -Be 'Kerberos;'
+  }
+}

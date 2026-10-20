@@ -807,6 +807,175 @@ function Test-AvdHostPoolRegion {
 }
 
 # =====================================================================
+# Checks - recovery (build/specs/recovery-spec.md). Warnings, never failures: recovery is optional,
+# and nothing here stops a deployment or a sign-in.
+# =====================================================================
+# Built-in "Allowed locations" (resources) and "Allowed locations for resource groups".
+$script:AllowedLocationDefinitions = @('e56962a6-4747-49cd-b67b-bf8b01975c4c', 'e765b5de-1225-4ba3-bd56-1ac6695af988')
+
+function Get-AvdLocationPolicyVerdict {
+  <#
+    The allowed-locations policy assignments that leave Location out. Pure: takes the assignments read
+    from ARM ($filter=atScope(), so inherited ones too). Managed: the landing zone's own (avdlz-*), set by
+    its allowedLocations parameter. Enforced: false for DoNotEnforce, which only reports.
+    Initiatives (policy sets) that include the definitions are not read.
+  #>
+  param([AllowEmptyCollection()][object[]] $Assignment = @(), [Parameter(Mandatory)][string] $Location)
+  foreach ($a in @($Assignment | Where-Object { $_ })) {
+    $p = $a.properties
+    if (-not $p -or -not $p.policyDefinitionId) { continue }
+    if ((("$($p.policyDefinitionId)" -split '/')[-1]) -notin $script:AllowedLocationDefinitions) { continue }
+    $allowed = @($p.parameters.listOfAllowedLocations.value | Where-Object { $_ } | ForEach-Object { "$_".ToLower() })
+    if (-not $allowed.Count -or $allowed -contains $Location.ToLower()) { continue }
+    [pscustomobject]@{
+      Name     = $a.name
+      Display  = $(if ($p.displayName) { $p.displayName } else { $a.name })
+      Managed  = ($a.name -like 'avdlz-*')
+      Enforced = ($p.enforcementMode -ne 'DoNotEnforce')
+      Allowed  = $allowed
+    }
+  }
+}
+
+function Get-AvdProfileBackupVerdict {
+  <#
+    The profile share's backup, from the storage account and the vault's protected items. Pure; returns
+    findings (Id, Check, Status, Detail, Remediation). Get-AvdRecoveryStatus.ps1 maps the same findings.
+    Property names: AzureFileshareProtectedItem (protectionState, healthStatus, lastBackupStatus,
+    lastBackupTime). ARM leaves out what has not happened yet, such as lastBackupTime before the first backup.
+  #>
+  param(
+    $StorageAccount,
+    [AllowEmptyCollection()][object[]] $ProtectedItem = @(),
+    [datetime] $Now = [datetime]::UtcNow,
+    [string] $VaultName = 'the vault',
+    # A backup older than this is stale: the policy is daily.
+    [int] $MaxAgeHours = 26
+  )
+  $items = @($ProtectedItem | Where-Object { $_ })
+  $sa = if ($StorageAccount) { $StorageAccount.properties }
+  # Microsoft's prerequisites: key access, or public network access disabled. The vaulted tier needs key access.
+  if ($sa) {
+    $keys = $sa.allowSharedKeyAccess -ne $false
+    $public = $sa.publicNetworkAccess -ne 'Disabled'
+    $access = [ordered]@{ Id = 'profile-backup-access'; Check = 'Azure Backup can reach the profile storage account'; Status = 'Pass'; Detail = ''; Remediation = '' }
+    if (-not $keys -and $public) {
+      $access.Status = 'Warn'; $access.Detail = 'Key access is off and public network access is not disabled; Azure Backup needs one of the two.'
+      $access.Remediation = 'Redeploy the storage module (bicep/modules/storage.bicep disables public network access).'
+    }
+    else { $access.Detail = $(if ($keys) { 'Key access on (vaulted tier); SMB stays Kerberos-only.' } else { 'Key access off, public network access disabled (enough for the snapshot tier).' }) }
+    [pscustomobject]$access
+  }
+  $f = [ordered]@{ Id = 'profile-backup'; Check = 'Profile share backup'; Status = 'Pass'; Detail = ''; Remediation = '' }
+  if (-not $items.Count) {
+    $f.Status = 'Warn'; $f.Detail = "No protected item in $VaultName."
+    $f.Remediation = 'Set enableProfileBackup = true in the parameter file and deploy again.'
+    return [pscustomobject]$f
+  }
+  $problems = @(); $fix = ''
+  foreach ($i in $items) {
+    $p = $i.properties
+    $name = $(if ($p.friendlyName) { $p.friendlyName } else { $i.name })
+    if ($p.protectionState -and $p.protectionState -ne 'Protected') { $problems += "$name protection state $($p.protectionState)" }
+    if ($p.lastBackupStatus -and $p.lastBackupStatus -ne 'Healthy') {
+      $problems += "$name last backup $($p.lastBackupStatus)"
+      if ($sa -and $sa.allowSharedKeyAccess -eq $false) { $fix = 'If the failed job says UserErrorStorageKeyBasedAuthenticationNotPermitted, the tier needs key access: set profileBackupTier = Vaulted (it turns key access on) or tell us in an issue.' }
+    }
+    if ($p.healthStatus -and $p.healthStatus -notin 'Passed') { $problems += "$name health $($p.healthStatus)" }
+    if (-not $p.lastBackupTime) { $problems += "$name has no backup yet" }
+    else {
+      $age = ($Now - ([datetime]$p.lastBackupTime).ToUniversalTime()).TotalHours
+      if ($age -gt $MaxAgeHours) { $problems += ('{0} last backup {1:N0} hours ago' -f $name, $age) }
+    }
+  }
+  if ($problems.Count) {
+    $f.Status = 'Warn'; $f.Detail = $problems -join '; '
+    $f.Remediation = (@('Open the vault''s Backup jobs for the error code (Portal > Recovery Services vault > Backup jobs).', $fix) | Where-Object { $_ }) -join ' '
+  }
+  else {
+    $last = @($items | ForEach-Object { [datetime]$_.properties.lastBackupTime } | Sort-Object)[0]
+    $f.Detail = "$($items.Count) protected item(s) in $VaultName, healthy; oldest last backup $($last.ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC"
+  }
+  [pscustomobject]$f
+}
+
+function Test-AvdRecoveryRegion {
+  <#
+    The recovery region (recovery spec section 4.1): allowed by every allowed-locations policy, and vCPU
+    quota there for recovery test hosts. PlannedAllowedLocations: what this deployment writes into the
+    landing zone's own guardrail (pre-deployment); empty after deployment.
+  #>
+  param(
+    [Parameter(Mandatory)][string] $Location,
+    [string] $RecoveryLocation,
+    [string[]] $PlannedAllowedLocations = @(),
+    [string] $VmSize = $script:DefaultVmSize,
+    [int] $Count = 1,
+    [string] $SubscriptionId = (Get-AzContext).Subscription.Id
+  )
+  $area = 'Recovery'
+  if (-not $RecoveryLocation) { Add-AvdCheckResult $area 'Recovery region' 'Skip' -Detail 'None set (AVD_RECOVERY_LOCATION or -RecoveryLocation).'; return }
+  $rl = $RecoveryLocation.ToLower()
+  if ($rl -eq $Location.ToLower()) {
+    Add-AvdCheckResult $area "Recovery region $rl" 'Warn' -Id 'recovery-region-policy' -Data @{ location = $rl; blocking = @() } -Detail 'It is the landing zone''s own region, so a regional outage takes both.' -Remediation 'Set AVD_RECOVERY_LOCATION to another region, normally the Azure region pair.'
+    return
+  }
+  Write-Host "  Reading the policy assignments that apply to the subscription..." -ForegroundColor DarkGray
+  try {
+    $assignments = @(Get-AvdArmList -Path "/subscriptions/$SubscriptionId/providers/Microsoft.Authorization/policyAssignments?api-version=2024-04-01&`$filter=atScope()")
+    $blocking = @(Get-AvdLocationPolicyVerdict -Assignment $assignments -Location $rl | Where-Object Enforced)
+    $planned = @($PlannedAllowedLocations | ForEach-Object { "$_".ToLower() }) -contains $rl
+    $foreign = @($blocking | Where-Object { -not $_.Managed })
+    $own = @($blocking | Where-Object Managed)
+    $data = @{ location = $rl; blocking = @($blocking | ForEach-Object { @{ name = $_.Name; managed = $_.Managed; allowed = @($_.Allowed) } }) }
+    $check = "Recovery region $rl allowed by Azure Policy"
+    if ($foreign.Count) {
+      Add-AvdCheckResult $area $check 'Warn' -Id 'recovery-region-policy' -Data $data -Detail ('Blocked by: ' + (($foreign | ForEach-Object { "$($_.Display) (allows $($_.Allowed -join ', '))" }) -join '; ')) `
+        -Remediation 'These assignments are not the landing zone''s: ask their owner to add the region, or pick a region they allow.'
+    }
+    elseif ($own.Count -and -not $planned) {
+      Add-AvdCheckResult $area $check 'Warn' -Id 'recovery-region-policy' -Data $data -Detail "The landing zone's guardrail allows only $($own[0].Allowed -join ', ')." `
+        -Remediation "Run export AVD_RECOVERY_LOCATION=$rl and deploy the landing zone again (deploy.sh); its guardrail then allows the region."
+    }
+    elseif ($own.Count) { Add-AvdCheckResult $area $check 'Pass' -Detail 'This deployment adds it to the landing zone''s guardrail.' }
+    else { Add-AvdCheckResult $area $check 'Pass' }
+  }
+  catch { Add-AvdCheckResult $area "Recovery region $rl allowed by Azure Policy" 'Warn' -Detail "Could not read policy assignments: $($_.Exception.Message)" }
+
+  $sku = @(Get-AzComputeResourceSku -Location $rl -ErrorAction SilentlyContinue | Where-Object { $_.ResourceType -eq 'virtualMachines' -and $_.Name -eq $VmSize }) | Select-Object -First 1
+  if (-not $sku -or @($sku.Restrictions | Where-Object { $_.ReasonCode -eq 'NotAvailableForSubscription' -and $_.Type -eq 'Location' }).Count) {
+    Add-AvdCheckResult $area "VM size $VmSize in $rl" 'Warn' -Id 'recovery-quota' -Data @{ location = $rl; vmSize = $VmSize } -Detail 'Not offered to this subscription there.' -Remediation 'Pick a size offered in both regions, or another recovery region.'
+    return
+  }
+  $need = [int](($sku.Capabilities | Where-Object Name -eq 'vCPUs').Value) * $Count
+  $usage = @(Get-AzVMUsage -Location $rl)
+  $short = @(foreach ($name in @($sku.Family, 'cores')) {
+      $u = $usage | Where-Object { $_.Name.Value -eq $name } | Select-Object -First 1
+      if ($u -and ($u.Limit - $u.CurrentValue) -lt $need) { "$name $($u.Limit - $u.CurrentValue) free" }
+    })
+  $data = @{ location = $rl; vmSize = $VmSize; needed = $need }
+  if ($short.Count) { Add-AvdCheckResult $area "vCPU quota in $rl for $Count x $VmSize" 'Warn' -Id 'recovery-quota' -Data $data -Detail "$need needed; $($short -join ', ')." -Remediation 'Request a quota increase in the recovery region (Portal > Quotas) before a recovery test or failover. Quota is not capacity: Microsoft guarantees neither in a regional outage.' }
+  else { Add-AvdCheckResult $area "vCPU quota in $rl for $Count x $VmSize" 'Pass' -Detail "$need needed" }
+}
+
+function Test-AvdProfileBackup {
+  <# The profile share's backup: reachable and recent (Get-AvdProfileBackupVerdict). #>
+  param([Parameter(Mandatory)] $Lz)
+  $area = 'Recovery'
+  if (-not $Lz.RecoveryVault) { Add-AvdCheckResult $area 'Profile share backup' 'Skip' -Detail 'No Recovery Services vault (enableProfileBackup = false).'; return }
+  try {
+    $sa = if ($Lz.StorageAccount) { Invoke-AvdArm -Path "$($Lz.StorageAccount.Id)?api-version=2023-05-01" }
+    $vid = "$($Lz.ResourceGroupIds.Storage)/providers/Microsoft.RecoveryServices/vaults/$($Lz.RecoveryVault.Name)"
+    $filter = [uri]::EscapeDataString("backupManagementType eq 'AzureStorage'")
+    $items = @(Get-AvdArmList -Path "$vid/backupProtectedItems?api-version=2024-04-01&`$filter=$filter")
+    foreach ($r in @(Get-AvdProfileBackupVerdict -StorageAccount $sa -ProtectedItem $items -VaultName $Lz.RecoveryVault.Name)) {
+      Add-AvdCheckResult $area $r.Check $r.Status -Detail $r.Detail -Remediation $r.Remediation -Id $r.Id
+    }
+  }
+  catch { Add-AvdCheckResult $area 'Profile share backup' 'Warn' -Detail "Could not read the backup: $($_.Exception.Message)" }
+}
+
+# =====================================================================
 # Checks - landing zone resources and RBAC
 # =====================================================================
 function Test-AvdLandingZoneResource {
@@ -1512,8 +1681,19 @@ function Test-AvdWellArchitected {
       $hard = @()
       if ($p.minimumTlsVersion -ne 'TLS1_2') { $hard += "minimum TLS $($p.minimumTlsVersion)" }
       if ($p.supportsHttpsTrafficOnly -eq $false) { $hard += 'HTTP allowed' }
-      if ($p.allowSharedKeyAccess -ne $false) { $hard += 'shared key access allowed' }
-      & $waf 'Security' 'storage-hardening' 'Profile storage: TLS 1.2, HTTPS only, no shared keys' (-not $hard.Count) ($hard -join '; ') 'Redeploy the storage module (bicep/modules/storage.bicep sets all three).'
+      $why = ''
+      if ($p.allowSharedKeyAccess -ne $false) {
+        # The vaulted backup tier needs key access (profileBackupTier = Vaulted turns it on); a vaulted policy has vaultRetentionPolicy.
+        $vaulted = $false
+        if ($Lz.RecoveryVault) {
+          $filter = [uri]::EscapeDataString("backupManagementType eq 'AzureStorage'")
+          $policies = @(Get-AvdArmList -Path "$($Lz.ResourceGroupIds.Storage)/providers/Microsoft.RecoveryServices/vaults/$($Lz.RecoveryVault.Name)/backupPolicies?api-version=2024-04-01&`$filter=$filter")
+          $vaulted = [bool]@($policies | Where-Object { $_.properties.vaultRetentionPolicy }).Count
+        }
+        if ($vaulted) { $why = 'shared key access on for the vaulted backup tier (SMB stays Kerberos-only)' }
+        else { $hard += 'shared key access allowed' }
+      }
+      & $waf 'Security' 'storage-hardening' 'Profile storage: TLS 1.2, HTTPS only, no shared keys' (-not $hard.Count) ((@($hard) + @($why) | Where-Object { $_ }) -join '; ') 'Redeploy the storage module (bicep/modules/storage.bicep sets all three; key access only with profileBackupTier = Vaulted).'
       $fs = Invoke-AvdArm -Path "$($Lz.StorageAccount.Id)/fileServices/default?api-version=2023-05-01"
       $sd = $fs.properties.shareDeleteRetentionPolicy
       & $waf 'Reliability' 'share-soft-delete' 'Profile share soft delete' ([bool]$sd.enabled) $(if ($sd.enabled) { "$($sd.days) days" } else { 'Disabled' }) 'Enable soft delete for file shares on the storage account.'
@@ -1527,7 +1707,10 @@ function Test-AvdWellArchitected {
       $filter = [uri]::EscapeDataString("backupManagementType eq 'AzureStorage'")
       $protected = @(Get-AvdArmList -Path "$vid/backupProtectedItems?api-version=2024-04-01&`$filter=$filter")
     }
-    & $waf 'Reliability' 'profile-backup' 'Profile share backed up' ([bool]$protected.Count) $(if ($protected.Count) { "$($protected.Count) protected item(s) in $($Lz.RecoveryVault.Name)" } else { 'No backup of the profile share.' }) 'Set enableProfileBackup = true in the parameter file and deploy again.' -tradeOff
+    # Protected is not the same as working: an item whose last backup failed is reported too.
+    $unhealthy = @($protected | Where-Object { $_.properties.lastBackupStatus -and $_.properties.lastBackupStatus -ne 'Healthy' })
+    $detail = if (-not $protected.Count) { 'No backup of the profile share.' } elseif ($unhealthy.Count) { "Last backup $($unhealthy[0].properties.lastBackupStatus) in $($Lz.RecoveryVault.Name); the post-deployment preflight's Recovery section says more." } else { "$($protected.Count) protected item(s) in $($Lz.RecoveryVault.Name)" }
+    & $waf 'Reliability' 'profile-backup' 'Profile share backed up' ([bool]$protected.Count -and -not $unhealthy.Count) $detail $(if ($protected.Count) { 'Open the vault''s Backup jobs for the error code.' } else { 'Set enableProfileBackup = true in the parameter file and deploy again.' }) -tradeOff
   }
 
   & $read 'Security' 'Defender for Cloud plans' {
@@ -1684,7 +1867,9 @@ function Invoke-AvdReadinessCheck {
     [switch] $SkipNtfs,
     [string] $NtfsHostResourceGroup,
     [string] $NtfsHostName,
-    [switch] $AllowHostStart
+    [switch] $AllowHostStart,
+    # Recovery region (build/specs/recovery-spec.md); empty: AVD_RECOVERY_LOCATION.
+    [string] $RecoveryLocation = $env:AVD_RECOVERY_LOCATION
   )
   Write-AvdSection 'Tooling'
   Test-AvdTooling
@@ -1714,6 +1899,9 @@ function Invoke-AvdReadinessCheck {
   Test-AvdLandingZoneResource -Lz $Lz
   Write-AvdSection 'RBAC'
   Test-AvdLandingZoneRbac -Lz $Lz
+  Write-AvdSection 'Recovery'
+  Test-AvdProfileBackup -Lz $Lz
+  if ($Lz.Location) { Test-AvdRecoveryRegion -Location $Lz.Location -RecoveryLocation $RecoveryLocation -VmSize $VmSize -SubscriptionId $Lz.SubscriptionId }
 
   $storageApp = $null
   if ($SkipTenant) {
@@ -1791,7 +1979,9 @@ function Get-AvdDeploymentPlan {
     [string] $Location,
     # Sizing overrides (hosts, vmSize, maxSessions, profileQuotaGiB, and the power settings autoShutdownTime
     # and startVmOnConnect): the parameter files read AVD_SESSION_HOST_COUNT etc.
-    [hashtable] $Sizing = @{}
+    [hashtable] $Sizing = @{},
+    # Recovery region override: the parameter files read it from AVD_RECOVERY_LOCATION.
+    [string] $RecoveryLocation
   )
   $bicep = Get-Command bicep -ErrorAction SilentlyContinue
   if (-not $bicep) { throw 'The Bicep CLI is required to read the parameter file.' }
@@ -1804,6 +1994,7 @@ function Get-AvdDeploymentPlan {
     AVD_LOCAL_ADMIN_PASSWORD = 'Preflight-placeholder-only-1!'
   }
   if ($Location) { $vars.AVD_LOCATION = $Location }
+  if ($RecoveryLocation) { $vars.AVD_RECOVERY_LOCATION = $RecoveryLocation }
   $sizingVars = @{ hosts = 'AVD_SESSION_HOST_COUNT'; vmSize = 'AVD_SESSION_HOST_VM_SIZE'; maxSessions = 'AVD_MAX_SESSION_LIMIT'; profileQuotaGiB = 'AVD_PROFILE_QUOTA_GIB'
     autoShutdownTime = 'AVD_AUTO_SHUTDOWN_TIME'; startVmOnConnect = 'AVD_START_VM_ON_CONNECT' }
   foreach ($k in $sizingVars.Keys) { $vars[$sizingVars[$k]] = $(if ($Sizing[$k]) { [string]$Sizing[$k] } else { '' }) }
@@ -2143,7 +2334,9 @@ function Test-AvdPreDeployment {
     # Desired sizing from the deployment portal (hosts, vmSize, maxSessions, profileQuotaGiB); validated and priced.
     [hashtable] $Sizing = @{},
     # Hours per week each host runs, for the cost estimate.
-    [int] $ActiveHoursPerWeek = 50
+    [int] $ActiveHoursPerWeek = 50,
+    # Recovery region (build/specs/recovery-spec.md); empty: what the parameter file reads from AVD_RECOVERY_LOCATION.
+    [string] $RecoveryLocation
   )
   $avdAppId = '9cdead84-a844-4324-93f2-b2e6bb768d07'
 
@@ -2184,7 +2377,7 @@ function Test-AvdPreDeployment {
   # ---- Parameter file ----
   Write-AvdSection 'Parameter file'
   try {
-    $plan = Get-AvdDeploymentPlan -ParameterFile $ParameterFile -UsersGroupId $users.id -AdminsGroupId $admins.id -AvdServicePrincipalId $avdSp.id -Location $Location -Sizing $Sizing
+    $plan = Get-AvdDeploymentPlan -ParameterFile $ParameterFile -UsersGroupId $users.id -AdminsGroupId $admins.id -AvdServicePrincipalId $avdSp.id -Location $Location -Sizing $Sizing -RecoveryLocation $RecoveryLocation
   }
   catch {
     Add-AvdCheckResult 'Parameters' "Compile $ParameterFile" 'Fail' -Detail $_.Exception.Message -Remediation 'Fix the parameter file (az bicep build-params).'
@@ -2220,6 +2413,14 @@ function Test-AvdPreDeployment {
   else { Add-AvdCheckResult 'Subscription' "$($plan.profileStorageSku) file shares available in $($plan.location)" 'Fail' -Remediation "Set profileStorageSku = 'Premium_LRS', or choose a region with Premium ZRS file shares." }
 
   Test-AvdDeletedKeyVault -Lz $lz -Location $plan.location -Fix:$Fix
+
+  # ---- Recovery region (warnings only) ----
+  Write-AvdSection 'Recovery'
+  $recovery = if ($RecoveryLocation) { $RecoveryLocation } else { $plan.recoveryLocation }
+  # allowedLocations' default is an expression, so the plan has it only when the file sets it.
+  $planned = if ($plan.ContainsKey('allowedLocations')) { @($plan.allowedLocations) } else { @($plan.location, $recovery) | Where-Object { $_ } }
+  if ($plan.enablePolicyGuardrails -eq $false -or $plan.deploySubscriptionSettings -eq $false) { $planned = @() }
+  Test-AvdRecoveryRegion -Location $plan.location -RecoveryLocation $recovery -PlannedAllowedLocations $planned -VmSize $plan.sessionHostVmSize -SubscriptionId $lz.SubscriptionId
 
   # Budget parameters are skipped silently by the template if incomplete; say so here.
   if ($plan.monthlyBudgetAmount -gt 0 -and (-not $plan.budgetStartDate -or -not @($plan.alertEmailAddresses).Count)) {
