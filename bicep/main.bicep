@@ -123,6 +123,20 @@ param sessionHostImage object = {
   version: 'latest'
 }
 
+@description('Azure Compute Gallery image version resource ID for session hosts, from the image pipeline (build/specs/image-pipeline-spec.md section 6.1). A version, never a definition or latest, so nothing changes software silently. Empty: the marketplace image above.')
+param sessionHostImageId string = ''
+
+@description('Host generation for blue/green rotation: empty keeps the original host names; a or b gives take(sessionHostNamePrefix, 10) + the generation, so the two generations never collide. Only the rotation script changes it.')
+@allowed([
+  ''
+  'a'
+  'b'
+])
+param sessionHostGeneration string = ''
+
+@description('The host pool tags the rotation script owns (avdlz-image, avdlz-generation, avdlz-image-next, avdlz-rotation). deploy.sh passes the pool\'s current values so a deployment keeps them; nothing else sets them.')
+param hostPoolStateTags object = {}
+
 @description('Maximum sessions per host (breadth-first). Size to your workload.')
 param maxSessionLimit int = 8
 
@@ -294,6 +308,16 @@ var names = {
 }
 
 var profileShareName = 'profiles'
+// Rotation (image pipeline spec section 6.1): the image and the names of this deployment's hosts.
+var hostImageReference = empty(sessionHostImageId) ? sessionHostImage : { id: sessionHostImageId }
+var hostNamePrefix = empty(sessionHostGeneration) ? sessionHostNamePrefix : '${take(sessionHostNamePrefix, 10)}${sessionHostGeneration}'
+var rotationTagNames = [
+  'avdlz-image'
+  'avdlz-generation'
+  'avdlz-image-next'
+  'avdlz-rotation'
+]
+var keptHostPoolStateTags = toObject(filter(items(hostPoolStateTags), t => contains(rotationTagNames, t.key) && !empty(t.value)), t => t.key, t => string(t.value))
 var useCentralDns = !empty(centralPrivateDnsZoneResourceIds)
 
 // =====================================================================
@@ -486,6 +510,7 @@ module controlPlane 'modules/controlPlane.bicep' = {
     avdPrivateDnsZoneResourceId: dnsZoneIds.avd
     scalingTimeZone: scalingTimeZone
     startVmOnConnect: startVmOnConnect
+    hostPoolStateTags: keptHostPoolStateTags
     logAnalyticsWorkspaceResourceId: monitoring.outputs.logAnalyticsWorkspaceResourceId
     usersGroupObjectId: avdUsersGroupObjectId
     avdServicePrincipalObjectId: avdServicePrincipalObjectId
@@ -503,10 +528,10 @@ module sessionHosts 'modules/sessionHosts.bicep' = {
     location: location
     tags: allTags
     count: sessionHostCount
-    namePrefix: sessionHostNamePrefix
+    namePrefix: hostNamePrefix
     vmSize: sessionHostVmSize
     availabilityZones: availabilityZones
-    imageReference: sessionHostImage
+    imageReference: hostImageReference
     encryptionAtHost: encryptionAtHost
     subnetResourceId: network.outputs.sessionHostSubnetResourceId
     enrollInIntune: enrollInIntune

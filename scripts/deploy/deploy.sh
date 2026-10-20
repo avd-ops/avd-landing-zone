@@ -6,7 +6,8 @@
 #   ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus \
 #       --users-group "AVD Users" --admins-group "AVD Admins" [--what-if] \
 #       [--hosts 3 --vm-size Standard_D8as_v5 --max-sessions 16 --profile-quota 600] \
-#       [--auto-shutdown 20:00|none --start-vm-on-connect true|false] [--unlock]
+#       [--auto-shutdown 20:00|none --start-vm-on-connect true|false] [--unlock] \
+#       [--image-id <gallery image version ID> [--generation a|b]]
 #
 # -l is the region the landing zone is deployed to (it sets AVD_LOCATION, which
 # the parameter files read). The sizing flags (from the deployment portal's sizing
@@ -14,6 +15,9 @@
 # the power flags (its Cost step) override the scheduled stop and Start VM on Connect.
 # While the hosts are locked by auto shutdown (a budget alert, decision 0011) the
 # deployment is refused: run Resume first, or pass --unlock to deploy anyway.
+# --image-id and --generation set a new landing zone's first image and host generation. After
+# that the host pool's avdlz-image and avdlz-generation tags decide, and only host rotation
+# (build/specs/image-pipeline-spec.md section 6.5) changes them: deploy.sh never replaces software.
 #
 # Environment variables (any flag above overrides):
 #   AVD_USERS_GROUP_ID, AVD_ADMINS_GROUP_ID   Entra group object IDs
@@ -34,10 +38,15 @@ PROFILE_QUOTA=""
 AUTO_SHUTDOWN=""
 START_ON_CONNECT=""
 UNLOCK=false
+IMAGE_ID=""
+IMAGE_ID_SET=false
+GENERATION=""
+GENERATION_SET=false
+ROTATION=false
 AVD_APP_ID="9cdead84-a844-4324-93f2-b2e6bb768d07"   # Azure Virtual Desktop first-party app
 
 usage() {
-  sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
   exit 1
 }
 
@@ -55,6 +64,9 @@ while [[ $# -gt 0 ]]; do
     --auto-shutdown) AUTO_SHUTDOWN="$2"; shift 2 ;;
     --start-vm-on-connect) START_ON_CONNECT="$2"; shift 2 ;;
     --unlock) UNLOCK=true; shift ;;
+    --image-id) IMAGE_ID="$2"; IMAGE_ID_SET=true; shift 2 ;;
+    --generation) GENERATION="$2"; GENERATION_SET=true; shift 2 ;;
+    --rotation) ROTATION=true; shift ;;   # only Invoke-AvdHostRotation.ps1 passes this
     *) usage ;;
   esac
 done
@@ -67,6 +79,10 @@ done
 [[ -z "$VM_SIZE" || "$VM_SIZE" =~ ^Standard_[A-Za-z0-9_]+$ ]] || { echo "Not a VM size: '$VM_SIZE'"; exit 1; }
 [[ -z "$AUTO_SHUTDOWN" || "$AUTO_SHUTDOWN" == none || "$AUTO_SHUTDOWN" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || { echo "--auto-shutdown takes HH:mm or none: '$AUTO_SHUTDOWN'"; exit 1; }
 [[ -z "$START_ON_CONNECT" || "$START_ON_CONNECT" == true || "$START_ON_CONNECT" == false ]] || { echo "--start-vm-on-connect takes true or false: '$START_ON_CONNECT'"; exit 1; }
+[[ -z "$GENERATION" || "$GENERATION" == a || "$GENERATION" == b ]] || { echo "--generation takes a or b: '$GENERATION'"; exit 1; }
+# A gallery image version, never a definition or latest (image pipeline spec section 6.1).
+[[ -z "$IMAGE_ID" || "$IMAGE_ID" =~ ^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.Compute/galleries/[^/]+/images/[^/]+/versions/[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+  || { echo "--image-id takes a Compute Gallery image version resource ID (.../images/<definition>/versions/<x.y.z>): '$IMAGE_ID'"; exit 1; }
 
 echo "==> Checking az and Bicep"
 az bicep version >/dev/null 2>&1 || az bicep install
@@ -230,9 +246,51 @@ if [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(az group exists -n "$HOSTS
       exit 1
     fi
   fi
+  # --- Image and generation (image pipeline spec section 6.1) ---
+  # The host pool's tags record which image and generation its hosts run; only the rotation script
+  # changes them. Without --image-id and --generation the deployment keeps both, and it passes the
+  # rotation tags back so they survive the deployment.
+  POOL_STATE=$(az resource show -g "rg-$NAME_PREFIX-$ENV_NAME-avd" -n "vdpool-$NAME_PREFIX-$ENV_NAME" \
+    --resource-type Microsoft.DesktopVirtualization/hostPools \
+    --query '{"avdlz-image": tags."avdlz-image", "avdlz-generation": tags."avdlz-generation", "avdlz-image-next": tags."avdlz-image-next", "avdlz-rotation": tags."avdlz-rotation"}' \
+    -o json 2>/dev/null || true)
+  if [[ -n "$POOL_STATE" ]]; then
+    # Keep the tags that are set, as a JSON object (absent tags come back null and are left out).
+    POOL_STATE=$(tr -d '\n' <<<"$POOL_STATE"); kept=()
+    for tag in avdlz-image avdlz-generation avdlz-image-next avdlz-rotation; do
+      [[ $POOL_STATE =~ \"$tag\":\ *(\"([^\"\\]|\\.)*\") ]] && kept+=("\"$tag\":${BASH_REMATCH[1]}")
+    done
+    AVD_HOST_POOL_STATE_TAGS="{$(IFS=,; echo "${kept[*]}")}"
+    POOL_IMAGE=""; POOL_GENERATION=""
+    [[ $POOL_STATE =~ \"avdlz-image\":\ *\"([^\"]*)\" ]] && POOL_IMAGE=${BASH_REMATCH[1]}
+    [[ $POOL_STATE =~ \"avdlz-generation\":\ *\"([^\"]*)\" ]] && POOL_GENERATION=${BASH_REMATCH[1]}
+    $IMAGE_ID_SET || IMAGE_ID="$POOL_IMAGE"
+    $GENERATION_SET || GENERATION="$POOL_GENERATION"
+    if ! $ROTATION; then
+      # A rotation in progress owns the pool, and only a rotation changes its image or generation:
+      # Azure rejects a new image on an existing VM, and a new generation deploys a second set of hosts.
+      if [[ $POOL_STATE =~ \"avdlz-rotation\":\ *\" ]]; then
+        echo "==> A host rotation is in progress on vdpool-$NAME_PREFIX-$ENV_NAME (tag avdlz-rotation). Not deploying." >&2
+        echo "    Finish or roll it back first: ./scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix $NAME_PREFIX -Environment $ENV_NAME" >&2
+        exit 1
+      fi
+      if [[ "$IMAGE_ID" != "$POOL_IMAGE" || "$GENERATION" != "$POOL_GENERATION" ]]; then
+        echo "==> The host pool runs image '${POOL_IMAGE:-marketplace}', generation '${POOL_GENERATION:-none}'. Not deploying a different one." >&2
+        echo "    New images reach existing hosts by rotation (build/specs/image-pipeline-spec.md section 6.5), not by deploy.sh." >&2
+        exit 1
+      fi
+    fi
+  fi
   echo "==> Checking the session hosts' power state in $HOSTS_RG"
   mapfile -t STOPPED_HOSTS < <(az vm list -d -g "$HOSTS_RG" --query "[?powerState!='VM running'].id" -o tsv)
 fi
+# Image and generation (empty = the marketplace image and the original host names).
+AVD_SESSION_HOST_IMAGE_ID="$IMAGE_ID" AVD_SESSION_HOST_GENERATION="$GENERATION" AVD_HOST_POOL_STATE_TAGS="${AVD_HOST_POOL_STATE_TAGS:-}"
+export AVD_SESSION_HOST_IMAGE_ID AVD_SESSION_HOST_GENERATION AVD_HOST_POOL_STATE_TAGS
+if [[ -n "$IMAGE_ID$GENERATION" ]]; then
+  echo "    Hosts: image ${IMAGE_ID:-marketplace}, generation ${GENERATION:-none}"
+fi
+
 restore_hosts() {
   ((${#STOPPED_HOSTS[@]})) || return 0
   echo "==> Deallocating the session hosts started for the deployment: ${STOPPED_HOSTS[*]##*/}"

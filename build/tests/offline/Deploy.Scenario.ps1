@@ -21,6 +21,7 @@ function Invoke-Deploy([string] $Step, [string[]] $Extra) {
   Write-Host "RESULT $Step-calls $($calls -join ',')"
   Write-Host "RESULT $Step-ids $(@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -match '^az vm (start|deallocate)' } | ForEach-Object { if ($_ -match '--ids (\S+)') { ($Matches[1] -split '/')[-1] } }) -join ',')"
   Write-Host "RESULT $Step-unmocked $([bool]($out -match 'unmocked call'))"
+  Write-Host "RESULT $Step-env $(@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -like 'deploy-env *' }) -join ';')"
 }
 
 # A redeploy while the host is deallocated: start, deploy, deallocate.
@@ -60,4 +61,21 @@ Invoke-Deploy 'admin-owned-group'
 $env:FAKE_GROUP_OWNERS = 'u-eve'
 Invoke-Deploy 'group-by-id' @('--admins-group', '22222222-2222-2222-2222-222222222222', '--users-group', '11111111-1111-1111-1111-111111111111')
 $env:FAKE_GROUP_OWNERS = ''; $env:FAKE_ADMIN_IDS = ''
+
+# Image and generation (image pipeline spec section 6.1). The host pool's tags decide; deploy.sh passes
+# them back so they survive, refuses a different image or generation, and refuses during a rotation,
+# except for the rotation script itself (--rotation).
+$v1 = '/subscriptions/0000/resourceGroups/rg-avdlz-images/providers/Microsoft.Compute/galleries/galavdlz/images/win11-avd/versions/2026.1004.1'
+$v2 = '/subscriptions/0000/resourceGroups/rg-avdlz-images/providers/Microsoft.Compute/galleries/galavdlz/images/win11-avd/versions/2026.1101.1'
+$env:FAKE_HOSTS_RG_EXISTS = 'true'
+$env:FAKE_POOL_TAGS = "{`n  `"avdlz-generation`": `"a`",`n  `"avdlz-image`": `"$v1`",`n  `"avdlz-image-next`": null,`n  `"avdlz-rotation`": null`n}"
+Invoke-Deploy 'pool-tags'
+Invoke-Deploy 'pool-tags-new-generation' @('--generation', 'b', '--image-id', $v2)
+$env:FAKE_POOL_TAGS = "{`n  `"avdlz-generation`": `"a`",`n  `"avdlz-image`": `"$v1`",`n  `"avdlz-image-next`": `"$v2`",`n  `"avdlz-rotation`": `"{\`"phase\`":\`"Deploy\`"}`"`n}"
+Invoke-Deploy 'pool-rotating'
+Invoke-Deploy 'pool-rotation-deploy' @('--generation', 'b', '--image-id', $v2, '--rotation')
+$env:FAKE_POOL_TAGS = ''
+$env:FAKE_HOSTS_RG_EXISTS = 'false'
+Invoke-Deploy 'first-image' @('--image-id', $v1, '--generation', 'a')
+Invoke-Deploy 'bad-image' @('--image-id', '/subscriptions/0000/resourceGroups/rg-avdlz-images/providers/Microsoft.Compute/galleries/galavdlz/images/win11-avd')
 Remove-Item $log -ErrorAction SilentlyContinue

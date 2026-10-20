@@ -320,3 +320,52 @@ Describe 'Host resource alerts read only what AVD Insights collects' {
     }
   }
 }
+
+Describe 'Image and generation for host rotation (build/specs/image-pipeline-spec.md section 6.1)' {
+  BeforeAll {
+    $script:t = Get-CompiledTemplate 'parameters/dev.bicepparam'
+  }
+  It 'takes the image, generation and rotation tags from the environment, and defaults to none when empty (lesson 0004)' {
+    foreach ($file in 'parameters/dev.bicepparam', 'parameters/test.bicepparam', 'parameters/prod.bicepparam') {
+      $env:AVD_SESSION_HOST_IMAGE_ID = '/subscriptions/x/resourceGroups/r/providers/Microsoft.Compute/galleries/g/images/d/versions/2026.1004.1'
+      $env:AVD_SESSION_HOST_GENERATION = 'b'
+      $env:AVD_HOST_POOL_STATE_TAGS = '{"avdlz-image":"/v/1","avdlz-generation":"a"}'
+      try { $p = ((& $script:bicep build-params $file --stdout | ConvertFrom-Json).parametersJson | ConvertFrom-Json).parameters }
+      finally { $env:AVD_SESSION_HOST_IMAGE_ID = ''; $env:AVD_SESSION_HOST_GENERATION = ''; $env:AVD_HOST_POOL_STATE_TAGS = '' }
+      $p.sessionHostImageId.value | Should -Match '/versions/2026\.1004\.1$'
+      $p.sessionHostGeneration.value | Should -Be 'b'
+      $p.hostPoolStateTags.value.'avdlz-generation' | Should -Be 'a'
+      $p = ((& $script:bicep build-params $file --stdout | ConvertFrom-Json).parametersJson | ConvertFrom-Json).parameters
+      $p.sessionHostImageId.value | Should -BeNullOrEmpty
+      $p.sessionHostGeneration.value | Should -BeNullOrEmpty
+      @($p.hostPoolStateTags.value.PSObject.Properties).Count | Should -Be 0
+    }
+  }
+  It 'keeps the marketplace image and the original host names by default' {
+    $t.variables['hostImageReference'] | Should -Match "if\(empty\(parameters\('sessionHostImageId'\)\), parameters\('sessionHostImage'\), createObject\('id', parameters\('sessionHostImageId'\)\)\)"
+    $t.variables['hostNamePrefix'] | Should -Match "if\(empty\(parameters\('sessionHostGeneration'\)\), parameters\('sessionHostNamePrefix'\), format\('\{0\}\{1\}', take\(parameters\('sessionHostNamePrefix'\), 10\), parameters\('sessionHostGeneration'\)\)\)"
+    $t.parameters['sessionHostGeneration']['allowedValues'] | Should -Be @('', 'a', 'b')
+    $hosts = Find-Deployment $t 'avdlz-session-hosts'
+    $hosts['properties']['parameters']['namePrefix']['value'] | Should -Be "[variables('hostNamePrefix')]"
+    $hosts['properties']['parameters']['imageReference']['value'] | Should -Be "[variables('hostImageReference')]"
+  }
+  It 'gives each generation valid, distinct names of 15 characters at most' {
+    foreach ($prefix in 'avdlzdsh', 'contosoprsh') {
+      $names = foreach ($gen in '', 'a', 'b') {
+        $p = if ($gen) { $prefix.Substring(0, [Math]::Min(10, $prefix.Length)) + $gen } else { $prefix }
+        "$p-001"
+      }
+      @($names | Sort-Object -Unique).Count | Should -Be 3
+      $names | ForEach-Object { $_.Length | Should -BeLessOrEqual 15 }
+    }
+  }
+  It 'keeps only the rotation tags on the host pool, and only when set' {
+    $t.variables['rotationTagNames'] | Should -Be @('avdlz-image', 'avdlz-generation', 'avdlz-image-next', 'avdlz-rotation')
+    $t.variables['keptHostPoolStateTags'] | Should -Match "contains\(variables\('rotationTagNames'\)"
+    $t.variables['keptHostPoolStateTags'] | Should -Match 'not\(empty\('
+    $cp = Find-Deployment $t 'avdlz-control-plane'
+    $cp['properties']['parameters']['hostPoolStateTags']['value'] | Should -Be "[variables('keptHostPoolStateTags')]"
+    $pool = Find-Deployment $cp['properties']['template'] 'host-pool'
+    $pool['properties']['parameters']['tags']['value'] | Should -Match "parameters\('hostPoolStateTags'\)"
+  }
+}

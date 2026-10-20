@@ -1,6 +1,6 @@
 # Spec: golden image pipeline and host rotation
 
-- **Status:** Proposed (see [decision 0013](../decisions/0013-image-pipeline.md)); all red-team findings folded in; see [image-pipeline-redteam.md](image-pipeline-redteam.md)
+- **Status:** Proposed (see [decision 0013](../decisions/0013-image-pipeline.md)); all red-team findings folded in; see [image-pipeline-redteam.md](image-pipeline-redteam.md). Built offline: step 1 (build) and the image and generation parameters of step 2 (section 6.1); nothing has run against a real tenant
 - **Date:** 2026-10-04
 - **Scope:** landing zones built from this repo. This is phase 0b of the [second brain spec](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md), built before its phase 1 (Q6).
 
@@ -274,6 +274,8 @@ With automatic updates off (§5.6), hosts have no patches except the image's, so
 - **QA pool settings:** `AVD_QA_POOL` (default on) and `AVD_QA_GROUP_ID` (required when the QA pool is on, §6.2). The QA pool has its own `avdlz-image` and `avdlz-generation` tags, so it can run a newer version than the main pool. That is how validation works (§6.3).
 - **Promotion records the target, not the current state:** it sets `avdlz-image-next` on the host pool and starts the rotation (§6.4). A routine deployment in between still uses `avdlz-image`.
 - **An offline scenario** covers a routine redeploy before, during and after a rotation. None of them changes a VM's image or recreates a removed generation.
+
+**Built** (offline, 2026-10-20): `sessionHostImageId`, `sessionHostGeneration` and `hostPoolStateTags` in `main.bicep` (empty `AVD_SESSION_HOST_IMAGE_ID`, `AVD_SESSION_HOST_GENERATION` and `AVD_HOST_POOL_STATE_TAGS` keep today's image and names, lesson 0004); the host pool keeps only the four rotation tags (`avdlz-image`, `avdlz-generation`, `avdlz-image-next`, `avdlz-rotation`) and only when set. `deploy.sh` takes `--image-id` (a gallery image version ID only) and `--generation`, reads the host pool's rotation tags before every deployment and passes them back, refuses a different image or generation than the pool records and any deployment while `avdlz-rotation` is set, except with `--rotation`, which only the rotation script passes. Template tests and the `Deploy` offline scenario cover each case. Not built yet: the QA pool settings, the preflight's `-SessionHostImageId` (avd-current-state's validator already checks a gallery version's existence, replication, end of life and generation, and the landing zone takes those checks when it vendors them, foundation wiring option A), and portal commands, which carry no image until promotion exists. Known edge: a custom `sessionHostNamePrefix` of 11 characters ending in `a` or `b` would give that generation the original names; the rotation script's Check phase refuses it.
 
 ### 6.2 The QA pool: a one-host maintenance ring
 

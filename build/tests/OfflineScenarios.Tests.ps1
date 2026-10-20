@@ -272,6 +272,27 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     Get-Result 'admin-owned-group-calls' | Should -Be 'group-exists,vm-list,deployment-create'
     Get-StepExit $out 'group-by-id' | Should -Be 0
   }
+  It 'keeps the image and generation the host pool records, and passes its rotation tags back (image pipeline spec 6.1)' {
+    Get-StepExit $out 'pool-tags' | Should -Be 0
+    Get-Result 'pool-tags-env' | Should -Match 'image=\S+/versions/2026\.1004\.1 gen=a tags=\{"avdlz-image":"\S+/versions/2026\.1004\.1","avdlz-generation":"a"\}$'
+    Get-StepExit $out 'first-image' | Should -Be 0
+    Get-Result 'first-image-env' | Should -Match 'image=\S+/versions/2026\.1004\.1 gen=a tags=$'
+    Get-Result 'running-env' | Should -Be 'deploy-env image= gen= tags='
+  }
+  It 'refuses a different image or generation, and any deployment during a rotation, except from the rotation script' {
+    Get-StepExit $out 'pool-tags-new-generation' | Should -Be 1
+    Get-Result 'pool-tags-new-generation-calls' | Should -Be 'group-exists'
+    $out | Should -Match "Not deploying a different one"
+    Get-StepExit $out 'pool-rotating' | Should -Be 1
+    Get-Result 'pool-rotating-calls' | Should -Be 'group-exists'
+    $out | Should -Match 'A host rotation is in progress on vdpool-avdlz-dev'
+    Get-StepExit $out 'pool-rotation-deploy' | Should -Be 0
+    Get-Result 'pool-rotation-deploy-env' | Should -Match 'image=\S+/versions/2026\.1101\.1 gen=b tags=.*"avdlz-rotation":"\{\\"phase\\":\\"Deploy\\"\}"'
+  }
+  It 'takes only a gallery image version as the image' {
+    Get-StepExit $out 'bad-image' | Should -Be 1
+    $out | Should -Match '--image-id takes a Compute Gallery image version resource ID'
+  }
   It 'makes no az call the fake does not know' {
     foreach ($s in 'stopped', 'stopped-fails', 'whatif', 'running', 'first', 'locked', 'locked-whatif', 'locked-unlock', 'owned-group', 'admin-owned-group', 'group-by-id') { Get-Result "$s-unmocked" | Should -Be 'False' }
   }
