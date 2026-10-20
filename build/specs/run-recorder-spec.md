@@ -305,8 +305,50 @@ Unverified, to confirm in phase 1 (offline) or the first real run:
 | **P4, first real run** | One sandbox run in the maintainer's personal subscription, smallest sizes, northcentralus: deploy, close the tab mid-deploy, resume, post-deployment, cleanup, recorder removal. Confirms U1 to U6 | Only after a written estimate and the owner's yes; teardown evidence and actual cost recorded |
 | **P5, feedback** | Run report issue and label, retro skill entry, `docs/verified-runs.md`, field report path in the family KB | $0 |
 
+## 13a. Sandbox test plan (phase 4)
+
+Everything in this spec is built offline first, then tested and audited in one real run in the maintainer's personal sandbox subscription (northcentralus, smallest sizes). **No real run and no spend until the owner says go on the written estimate below.** The family-wide plan for the same conventions (one run folder, `-TeardownLogs`, never deleting the last copy) is written separately and refers back to this section.
+
+### What the run must prove
+
+| # | Requirement | How the run proves it | Evidence kept in the run folder |
+|---|---|---|---|
+| T1 | Resume after a Cloud Shell reset (§4) | Close the Cloud Shell tab during `deploy.sh`, open a new session, run `Get-AvdRunStatus.ps1`: it reports `running` and the deployment name. Run it again after the deployment: `postdeploy`. Then do it from a second device | Both state lines; the portal's analysis of each (screenshots) |
+| T2 | ARM keeps running after the shell ends (U2) | Same as T1: the deployment record shows `Succeeded` without the shell | Deployment record and duration |
+| T3 | The journal and redaction (§5, §6) | Record the whole run with `AVDLZ_RECORD=azure`; check no secret appears (grep for the device code, SAS and token patterns); check the public report has no tenant name, IDs or domains | Journal, transcripts, the redaction check output |
+| T4 | Transcript coverage (U3) | Compare the transcript with the console for one `az` call inside PowerShell | The diff |
+| T5 | Activity Log and Entra reads (§7, U4) | `Stop-AvdRunRecorder` reads the run's Activity Log and the Entra audit entries; a Free-tier refusal is reported, not fatal | The exported entries or the refusal |
+| T6 | Logs exported before cleanup (§8.1 item 6) | Export the AVD tables, check row counts, then run cleanup | Exported tables and counts |
+| T7 | Teardown proof (§8.1 item 5) | After cleanup, the Resource Graph query finds nothing tagged with the run or named by the landing zone | Query and result |
+| T8 | One run folder, `-TeardownLogs` (§9.2) | Run teardown once with `Keep` (folder stays), once with `Ask` (lists and asks), and once with `Delete` on a throwaway test folder (refuses without a verified copy, then deletes after one) | Each prompt and outcome |
+| T9 | Verified copies (§9.2 step 4) | `-CopyTo github:<private repo>`: commit, read back, hashes match; a planted mismatch blocks deletion; a public repo is refused | Receipts and the refusal |
+| T10 | Cost (§9.1, U5, U6) | Defender for Storage plan read first; actual cost from Cost Management when it settles | Estimate against actual |
+
+### What gets created
+
+The landing zone at its smallest supported settings (one session host, the smallest size the preflight accepts in the region, auto shutdown on) plus the demo, and the run store (`avdlz-runs-rg`: one StorageV2 LRS account and the Activity Log diagnostic setting). The landing zone and demo are removed at the end. The run store stays, as decided (§9.2).
+
+### Cost estimate and cap
+
+- **Run store:** under $0.05 for the run, then cents a month (§9.1), plus Defender for Storage if the plan is on, which the preflight reports before anything is deployed.
+- **Landing zone and demo:** priced by `Get-AvdCostEstimate` for the chosen size and the hours of the run, printed before the go (R7: no price is guessed here). For scale only: an earlier sandbox demo with one session host cost $0.97 for about eight hours, not counting the landing zone itself.
+- **Target:** one sitting of about three hours, from deploy to teardown.
+- **Cap:** proposed at $10 for the run, enforced by the sandbox budget. If the estimate is over the cap, or the run goes past six hours, teardown starts.
+- Actual cost and teardown evidence are recorded after the run, and the actual figure is checked again once Cost Management settles (up to 3 days).
+
+### Hand steps for the owner
+
+1. Read the printed estimate and say go (or not).
+2. In Cloud Shell: run the commands the portal gives, in order. Sign in to Microsoft Graph once (`Connect-AvdLandingZone.ps1`) and to GitHub once (`gh auth login`, device code). Both are device-code sign-ins: no secrets are typed or stored.
+3. Close the Cloud Shell tab when the portal says so during the deployment (T1), and reopen it from a second device.
+4. Create or name the private repository for run records (open question §14).
+5. Approve the teardown prompts (T8).
+6. Nothing else: the scripts write the evidence into the run folder, and the run report is filed as a redacted issue for review.
+
 ## 14. Open questions for the owner
 
 1. Should `AVDLZ_RECORD=on` (local) become the portal's default for everyone, or stay opt-in? Local recording costs nothing and nothing leaves the shell, but it writes files in the operator's `clouddrive`. The spec says opt-in.
 2. *Decided 2026-10-20 by the owner:* the sandbox keeps durable log storage. The run store is set up once per subscription and is not removed with each run (§6.3, §9.2).
 3. Should the verified runs table live here or on avd-ops.dev, which already holds the family's user-facing docs?
+4. Which private repository holds the sandbox's run records (§9.2 step 4)?
+5. Is $10 the right cap for the phase 4 run (§13a)?
