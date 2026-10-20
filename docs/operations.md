@@ -11,6 +11,7 @@ PowerShell scripts in [`scripts/ops/`](../scripts/ops) that run against a **depl
 | `Connect-AvdLandingZone.ps1` | Signs in to Microsoft Graph once for the whole Cloud Shell session; the other scripts reuse the sign-in ([decision 0016](../build/decisions/0016-graph-operator-app.md)). |
 | `Initialize-AvdGraphApp.ps1` | One-time, by an administrator: creates the avd-opsbot app, so operators sign in with no consent prompts. |
 | `Test-AvdUserConnection.ps1` | After you open the desktop: confirms from Azure telemetry that your sign-in reached it (Verified, Failed or Not verified). The deployment portal's Verify access step ([decision 0014](../build/decisions/0014-verify-access.md)). |
+| `Get-AvdRunStatus.ps1` | Where did I leave off? After Cloud Shell resets or on another device: reads where the run stands from Azure (deployment records, resource groups) and tells the portal the next step. Read-only ([run recorder spec](../build/specs/run-recorder-spec.md) section 4). |
 
 They share `AvdLandingZone.psm1`. The landing zone's resources, Entra groups and AVD service principal are discovered from its naming convention and the role assignments it created, so the only required inputs are `-NamePrefix` and `-Environment`.
 
@@ -43,6 +44,7 @@ bash ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus -
 
 # 4. After opening the desktop: did the connection reach it? (waits up to 15 minutes for the logs)
 ./scripts/ops/Test-AvdUserConnection.ps1 -NamePrefix avdlz -Environment dev
+./scripts/ops/Get-AvdRunStatus.ps1                                    # where did I leave off
 ```
 
 ### Microsoft Graph sign-in
@@ -257,6 +259,8 @@ Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 ## Deployment portal
 
 Every script ends with a machine-readable line (`<<<AVDLZ-STATE {...} AVDLZ-STATE>>>`): the stage, whether it passed, the context for the next command, and each failure with a stable id. Paste the output into the [deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/) and it tells you what to run next. The format is described in [`site/portal/README.md`](../site/portal/README.md).
+
+**Recording a run (optional, off by default).** Set `$env:AVDLZ_RECORD = 'on'` and `$env:AVDLZ_RUN_ID = 'run-<yyyyMMdd>-<HHmm>-<4 letters or digits>'` in the Cloud Shell session, and the scripts also write a journal of each step, check and API error to `~/clouddrive/avdlz-runs/<run ID>/journal.jsonl` (or `~/avdlz-runs/` without mounted storage). Secrets are never written; parameters named like secrets show as `<set>`. The journal stays in your Cloud Shell storage until you share a redacted report. Design: [run recorder spec](../build/specs/run-recorder-spec.md), section 6.
 
 If the portal gives the wrong advice or you are stuck, use **Report a problem** in the portal. It builds a GitHub issue from the output you pasted. Before anything leaves your browser, it removes email addresses, IDs, subscription and resource names, your name prefix and group names, and secrets. You review the report, tick that it contains nothing private, and submit it on GitHub. Issues are public.
 

@@ -46,6 +46,7 @@ function Add-AvdCheckResult {
       Id          = $Id
       Data        = $Data
     })
+  if ($env:AVDLZ_RECORD) { Write-AvdJournalEvent 'check' ([ordered]@{ step = $script:JournalStep.Name; id = $Id; status = $Status; area = $Area; check = $Check; data = $Data }) }
   $color = @{ Pass = 'Green'; Fixed = 'Cyan'; Fail = 'Red'; Warn = 'Yellow'; Skip = 'DarkGray' }[$Status]
   Write-Host ('  [{0,-5}] {1}' -f $Status.ToUpper(), $Check) -ForegroundColor $color
   if ($Detail) { Write-Host "          $Detail" -ForegroundColor DarkGray }
@@ -61,7 +62,7 @@ function Get-AvdPortalState {
     warning with its stable Id and Data. Schema: site/portal/README.md.
   #>
   param(
-    [Parameter(Mandatory)][ValidateSet('predeploy', 'postdeploy', 'demo', 'cleanup', 'verify')][string] $Stage,
+    [Parameter(Mandatory)][ValidateSet('predeploy', 'postdeploy', 'demo', 'cleanup', 'verify', 'resume')][string] $Stage,
     [switch] $Fix,
     [hashtable] $Context = @{},
     # A stage-specific outcome (verify: verified, failed, notverified) instead of ready/notready.
@@ -97,6 +98,10 @@ function Write-AvdPortalState {
   Write-Host ''
   Write-Host "Deployment portal: paste this output into $script:PortalUrl for the next step." -ForegroundColor DarkGray
   Write-Host "<<<AVDLZ-STATE $json AVDLZ-STATE>>>" -ForegroundColor DarkGray
+  if ($env:AVDLZ_RECORD) {
+    $sec = if ($script:JournalStep) { [math]::Round(([datetime]::UtcNow - $script:JournalStep.Started).TotalSeconds, 1) } else { $null }
+    Write-AvdJournalEvent 'step.end' ([ordered]@{ step = $script:JournalStep.Name; durationSec = $sec; state = $State })
+  }
 }
 
 function Write-AvdSummary {
@@ -116,6 +121,109 @@ function Write-AvdSummary {
 }
 
 # =====================================================================
+# Run journal (build/specs/run-recorder-spec.md section 6): opt in with AVDLZ_RECORD and
+# AVDLZ_RUN_ID; one JSON object per line, schema contracts/schemas/run-journal.schema.json
+# (avd-second-brain contract C17, vendored). Without both
+# variables nothing is written. A journal that can't be written warns once and never stops the run.
+# =====================================================================
+$script:JournalRunIdPattern = '^run-\d{8}-\d{4}-[a-z0-9]{4}$'
+$script:JournalSecretName = '(?i)password|secret|token|credential|sas|key'
+$script:JournalWarned = $false
+$script:JournalStep = $null
+
+function Get-AvdJournalSetting {
+  <# Where the journal goes, from the two variables and the shell's home. Pure: returns Enabled and Path, or Enabled $false and Reason. #>
+  param(
+    [string] $Record,
+    [string] $RunId,
+    [Parameter(Mandatory)][string] $HomePath,
+    [bool] $CloudDriveExists
+  )
+  if (-not $Record -or $Record -eq 'off') { return [pscustomobject]@{ Enabled = $false; Reason = 'off' } }
+  if ($Record -notin 'on', 'azure') { return [pscustomobject]@{ Enabled = $false; Reason = "AVDLZ_RECORD must be on, azure or off, not '$Record'." } }
+  if ($RunId -cnotmatch $script:JournalRunIdPattern) { return [pscustomobject]@{ Enabled = $false; Reason = 'AVDLZ_RUN_ID is missing or not a run ID (run-yyyyMMdd-HHmm-xxxx); the portal generates one.' } }
+  # Azure mode writes the local journal too; the run store upload comes with Start-AvdRunRecorder (section 6.3).
+  $root = if ($CloudDriveExists) { Join-Path $HomePath 'clouddrive' } else { $HomePath }
+  $folder = Join-Path (Join-Path $root 'avdlz-runs') $RunId
+  [pscustomobject]@{ Enabled = $true; Mode = $Record; RunId = $RunId; Folder = $folder; Path = (Join-Path $folder 'journal.jsonl'); Durable = $CloudDriveExists }
+}
+
+function Get-AvdJournalParam {
+  <# A script's parameters for the journal: secrets and anything named like one become '<set>', switches become booleans. #>
+  param([System.Collections.IDictionary] $Parameter)
+  $o = [ordered]@{}
+  if (-not $Parameter) { return $o }
+  foreach ($k in @($Parameter.Keys | Sort-Object)) {
+    $v = $Parameter[$k]
+    $o[$k] = if ($v -is [securestring] -or $v -is [pscredential] -or $k -match $script:JournalSecretName) { '<set>' }
+    elseif ($v -is [switch]) { [bool]$v }
+    elseif ($null -eq $v) { $null }
+    elseif ($v -is [array]) { @($v | ForEach-Object { "$_" }) }
+    else { "$v" }
+  }
+  $o
+}
+
+function Get-AvdJournalEvent {
+  <# One journal line as an ordered dictionary: v, event, runId, ts, then the event's fields. #>
+  param(
+    [Parameter(Mandatory)][ValidateSet('step.start', 'check', 'api.error', 'step.end', 'operator.note')][string] $Name,
+    [Parameter(Mandatory)][string] $RunId,
+    [System.Collections.IDictionary] $Field = @{},
+    [datetime] $Now = [datetime]::UtcNow
+  )
+  $e = [ordered]@{ v = 1; event = $Name; runId = $RunId; ts = $Now.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ') }
+  foreach ($k in $Field.Keys) { $e[$k] = $Field[$k] }
+  $e
+}
+
+function Write-AvdJournalEvent {
+  param(
+    [Parameter(Mandatory, Position = 0)][string] $Name,
+    [Parameter(Position = 1)][System.Collections.IDictionary] $Field = @{},
+    [string] $HomePath = $(if ($HOME) { $HOME } else { [Environment]::GetFolderPath('UserProfile') })
+  )
+  $cfg = Get-AvdJournalSetting -Record $env:AVDLZ_RECORD -RunId $env:AVDLZ_RUN_ID -HomePath $HomePath -CloudDriveExists (Test-Path (Join-Path $HomePath 'clouddrive'))
+  if (-not $cfg.Enabled) {
+    if ($cfg.Reason -ne 'off' -and -not $script:JournalWarned) { $script:JournalWarned = $true; Write-Warning "Run journal off: $($cfg.Reason)" }
+    return
+  }
+  try {
+    if (-not (Test-Path $cfg.Folder)) { $null = New-Item -ItemType Directory -Path $cfg.Folder -Force -ErrorAction Stop }
+    $line = Get-AvdJournalEvent -Name $Name -RunId $cfg.RunId -Field $Field | ConvertTo-Json -Compress -Depth 10
+    Add-Content -LiteralPath $cfg.Path -Value $line -Encoding utf8 -ErrorAction Stop
+  }
+  catch {
+    if (-not $script:JournalWarned) { $script:JournalWarned = $true; Write-Warning "Run journal not written ($($cfg.Path)): $($_.Exception.Message)" }
+  }
+}
+
+function Start-AvdRunJournal {
+  <# step.start for the script that called Initialize-AvdAzContext: its name, parameters and commit. #>
+  [CmdletBinding(SupportsShouldProcess)]
+  param([System.Management.Automation.InvocationInfo] $Invocation)
+  if (-not $env:AVDLZ_RECORD -or $env:AVDLZ_RECORD -eq 'off' -or -not $Invocation) { return }
+  if (-not $PSCmdlet.ShouldProcess('run journal', 'Write step.start')) { return }
+  $script:JournalStep = [pscustomobject]@{ Name = if ($Invocation.MyCommand.Name) { $Invocation.MyCommand.Name } else { 'interactive' }; Started = [datetime]::UtcNow }
+  $commit = $null
+  if (Get-Command git -ErrorAction SilentlyContinue) {
+    $commit = git -C $PSScriptRoot rev-parse --short HEAD 2>$null
+    if ($LASTEXITCODE) { $commit = $null }
+  }
+  Write-AvdJournalEvent 'step.start' ([ordered]@{
+      step = $script:JournalStep.Name; portalStep = $env:AVDLZ_PORTAL_STEP; params = (Get-AvdJournalParam $Invocation.BoundParameters)
+      repoCommit = $commit; shell = 'pwsh'; cloudShell = (Test-AvdCloudShell)
+    })
+}
+
+function Add-AvdRunNote {
+  <# Records what was done by hand ("I set X in the Azure portal") in the run journal. #>
+  param([Parameter(Mandatory, Position = 0)][string] $Text)
+  if (-not $env:AVDLZ_RECORD -or $env:AVDLZ_RECORD -eq 'off') { Write-Warning 'Recording is off: set AVDLZ_RECORD and AVDLZ_RUN_ID as the portal shows.'; return }
+  Write-AvdJournalEvent 'operator.note' ([ordered]@{ step = $script:JournalStep.Name; text = $Text })
+}
+
+# =====================================================================
 # Azure context, ARM and Graph helpers
 # =====================================================================
 function Test-AvdCloudShell {
@@ -132,6 +240,7 @@ function Initialize-AvdAzContext {
   if ($SubscriptionId -and $ctx.Subscription.Id -ne $SubscriptionId) {
     $ctx = Set-AzContext -SubscriptionId $SubscriptionId -ErrorAction Stop
   }
+  if ($env:AVDLZ_RECORD) { Start-AvdRunJournal -Invocation (Get-PSCallStack)[1].InvocationInfo }
   return $ctx
 }
 
@@ -146,7 +255,15 @@ function Invoke-AvdArm {
   if ($null -ne $Body) { $p.Payload = ($Body | ConvertTo-Json -Depth 30 -Compress) }
   $r = Invoke-AzRestMethod @p
   if ($AllowNotFound -and $r.StatusCode -eq 404) { return $null }
-  if ($r.StatusCode -ge 400) { throw "ARM $Method $Path failed ($($r.StatusCode)): $($r.Content)" }
+  if ($r.StatusCode -ge 400) {
+    if ($env:AVDLZ_RECORD) {
+      $code = try { ($r.Content | ConvertFrom-Json -ErrorAction Stop).error.code } catch { $null }
+      $corr = if ($r.Headers) { try { @($r.Headers['x-ms-correlation-request-id'])[0] } catch { $null } }
+      $body = if ($r.Content -and $r.Content.Length -gt 2000) { $r.Content.Substring(0, 2000) + '...' } else { $r.Content }
+      Write-AvdJournalEvent 'api.error' ([ordered]@{ step = $script:JournalStep.Name; api = 'arm'; method = $Method; path = $Path; status = [int]$r.StatusCode; code = $code; body = $body; correlationId = $corr })
+    }
+    throw "ARM $Method $Path failed ($($r.StatusCode)): $($r.Content)"
+  }
   if ($r.Content) { return $r.Content | ConvertFrom-Json -Depth 30 }
 }
 
@@ -2202,6 +2319,69 @@ function Get-AvdImageVersionName {
   $taken = @($Existing | Where-Object { $_ -like "$prefix.*" } | ForEach-Object { [int]($_.Split('.')[2]) })
   $next = if ($taken.Count) { ($taken | Measure-Object -Maximum).Maximum + 1 } else { 1 }
   "$prefix.$next"
+}
+
+function Get-AvdRunPosition {
+  <#
+    Where a run stands, for Get-AvdRunStatus.ps1 (build/specs/run-recorder-spec.md section 4).
+    Azure is the source of truth: the newest deploy.sh deployment record (avdlz-<parameter file>-<yyyyMMdd-HHmmss>),
+    the landing zone's resource groups and the demo's deployment record. Anything it can't classify is
+    'unknown' with what it saw, never a guess. A running deployment wins over everything.
+    Returns @{ Status = ready|unknown; LastStage; LastStatus; NextStage; DeploymentName; Basis }.
+  #>
+  param(
+    [Parameter(Mandatory)][string] $Environment,
+    # ARM subscription deployment records (name, properties.provisioningState, properties.timestamp).
+    [AllowEmptyCollection()][object[]] $Deployment = @(),
+    # Get-AvdLandingZone's RgExists: Network, Management, Storage, ControlPlane, Hosts, Demo.
+    [Parameter(Mandatory)][hashtable] $RgExists,
+    # The demo's record (avdlz-demo-<prefix>-<env>), if there is one.
+    [object] $DemoDeployment,
+    [datetime] $Now = (Get-Date).ToUniversalTime()
+  )
+  $o = [ordered]@{ Status = 'ready'; LastStage = $null; LastStatus = $null; NextStage = $null; DeploymentName = $null; Basis = '' }
+  $runs = @($Deployment | Where-Object { $_ -and $_.name -match '^avdlz-(?!demo-).+-\d{8}-\d{6}$' })
+  $mine = @($runs | Where-Object { $_.name -match "^avdlz-$([regex]::Escape($Environment))-\d{8}-\d{6}$" })
+  if ($mine.Count) { $runs = $mine }
+  $latest = $runs | Sort-Object { [datetime]$_.properties.timestamp } -Descending | Select-Object -First 1
+  $core = @('Network', 'Management', 'Storage', 'ControlPlane', 'Hosts' | Where-Object { $RgExists[$_] })
+  $ago = { param($t, $n) $m = [math]::Max(0, [math]::Round(($n - ([datetime]$t).ToUniversalTime()).TotalMinutes)); if ($m -lt 120) { "$m minutes ago" } else { "$([math]::Round($m / 60)) hours ago" } }
+
+  if ($latest) {
+    $o.DeploymentName = $latest.name
+    $state = "$($latest.properties.provisioningState)"
+    $when = & $ago $latest.properties.timestamp $Now
+    if ($state -in 'Running', 'Accepted', 'Deploying', 'Created') {
+      $o.LastStage = 'deploy'; $o.LastStatus = 'running'; $o.NextStage = 'deploy'
+      $o.Basis = "Azure shows deployment $($latest.name) running (last update $when)."
+      return $o
+    }
+    if ($state -in 'Failed', 'Canceled') {
+      $o.LastStage = 'deploy'; $o.LastStatus = 'failed'; $o.NextStage = 'deploy'
+      $o.Basis = "Azure shows deployment $($latest.name) $($state.ToLower()) ($when)."
+      return $o
+    }
+  }
+  if (-not $core.Count) {
+    $o.LastStage = if ($latest) { 'cleanup' } else { $null }
+    $o.NextStage = 'predeploy'
+    $o.Basis = if ($latest) { "No landing zone resource groups found; the last deployment ($($latest.name)) was removed since." } else { 'No landing zone and no deployment record found: start from the beginning.' }
+    return $o
+  }
+  if (-not $latest -or "$($latest.properties.provisioningState)" -ne 'Succeeded' -or $core.Count -lt 5) {
+    $o.Status = 'unknown'
+    $o.Basis = "Found resource groups ($($core -join ', ')) but $(if ($latest) { "deployment $($latest.name) is $($latest.properties.provisioningState) and not every group exists" } else { 'no deployment record' })."
+    return $o
+  }
+  $o.LastStage = 'deploy'; $o.LastStatus = 'succeeded'
+  if ($RgExists['Demo'] -and $DemoDeployment -and "$($DemoDeployment.properties.provisioningState)" -eq 'Succeeded') {
+    $o.LastStage = 'demo'; $o.NextStage = 'verify'
+    $o.Basis = "The landing zone and the demo are deployed ($(& $ago $DemoDeployment.properties.timestamp $Now)): check that you can connect."
+    return $o
+  }
+  $o.NextStage = 'postdeploy'
+  $o.Basis = "Azure shows the deployment succeeded ($(& $ago $latest.properties.timestamp $Now)). The post-deployment setup is safe to run again if it already ran."
+  $o
 }
 
 Export-ModuleMember -Function *-Avd*

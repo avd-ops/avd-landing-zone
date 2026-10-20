@@ -182,6 +182,11 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
   if ($Path -match '/sessionHosts\?') { return & $ok @{ value=@(@{ name='vdpool-avdlz-dev-demo/avdlzddemo-001'; properties=@{status='Available';allowNewSession=$true;agentVersion='1.0.9999';sessionHostHealthCheckResults=@(@{healthCheckName='DomainJoinedCheck';healthCheckResult='HealthCheckSucceeded'})} }) } }
   if ($Path -match '/runCommands/') { return & $ok @{ properties=@{ instanceView=@{executionState='Succeeded';exitCode=0} } } }
   if ($Path -match 'policyAssignments\?') { return & $ok @{ value=@(@{name='avdlz-allowed-locations';id="$S/providers/Microsoft.Authorization/policyAssignments/avdlz-allowed-locations"},@{name='avdlz-inherit-rg-tag-workload';id="$S/pa2";identity=@{principalId='44444444-0000-0000-0000-000000000000'}},@{name='someone-else';id='x'}) } }
+  # Subscription deployment records for Get-AvdRunStatus.ps1. $global:St.deploymentRecords: @{ name; state; timestamp }.
+  # ARM leaves out what a record doesn't have (lesson 0021): no outputs here.
+  if ($Path -match '^/subscriptions/[^/]+/providers/Microsoft\.Resources/deployments\?' -and $Method -eq 'GET') {
+    return & $ok @{ value=@($global:St.deploymentRecords | Where-Object { $_ } | ForEach-Object { @{ name=$_.name; properties=@{ provisioningState=$_.state; timestamp=$_.timestamp } } }) }
+  }
   if ($Path -match 'providers/Microsoft.Resources/deployments/(avdlz-demo-[^/?]+)\?' -and $Method -eq 'GET') {
     if (@($global:St.deployments) -notcontains $Matches[1]) { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"DeploymentNotFound"}}' } }
     return & $ok @{ name=$Matches[1]; properties=@{ provisioningState='Succeeded'; outputs=@{ sessionHostNames=@{ type='Array'; value=@('avdlzddemo-001') } } } }

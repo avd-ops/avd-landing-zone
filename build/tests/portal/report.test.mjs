@@ -142,3 +142,31 @@ test('redact: the launch link IDs and names in a post-deployment state line (dec
     assert.ok(!t.includes(v), `still contains ${v}`);
   assert.match(t, /"launch":\{"workspaceObjectId":"<id-\d+>"/);
 });
+
+// Run recorder redaction levels (build/specs/run-recorder-spec.md section 5).
+const SECRETS = ['QWERTY123', 'Hunter2', 'Zm9vYmFy', 'AbCdEf123', 'eyJhbGci', 'abcDEF123'];
+
+test('redact: the private level removes secrets and keeps tenant details for the operator', () => {
+  const r = R.redact(fixture('pii-sample.txt'), { level: 'private' });
+  for (const v of SECRETS) assert.ok(!r.text.includes(v), `still contains ${v}`);
+  assert.ok(r.text.includes('3f2a1b4c-1111-2222-3333-444455556666'));
+  assert.ok(r.text.includes('jane.doe'));
+  assert.deepEqual(Object.keys(r.counts), ['secret']);
+});
+
+test('redact: public after private still removes every private value', () => {
+  const once = R.redact(fixture('pii-sample.txt'), { level: 'private' }).text;
+  const r = R.redact(once);
+  for (const v of PRIVATE) assert.ok(!r.text.includes(v), `still contains ${v}`);
+});
+
+test('redact.mjs: same result as report.js, and fails closed on bad arguments', async () => {
+  const { execFileSync, spawnSync } = await import('node:child_process');
+  const cli = join(root, 'scripts/ops/redact.mjs'), sample = join(root, 'build/tests/portal/fixtures/pii-sample.txt');
+  for (const level of ['private', 'public']) {
+    const out = execFileSync('node', [cli, '--level', level, '--in', sample], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+    assert.equal(out, R.redact(fixture('pii-sample.txt'), { level }).text, level);
+  }
+  assert.equal(spawnSync('node', [cli, '--in', sample]).status, 2);
+  assert.equal(spawnSync('node', [cli, '--level', 'public', '--in', join(root, 'no-such-file')]).status, 1);
+});
