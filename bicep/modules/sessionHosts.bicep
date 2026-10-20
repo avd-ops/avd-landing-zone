@@ -30,6 +30,10 @@ param usersGroupObjectId string
 param adminsGroupObjectId string
 param avdServicePrincipalObjectId string
 
+@description('Daily shutdown time (HHmm, in autoShutdownTimeZone) for these hosts; empty = none. The demo sets it: the landing zone auto shutdown covers only its own host pool (avd-second-brain decision 0017).')
+param autoShutdownTime string = ''
+param autoShutdownTimeZone string = 'UTC'
+
 var roles = {
   vmUserLogin: 'fb879df8-f326-4884-b1cf-06f3ad86be52'
   vmAdminLogin: '1c0163c0-47e6-4577-8991-ea5c82e286e4'
@@ -48,6 +52,7 @@ module vm 'br/public:avm/res/compute/virtual-machine:0.22.3' = [
       location: location
       tags: tags
       vmSize: vmSize
+      autoShutdownConfig: empty(autoShutdownTime) ? {} : { status: 'Enabled', dailyRecurrenceTime: autoShutdownTime, timeZone: autoShutdownTimeZone }
       osType: 'Windows'
       // AVD multi-session: Windows client licensing via the user's M365/Windows E3+ entitlement.
       licenseType: 'Windows_Client'

@@ -105,6 +105,7 @@ Describe 'Pre-deployment: empty subscription, then a blocked prod deployment' {
     $out | Should -Match 'deploy\.sh -p parameters/dev\.bicepparam -l northcentralus'
   }
   It 'reads the AVD host pool regions from the provider API' { $out | Should -Match '\[PASS \] AVD host pools offered in northcentralus' }
+  It 'warns when a dev landing zone has no budget backstop (avd-second-brain decision 0017)' { $out | Should -Match '\[WARN\s*\] Budget backstop' }
   It 'blocks prod on a soft-deleted, purge-protected Key Vault' {
     Get-StepExit $out 'prod-zone-and-vault' | Should -Be 1
     $out | Should -Match '\[FAIL \] No soft-deleted Key Vault blocking the vault name'

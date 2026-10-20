@@ -2104,6 +2104,10 @@ function Test-AvdPreDeployment {
 
   Test-AvdDeletedKeyVault -Lz $lz -Location $plan.location -Fix:$Fix
 
+  # Never leave the meter running (avd-second-brain decision 0017): a sandbox needs a budget backstop.
+  if ($plan.monthlyBudgetAmount -le 0 -and $plan.environmentName -ne 'prod') {
+    Add-AvdCheckResult 'Parameters' 'Budget backstop' 'Warn' -Detail "No budget is planned for this $($plan.environmentName) landing zone, so nothing alerts or locks the hosts if a run is left up. A standing budget on the subscription covers this too." -Remediation 'Set AVD_MONTHLY_BUDGET and AVD_ALERT_EMAIL before deploy.sh.'
+  }
   # Budget parameters are skipped silently by the template if incomplete; say so here.
   if ($plan.monthlyBudgetAmount -gt 0 -and (-not $plan.budgetStartDate -or -not @($plan.alertEmailAddresses).Count)) {
     Add-AvdCheckResult 'Parameters' 'Budget will be created' 'Warn' -Detail 'monthlyBudgetAmount is set but budgetStartDate or alertEmailAddresses (AVD_ALERT_EMAIL) is empty, so no budget is created.'

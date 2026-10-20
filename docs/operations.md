@@ -166,7 +166,7 @@ Group SIDs are the synced group's on-premises SID when it has one, otherwise the
 - Pooled host pool (validation ring), desktop app group, workspace.
 - `-SessionHostCount` hosts (default 1), built by the landing zone's own `controlPlane` and `sessionHosts` modules.
 - The existing spoke, profile share, Log Analytics, DCR, private DNS, groups and AVD service principal.
-- No scaling plan, so the host stays up while you test. The host pool private endpoint lives in the demo RG, so cleanup removes it.
+- No scaling plan, so the host stays up while you test, until 20:00 Central: the demo hosts have their own daily shutdown, since the landing zone's auto shutdown covers only its own host pool (never leave the meter running, [avd-second-brain decision 0017](https://github.com/nickprignano/avd-second-brain/blob/main/docs/knowledge/decisions/0017-never-leave-the-meter-running.md)). Start VM on Connect starts them again. The host pool private endpoint lives in the demo RG, so cleanup removes it.
 
 It then validates sign-in readiness:
 

@@ -247,3 +247,17 @@ Describe 'Profile share SMB channel encryption (build/lessons/0028)' {
     $channel | Should -Not -Match 'CCM'
   }
 }
+
+Describe 'Demo hosts stop on their own (avd-second-brain decision 0017)' {
+  # The landing zone auto shutdown runbook covers only vdpool-<base>; the demo pool needs its own schedule.
+  It 'gives the demo hosts a daily shutdown by default, and the landing zone hosts none of their own' {
+    $raw = & $script:bicep build bicep/demo/main.bicep --stdout 2>&1
+    $LASTEXITCODE | Should -Be 0 -Because "$raw"
+    $t = ($raw -join "`n") | ConvertFrom-Json -Depth 100 -AsHashtable
+    $t['parameters']['autoShutdownTime']['defaultValue'] | Should -Be '2000'
+    $hosts = Find-Deployment $t 'avdlz-demo-session-hosts'
+    $hosts['properties']['parameters']['autoShutdownTime']['value'] | Should -Be "[parameters('autoShutdownTime')]"
+    $lz = Find-Deployment (Get-CompiledTemplate 'parameters/dev.bicepparam') 'avdlz-session-hosts'
+    if ($lz) { $lz['properties']['parameters'].Keys | Should -Not -Contain 'autoShutdownTime' }
+  }
+}
