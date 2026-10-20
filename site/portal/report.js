@@ -38,6 +38,7 @@
     '082f0a83-3be5-4ba1-904c-961cca79b387', // Desktop Virtualization Contributor
     'd3881f73-407a-4167-8283-e981cbba0404', // Automation Operator
     'b24988ac-6180-42a0-ab88-20f7382dd24c', // Contributor
+    'ba92f5b4-2d11-453d-a403-e96b0029c9fe', // Storage Blob Data Contributor
     'acdd72a7-3385-48ef-bd42-f606fba81ae7', // Reader
     '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1', // Storage Blob Data Reader
     // Entra directory role templates (group owner check in the preflight and deploy.sh)

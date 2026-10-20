@@ -545,3 +545,97 @@ Describe 'One Microsoft Graph sign-in per session (decision 0016)' {
   }
   It 'names a client ID that is not a GUID and how to clear it' { $out | Should -Match 'RESULT bad-client-id exit=1 named=True wayOut=True' }
 }
+
+Describe 'Run recorder: run store and the cost gate' {
+  BeforeAll { $script:out = Invoke-OfflineScenario 'RunRecorder' }
+
+  It 'refuses to open a run in Azure without a run store' { Get-StepExit $out 'start-no-store' | Should -Be 1 }
+  It 'refuses the run store while Defender for Storage would bill it, and deploys nothing' {
+    Get-StepExit $out 'store-defender-on' | Should -Be 1
+    $out | Should -Match 'RESULT defender-on deploys=0'
+  }
+  It 'refuses a public companion repo' {
+    Get-StepExit $out 'store-public-repo' | Should -Be 1
+    $out | Should -Match 'RESULT public-repo deploys=0'
+  }
+  It 'deploys nothing with -WhatIf' {
+    Get-StepExit $out 'store-whatif' | Should -Be 0
+    $out | Should -Match 'RESULT whatif deploys=0'
+  }
+  It 'deploys the run store with the teardown preference and the private repo' {
+    Get-StepExit $out 'store' | Should -Be 0
+    $out | Should -Match 'RESULT store deploys=1 runstore=avdlzruns[0-9a-f]{12} teardownLogs=Ask repo=contoso/run-records activityLog=True'
+  }
+  It 'writes run.json and cost.json that match contract C17, and uploads them to the run folder' {
+    Get-StepExit $out 'start' | Should -Be 0
+    $out | Should -Match 'RESULT start-files valid=True gate=True limit=5 unpriced=0 totalUnderLimit=True useCase=landing-zone teardown=not-started uploaded=runs/run-20261020-1800-t3st/cost.json,runs/run-20261020-1800-t3st/run.json'
+  }
+  It 'exports the four AVD tables before cleanup and stores them with the run' {
+    Get-StepExit $out 'stop-before-cleanup' | Should -Be 0
+    $out | Should -Match 'RESULT before-cleanup tables=4 queries=4 rows=2 uploaded=4'
+  }
+  It 'closes the run with the first actual cost reading, not settled, naming a meter the estimate missed' {
+    Get-StepExit $out 'stop-end' | Should -Be 0
+    $out | Should -Match 'RESULT stop-end valid=True status=torn-down files=5 readings=1 total=3.5 settled=False unexpected=Standard Static IP afterTeardown=True runStoreInScope=True lzInScope=True'
+  }
+  It 'keeps earlier readings and records why there is no figure when Cost Management refuses' {
+    Get-StepExit $out 'stop-update-forbidden' | Should -Be 0
+    $out | Should -Match 'RESULT update-forbidden readings=2 kept=3.5 why=True'
+  }
+  It 'copies nothing to a public repo' {
+    Get-StepExit $out 'copy-public' | Should -Be 1
+    $out | Should -Match 'RESULT copy-public copies=0'
+  }
+  It 'fails the gate when a line cannot be priced, without guessing a price' {
+    Get-StepExit $out 'start-unpriced' | Should -Be 1
+    $out | Should -Match 'RESULT start-unpriced gate=False unpriced=1 match=none noGuess=True localOnly=True'
+  }
+}
+
+Describe 'Same-tenant recovery (build/specs/recovery-spec.md)' {
+  BeforeAll { $script:out = Invoke-OfflineScenario 'Recovery' }
+
+  It 'reports a fresh landing zone as not met, item by item, with a recovery state line' {
+    Get-StepExit $out 'status-fresh' | Should -Be 1
+    $out | Should -Match 'RESULT status-fresh stage=recovery status=notmet met=4/8 ids=dr-config,dr-identity,dr-tested,dr-iac'
+  }
+  It 'writes the configuration snapshot as a C17 run and never copies the host pool registration token' {
+    Get-StepExit $out 'export' | Should -Be 0
+    $out | Should -Match 'RESULT export valid=True useCase=recovery kind=snapshot configFiles=12 tokenLeaked=False tokenPresent=True roleAssignments=3'
+  }
+  It 'reports drift since the previous snapshot by resource and property' {
+    $out | Should -Match 'RESULT drift changes=1 path=hostpools\[/subscriptions/.+/hostpools/vdpool-avdlz-dev\]\.properties\.maxSessionLimit before=8 after=10'
+  }
+  It 'counts a snapshot only once its copy has been read back' { $out | Should -Match 'RESULT status-copied met=5/8 ids=dr-identity,dr-tested,dr-iac' }
+  It 'catches a corrupted copy in the companion repo, and repairs nothing' {
+    Get-StepExit $out 'verify' | Should -Be 0
+    Get-StepExit $out 'verify-corrupted' | Should -Be 1
+    $out | Should -Match 'RESULT verify-corrupted mismatch=True'
+  }
+  It 'plans a recovery test with an estimate and writes nothing' {
+    Get-StepExit $out 'test-plan' | Should -Be 0
+    $out | Should -Match 'RESULT test-plan writes=0 status=ready estimate=True'
+  }
+  It 'restores into a new storage account, never over the source, and records the measured RPO' {
+    Get-StepExit $out 'test-go' | Should -Be 0
+    $out | Should -Match 'RESULT test-go status=passed outcome=passed valid=True recoveryType=AlternateLocation intoNew=True rpoMinutes=True created=2'
+  }
+  It 'counts a passed test toward the tier' { $out | Should -Match 'RESULT status-tested met=6/8 ids=dr-identity,dr-iac' }
+  It 'removes the test resources and records a clean teardown, leaving the source alone' {
+    Get-StepExit $out 'test-cleanup' | Should -Be 0
+    $out | Should -Match 'RESULT test-cleanup rgGone=True teardown=clean sourceKept=True'
+  }
+  It 'shows the restore job''s own error when a test fails' {
+    Get-StepExit $out 'test-go-failed' | Should -Be 1
+    $out | Should -Match 'RESULT test-go-failed errorShown=True'
+  }
+  It 'fails R1 on a snapshot-only backup and passes it with the vaulted tier and an image replica, warning about capacity' {
+    $out | Should -Match 'RESULT status-r1-snapshot ids=dr-profile-offsite,dr-identity,dr-tested,dr-iac,dr-capacity'
+    $out | Should -Match 'RESULT status-r1-vaulted ids=dr-identity,dr-tested,dr-iac,dr-capacity'
+  }
+  It 'is met for R0 with a pushed commit, a copied identity snapshot and a passed test' {
+    $out | Should -Match 'RESULT export-identity groups=2 members=1 commit=True'
+    Get-StepExit $out 'status-met' | Should -Be 0
+    $out | Should -Match 'RESULT status-met status=met met=8/8 ids=$'
+  }
+}

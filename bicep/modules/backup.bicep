@@ -1,5 +1,12 @@
 // Profile backup — Recovery Services vault protecting the FSLogix share with
-// daily snapshot backups.
+// daily backups (build/specs/recovery-spec.md section 4).
+//   Snapshot (default): share snapshots kept in the storage account. They go
+//     with the share: a deleted share or account loses them.
+//   Vaulted (opt-in, tier R1): the last snapshot of each day is also copied
+//     into the vault, geo-redundant with Cross Region Restore, so a copy
+//     survives the share, the account and the region. Microsoft's support
+//     matrix says the source account must allow storage account key access
+//     for this tier; storage.bicep follows the same parameter.
 //
 // Note: registering a storage account with Azure Backup places a delete lock
 // (AzureBackupProtectionLock) on it. Stop protection before tearing down.
@@ -10,10 +17,35 @@ param vaultName string
 param storageAccountResourceId string
 param shareName string
 param retentionDays int
+
+@description('Snapshot: share snapshots only (default). Vaulted: also an offsite copy in the vault, geo-redundant with Cross Region Restore (recovery tier R1).')
+@allowed([
+  'Snapshot'
+  'Vaulted'
+])
+param profileBackupTier string = 'Snapshot'
+
+@description('Vaulted tier only: days each daily snapshot stays on the share before only the vault copy remains (1 to 30).')
+@minValue(1)
+@maxValue(30)
+param vaultedSnapshotRetentionDays int = 7
 param logAnalyticsWorkspaceResourceId string
 
 var storageAccountName = last(split(storageAccountResourceId, '/'))
 var backupTime = '2025-01-01T02:00:00Z'
+var vaulted = profileBackupTier == 'Vaulted'
+var dailyRetention = {
+  retentionPolicyType: 'LongTermRetentionPolicy'
+  dailySchedule: {
+    retentionTimes: [
+      backupTime
+    ]
+    retentionDuration: {
+      count: retentionDays
+      durationType: 'Days'
+    }
+  }
+}
 
 resource vault 'Microsoft.RecoveryServices/vaults@2024-04-01' = {
   name: vaultName
@@ -23,7 +55,7 @@ resource vault 'Microsoft.RecoveryServices/vaults@2024-04-01' = {
     name: 'RS0'
     tier: 'Standard'
   }
-  properties: {
+  properties: union({
     publicNetworkAccess: 'Disabled'
     securitySettings: {
       softDeleteSettings: {
@@ -37,13 +69,21 @@ resource vault 'Microsoft.RecoveryServices/vaults@2024-04-01' = {
         state: 'Unlocked'
       }
     }
-  }
+  }, vaulted ? {
+    // Only for the vaulted tier, so the default deployment's vault is unchanged. A vault's
+    // redundancy can't change once an item is protected in it: switching an existing landing
+    // zone to Vaulted may need a new vault (spec section 12, U7).
+    redundancySettings: {
+      standardTierStorageRedundancy: 'GeoRedundant'
+      crossRegionRestore: 'Enabled'
+    }
+  } : {})
 }
 
 resource policy 'Microsoft.RecoveryServices/vaults/backupPolicies@2024-04-01' = {
   parent: vault
-  name: 'fslogix-daily'
-  properties: {
+  name: vaulted ? 'fslogix-daily-vaulted' : 'fslogix-daily'
+  properties: union({
     backupManagementType: 'AzureStorage'
     workLoadType: 'AzureFileShare'
     timeZone: 'UTC'
@@ -54,19 +94,14 @@ resource policy 'Microsoft.RecoveryServices/vaults/backupPolicies@2024-04-01' = 
         backupTime
       ]
     }
-    retentionPolicy: {
-      retentionPolicyType: 'LongTermRetentionPolicy'
-      dailySchedule: {
-        retentionTimes: [
-          backupTime
-        ]
-        retentionDuration: {
-          count: retentionDays
-          durationType: 'Days'
-        }
-      }
+  }, vaulted ? {
+    vaultRetentionPolicy: {
+      snapshotRetentionInDays: vaultedSnapshotRetentionDays
+      vaultRetention: dailyRetention
     }
-  }
+  } : {
+    retentionPolicy: dailyRetention
+  })
 }
 
 // The 'Azure' backup fabric is built in to every vault and is not a deployable
@@ -107,3 +142,4 @@ resource vaultDiagnostics 'Microsoft.Insights/diagnosticSettings@2021-05-01-prev
 }
 
 output vaultResourceId string = vault.id
+output profileBackupTier string = profileBackupTier
