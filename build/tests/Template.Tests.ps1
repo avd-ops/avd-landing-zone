@@ -293,3 +293,30 @@ Describe 'Profile backup tier (build/specs/recovery-spec.md section 4)' {
     $script:policy['properties'] | Should -Match "if\(variables\('vaulted'\), createObject\('vaultRetentionPolicy'"
   }
 }
+
+Describe 'Host resource alerts read only what AVD Insights collects' {
+  # The disk, memory and CPU alerts query Perf. They fire only for counters the AVD Insights data
+  # collection rule sends, so a counter dropped from the rule would silence its alert without an error.
+  BeforeAll {
+    $t = Get-CompiledTemplate 'parameters/dev.bicepparam'
+    $script:mon = Find-Deployment $t 'avdlz-monitoring'
+    $dcr = Find-Deployment $mon['properties']['template'] 'dcr-avd-insights'
+    $script:counters = @($dcr['properties']['parameters']['dataCollectionRuleProperties']['value']['dataSources']['performanceCounters'] |
+        ForEach-Object { $_['counterSpecifiers'] })
+    $script:alerts = @($mon['properties']['template']['variables']['logAlerts'])
+  }
+  It 'has the low disk, low memory and high CPU alerts' {
+    $alerts.name | Should -Contain 'host-low-disk'
+    $alerts.name | Should -Contain 'host-low-memory'
+    $alerts.name | Should -Contain 'host-high-cpu'
+  }
+  It 'collects every counter a Perf alert reads' {
+    foreach ($a in @($alerts | Where-Object { $_.query -match '^\s*Perf\b' })) {
+      $object = [regex]::Match($a.query, 'ObjectName == "([^"]+)"').Groups[1].Value
+      $counter = [regex]::Match($a.query, 'CounterName (?:==|=~) "([^"]+)"').Groups[1].Value
+      $object | Should -Not -BeNullOrEmpty -Because $a.name
+      $hit = @($counters | Where-Object { $_ -like "\$object(*\$counter" -or $_ -like "\$object\$counter" })
+      $hit.Count | Should -BeGreaterThan 0 -Because "$($a.name) reads $object\$counter"
+    }
+  }
+}
