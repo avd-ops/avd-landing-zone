@@ -5,3 +5,10 @@
 
 capture_hook = "block"
 kb_repos = ["nickprignano/avd-second-brain"]
+
+# Auto-merge for low-risk PRs (ai-brain decision 0014), read by scripts/kb/auto_merge.py through the
+# kb-auto-merge workflow. Off until the owner has turned on "Allow auto-merge" and the ruleset;
+# a separate PR turns it on. Only the knowledge base paths qualify, never code, infrastructure
+# or pipeline files.
+auto_merge = "off"
+auto_merge_paths = ["docs/knowledge/**", "llms.txt"]
