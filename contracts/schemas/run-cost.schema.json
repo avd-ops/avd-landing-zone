@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "avd-run-cost/v1: expected and actual cost of one run (cost.json)",
+  "description": "Contract C17. Written before anything is deployed (expected) and appended to as Cost Management readings arrive (actuals); never overwritten. A line that matched no retail meter, or several, says so instead of carrying a guessed price. Holds no subscription or resource IDs, so its totals and per-meter differences may go into a public report.",
+  "type": "object",
+  "required": ["schema", "runId", "currency", "expected", "actuals"],
+  "properties": {
+    "schema": { "const": "avd-run-cost/v1" },
+    "runId": { "type": "string", "pattern": "^run-[0-9]{8}-[0-9]{4}-[a-z0-9]{4}$" },
+    "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+    "cap": { "type": ["number", "null"], "minimum": 0 },
+    "gate": {
+      "type": "object",
+      "description": "The go/no-go rule applied to the expected total, for example estimate at most half the cap.",
+      "required": ["rule", "passed"],
+      "properties": { "rule": { "type": "string" }, "limit": { "type": "number" }, "passed": { "type": "boolean" } }
+    },
+    "expected": {
+      "type": "object",
+      "required": ["pricedAt", "lines", "total"],
+      "properties": {
+        "pricedAt": { "type": "string", "format": "date-time" },
+        "source": { "type": "string", "description": "For example Get-AvdCostEstimate and the retail prices API." },
+        "hours": { "type": "number", "minimum": 0 },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["item", "match"],
+            "properties": {
+              "item": { "type": "string" },
+              "match": { "enum": ["exact", "none", "several"] },
+              "meter": { "type": "string" },
+              "unitPrice": { "type": "number", "minimum": 0 },
+              "unit": { "type": "string" },
+              "quantity": { "type": "number", "minimum": 0 },
+              "cost": { "type": ["number", "null"], "minimum": 0 },
+              "metersSeen": { "type": "array", "items": { "type": "string" } }
+            },
+            "if": { "properties": { "match": { "const": "exact" } } },
+            "then": { "required": ["meter", "unitPrice", "quantity", "cost"] },
+            "else": { "properties": { "cost": { "const": null } } }
+          }
+        },
+        "total": { "type": "number", "minimum": 0 },
+        "unpriced": { "type": "integer", "minimum": 0, "description": "Lines left out of the total because no single meter matched." }
+      }
+    },
+    "actuals": {
+      "type": "array",
+      "description": "Each reading appended with when it was taken; settled once unchanged for 72 hours.",
+      "items": {
+        "type": "object",
+        "required": ["readAt", "settled", "total"],
+        "properties": {
+          "readAt": { "type": "string", "format": "date-time" },
+          "settled": { "type": "boolean" },
+          "unavailable": { "type": "string", "description": "Why there is no figure, for example no access." },
+          "total": { "type": ["number", "null"], "minimum": 0 },
+          "byMeter": {
+            "type": "array",
+            "items": { "type": "object", "required": ["meter", "cost"], "properties": { "meter": { "type": "string" }, "cost": { "type": "number" } } }
+          }
+        }
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "properties": {
+        "difference": { "type": "number" },
+        "unexpectedMeters": { "type": "array", "items": { "type": "string" }, "description": "Meters billed that the estimate didn't know about." },
+        "billingAfterTeardown": { "type": "boolean" }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": { "pattern": "^([a-z][a-z0-9-]*|x-[a-z0-9-]+)$" },
+      "additionalProperties": { "type": "object" }
+    }
+  }
+}

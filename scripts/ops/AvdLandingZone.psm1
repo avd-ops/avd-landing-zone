@@ -122,7 +122,8 @@ function Write-AvdSummary {
 
 # =====================================================================
 # Run journal (build/specs/run-recorder-spec.md section 6): opt in with AVDLZ_RECORD and
-# AVDLZ_RUN_ID; one JSON object per line, schema build/specs/run-journal.schema.json. Without both
+# AVDLZ_RUN_ID; one JSON object per line, schema contracts/schemas/run-journal.schema.json
+# (avd-second-brain contract C17, vendored). Without both
 # variables nothing is written. A journal that can't be written warns once and never stops the run.
 # =====================================================================
 $script:JournalRunIdPattern = '^run-\d{8}-\d{4}-[a-z0-9]{4}$'

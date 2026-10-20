@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "avd-run-record/v1: one recorded run (run.json)",
+  "description": "Contract C17 (docs/contracts.md). The envelope of a run folder runs/<runId>/: what ran, who produced it, every file with its hashes and verified copies, and how teardown ended. Shared by every family repo that records a run; a use case adds its own fields under extensions.<useCase> and is listed in contracts/run-use-cases.json. Within v1 changes are additive and readers ignore what they don't know. Private level by default: secrets never, tenant names and IDs only in level private.",
+  "type": "object",
+  "required": ["schema", "runId", "useCase", "level", "producer", "started", "files"],
+  "properties": {
+    "schema": { "const": "avd-run-record/v1" },
+    "runId": { "$ref": "#/$defs/runId" },
+    "useCase": { "$ref": "#/$defs/useCase" },
+    "level": { "enum": ["private", "public"], "description": "private: secrets removed, tenant names and IDs kept; only in the operator's run store or private companion repo. public: also passed the public redaction; may go to public repos and issues." },
+    "producer": {
+      "type": "object",
+      "required": ["repo", "commit"],
+      "properties": {
+        "repo": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+        "entry": { "type": "string", "description": "The script or workflow that opened the run." }
+      }
+    },
+    "started": { "type": "string", "format": "date-time" },
+    "ended": { "type": ["string", "null"], "format": "date-time" },
+    "status": { "enum": ["running", "succeeded", "failed", "abandoned", "torn-down"] },
+    "region": { "type": "string", "pattern": "^[a-z0-9]+$" },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step", "status"],
+        "properties": {
+          "step": { "type": "string" },
+          "status": { "type": "string" },
+          "started": { "type": "string", "format": "date-time" },
+          "durationSec": { "type": "number", "minimum": 0 }
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "description": "The manifest: every file in the run folder. A file with no verified copy is the last copy (decision 0017: never deleted without the operator's typed confirmation).",
+      "items": {
+        "type": "object",
+        "required": ["path", "bytes", "sha256", "kind"],
+        "properties": {
+          "path": { "type": "string", "pattern": "^[^/][^\\\\]*$", "description": "Relative to the run folder." },
+          "kind": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$", "description": "journal, transcript, cost, report, teardown, log-export, or a use case's own kind." },
+          "level": { "enum": ["private", "public"] },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "$ref": "#/$defs/sha256" },
+          "gzSha256": { "$ref": "#/$defs/sha256" },
+          "copies": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["target", "verifiedAt", "sha256"],
+              "properties": {
+                "target": { "type": "string", "pattern": "^(storage|local|github|github-release|hook)$" },
+                "verifiedAt": { "type": "string", "format": "date-time" },
+                "sha256": { "$ref": "#/$defs/sha256", "description": "As read back from the destination." },
+                "verifiedBy": { "type": "string" }
+              }
+            }
+          },
+          "keptOnlyIn": { "type": "string", "description": "Set when the file can't be copied within the free tier, for example 'azure' for files of 2 GiB or more." }
+        }
+      }
+    },
+    "teardown": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["not-started", "clean", "leftovers", "kept-running"] },
+        "checkedAt": { "type": "string", "format": "date-time" },
+        "evidence": { "type": "string", "description": "Path of the teardown evidence file in the run folder." },
+        "keptRunningUntil": { "type": "string", "format": "date-time", "description": "Set by -KeepRunning <until> (decision 0017)." },
+        "logs": { "enum": ["Keep", "Ask", "Delete"], "description": "The -TeardownLogs preference that applied." }
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "description": "Use-case fields, keyed by a use case in contracts/run-use-cases.json or an experimental x-<name>.",
+      "propertyNames": { "pattern": "^([a-z][a-z0-9-]*|x-[a-z0-9-]+)$" },
+      "additionalProperties": { "type": "object" }
+    }
+  },
+  "$defs": {
+    "runId": { "type": "string", "pattern": "^run-[0-9]{8}-[0-9]{4}-[a-z0-9]{4}$" },
+    "useCase": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+  }
+}

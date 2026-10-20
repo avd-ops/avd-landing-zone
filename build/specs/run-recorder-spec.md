@@ -116,7 +116,7 @@ $env:AVDLZ_RUN_ID = 'run-20261020-1652-k3p9'   # generated once by the portal fo
 
 ### 6.2 Events
 
-One JSON object per line (JSONL), schema [`build/specs/run-journal.schema.json`](run-journal.schema.json), version `v: 1`:
+One JSON object per line (JSONL), schema [`contracts/schemas/run-journal.schema.json`](../../contracts/schemas/run-journal.schema.json) (avd-second-brain contract C17, vendored; see §6.5), version `v: 1`:
 
 | Event | Fields |
 |---|---|
@@ -151,6 +151,16 @@ The Azure store is **durable log storage for the sandbox**, set up once per subs
 - PowerShell: the scripts call `Start-Transcript` / `Stop-Transcript` around themselves into a temp file, then redact it at the private level before it is kept.
 - `deploy.sh`: re-executes itself under `script -q` the same way.
 - Native command output inside `pwsh` (for example `az` called from PowerShell) may not be fully captured by `Start-Transcript`; phase 1 checks this offline and in the first real run (§12, U3). The journal never depends on the transcript.
+
+### 6.5 One schema for every kind of run (contract C17)
+
+*Added 2026-10-20 at the owner's request, before rollout.* The run folder's files follow avd-second-brain's contract C17, `avd-run-record/v1`, so the same record works for the landing zone today and for other use cases later (image builds, the Liquidware tier, the Stratusphere instrument, avd-swarm plans) without a new format each time. The brain's `contracts/schemas/` is the authority; this repo keeps byte-identical copies in `contracts/`, pinned in `contracts/PINS.json`.
+
+- `run.json`: the run ID, its use case (`landing-zone` here), the producing repo and commit, steps, region, status, the manifest of every file with its hashes and verified copies (§9.2), and how teardown ended.
+- `journal.jsonl`: the events in §6.2.
+- `cost.json`: expected and actual cost (§9.3a), as `avd-run-cost/v1`.
+- **Room to grow:** a new use case is a line in `contracts/run-use-cases.json`; it adds fields only under `extensions.<useCase>` and journal events only named `x.<useCase>.<name>`. Within v1 every change is additive and readers ignore what they don't know; a breaking change is v2, and readers accept both for a release.
+- A Pester test checks that what `Write-AvdJournalEvent` writes passes the vendored schema.
 
 ## 7. Azure-side evidence (read, not exported)
 

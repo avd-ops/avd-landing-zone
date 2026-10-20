@@ -1,0 +1,11 @@
+{
+  "schema": "avd-run-use-cases/v1",
+  "description": "Contract C17: the use cases that write run records (avd-run-record/v1). A new use case is a line here, with its producer and, if it adds fields, a schema for extensions.<id>. Status proposed means nothing writes it yet.",
+  "useCases": [
+    { "id": "landing-zone", "producer": "avd-landing-zone", "status": "building", "covers": "preflight, deploy, post-deployment setup, demo, verify, cleanup", "spec": "build/specs/run-recorder-spec.md" },
+    { "id": "image-build", "producer": "avd-landing-zone", "status": "proposed", "covers": "golden image builds" },
+    { "id": "liquidware-tier", "producer": "avd-liquidware", "status": "proposed", "covers": "ProfileUnity, FlexApp and Stratusphere tier deployments and cleanup" },
+    { "id": "stratusphere-instrument", "producer": "avd-liquidware", "status": "proposed", "covers": "Stratusphere appliance deployment and Connector ID Key rollout" },
+    { "id": "swarm-plan", "producer": "avd-swarm", "status": "proposed", "covers": "an approved plan's run through the approve environment" }
+  ]
+}

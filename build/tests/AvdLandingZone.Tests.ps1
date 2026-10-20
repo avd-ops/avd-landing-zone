@@ -607,6 +607,9 @@ Describe 'Run journal' {
     $lines.Count | Should -Be 2
     ($lines[0] | ConvertFrom-Json).text | Should -Be 'set the share quota by hand'
     ($lines[1] | ConvertFrom-Json).event | Should -Be 'check'
+    # The family's run record contract (avd-second-brain C17), vendored in contracts/.
+    $schema = Join-Path $PSScriptRoot '../../contracts/schemas/run-journal.schema.json'
+    foreach ($l in $lines) { Test-Json -Json $l -SchemaFile $schema | Should -BeTrue }
   }
 
   It 'writes nothing when recording is off' {

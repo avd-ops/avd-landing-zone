@@ -1,12 +1,16 @@
 {
-  "description": "Vendored copies of avd-second-brain contracts C14 and C15. Each must be byte-identical to the file at brainCommit; build/tests/TargetState.Tests.ps1 checks the hashes. To update: copy the files from avd-second-brain at a new commit, then update brainCommit and the hashes in the same PR.",
+  "description": "Vendored copies of avd-second-brain contracts C14, C15 and C17. Each must be byte-identical to the file at brainCommit; build/tests/TargetState.Tests.ps1 checks the hashes. To update: copy the files from avd-second-brain at a new commit, then update brainCommit and the hashes in the same PR.",
   "source": "https://github.com/nickprignano/avd-second-brain",
-  "brainCommit": "fccd64473c69727036e5a3976d782ab6407103d9",
+  "brainCommit": "d3a69460df36914fa4c47eb68a729d4aa1922739",
   "files": {
     "examples/target-approval.example.json": "992aed2c7fda851ee3ba9bc6e1603749c93d2b762ec12def042747660fbbc019",
     "examples/target-state.example.json": "468c4759df2103e92bf69a49a0d6caf2738635512a0699b928033f99fdc80cb5",
     "fact-register.json": "2f8caa73030fa194fafe2a9446f1ccf8a63c4d94c3be84e55765ee0a876a60d4",
+    "run-use-cases.json": "79ef51bfd86bc4959775ef9fdf92b89cfc88de7524c358672350096424d6060f",
     "schemas/fact-register.schema.json": "32713dc5a8aa3f6ed808925e3357119638eb758b73798e0ad869f811c2fb6166",
+    "schemas/run-cost.schema.json": "79a277aef8d55a7aefc70ba2fa727e561bc771efaa83cc5dbd2f70c54d51a6ab",
+    "schemas/run-journal.schema.json": "f64b75331f63e659babc87994cd8fbacbd74a3d6becb445a1bbda22fde4541ac",
+    "schemas/run-record.schema.json": "11538708814a62b588090974657b758a62430ddf6ed2937a4d6e77239df945cf",
     "schemas/target-approval.schema.json": "02459b9471b00cc46a69afcbbfce20bf2a6b52d3d7269e63849b0b5267195277",
     "schemas/target-state.schema.json": "0bb90df282f43e9ade372ddc6e404bb91c33218f0705899ca9a8efc9a60ee46f"
   }
