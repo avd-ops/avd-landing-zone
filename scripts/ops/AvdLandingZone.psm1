@@ -2228,12 +2228,12 @@ function Get-AvdRunPosition {
   if ($mine.Count) { $runs = $mine }
   $latest = $runs | Sort-Object { [datetime]$_.properties.timestamp } -Descending | Select-Object -First 1
   $core = @('Network', 'Management', 'Storage', 'ControlPlane', 'Hosts' | Where-Object { $RgExists[$_] })
-  $ago = { param($t) $m = [math]::Max(0, [math]::Round(($Now - ([datetime]$t).ToUniversalTime()).TotalMinutes)); if ($m -lt 120) { "$m minutes ago" } else { "$([math]::Round($m / 60)) hours ago" } }
+  $ago = { param($t, $n) $m = [math]::Max(0, [math]::Round(($n - ([datetime]$t).ToUniversalTime()).TotalMinutes)); if ($m -lt 120) { "$m minutes ago" } else { "$([math]::Round($m / 60)) hours ago" } }
 
   if ($latest) {
     $o.DeploymentName = $latest.name
     $state = "$($latest.properties.provisioningState)"
-    $when = & $ago $latest.properties.timestamp
+    $when = & $ago $latest.properties.timestamp $Now
     if ($state -in 'Running', 'Accepted', 'Deploying', 'Created') {
       $o.LastStage = 'deploy'; $o.LastStatus = 'running'; $o.NextStage = 'deploy'
       $o.Basis = "Azure shows deployment $($latest.name) running (last update $when)."
@@ -2259,11 +2259,11 @@ function Get-AvdRunPosition {
   $o.LastStage = 'deploy'; $o.LastStatus = 'succeeded'
   if ($RgExists['Demo'] -and $DemoDeployment -and "$($DemoDeployment.properties.provisioningState)" -eq 'Succeeded') {
     $o.LastStage = 'demo'; $o.NextStage = 'verify'
-    $o.Basis = "The landing zone and the demo are deployed ($(& $ago $DemoDeployment.properties.timestamp)): check that you can connect."
+    $o.Basis = "The landing zone and the demo are deployed ($(& $ago $DemoDeployment.properties.timestamp $Now)): check that you can connect."
     return $o
   }
   $o.NextStage = 'postdeploy'
-  $o.Basis = "Azure shows the deployment succeeded ($(& $ago $latest.properties.timestamp)). The post-deployment setup is safe to run again if it already ran."
+  $o.Basis = "Azure shows the deployment succeeded ($(& $ago $latest.properties.timestamp $Now)). The post-deployment setup is safe to run again if it already ran."
   $o
 }
 
