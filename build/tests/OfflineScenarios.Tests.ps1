@@ -794,3 +794,42 @@ Describe 'Same-tenant recovery (build/specs/recovery-spec.md)' {
     $out | Should -Match 'RESULT status-met status=met met=8/8 ids=$'
   }
 }
+
+Describe 'Deployment portal published into the subscription (decision 0017)' {
+  BeforeAll { $script:out = Invoke-OfflineScenario 'Portal' }
+
+  It "stops before creating anything when an allowed-locations policy blocks every Static Web Apps region, and names the storage option (red team PH-6)" {
+    $out | Should -Match 'RESULT swa-blocked exit=1 deploys=0 storageNamed=True policyNamed=True'
+  }
+  It 'publishes to Static Web Apps with the pinned CLI; the token is passed in the environment, cleared, reset after the upload and never printed (PH-2)' {
+    $out | Should -Match 'RESULT swa exit=0 deploy=hosting=StaticWebApp location=eastus2 swaLocation=eastus2 uploader= pinned=True tokenPassed=1 tokenCleared=True resetAfterUpload=True tokenPrinted=False '
+  }
+  It 'pins the repo and ref the commands run in portal-config.js (PH-3)' {
+    $out | Should -Match 'repo=https://github.com/contoso/avd-landing-zone ref=v1.2.0 hosting=StaticWebApp '
+  }
+  It 'with -RequireSignIn, lets only invited operators in, turns GitHub sign-in off and invites the operator (PH-1)' {
+    $out | Should -Match 'routes=/.auth/login/github=404,/.auth/\*=anonymous,/denied.html=anonymous,/\*=operator '
+    $out | Should -Match 'invited=operator/aad/admin@contoso.com files=6'
+  }
+  It 'sends the headers GitHub Pages cannot (PH-9)' { $out | Should -Match 'csp=True frames=DENY' }
+  It 'prints the AVD_PORTAL_URL line for the published copy' { $out | Should -Match 'RESULT swa-url printed=True portalUrl=https://nice-sea-0a1b2c3d4.azurestaticapps.net/portal/' }
+  It "without sign-in sets no routes, and by default pins this checkout's GitHub origin and commit" {
+    Get-StepExit $out 'swa-open' | Should -Be 0
+    $out | Should -Match 'RESULT swa-open-state routes=0 commitRef=True githubRepo=True invitations=0'
+  }
+  It 'reports a paid plan without changing it, shows a failed upload and still resets the token (PH-7)' {
+    $out | Should -Match 'RESULT swa-fail exit=1 resets=1 paidWarned=True errorShown=True planChanged=0'
+  }
+  It 'publishes a storage static website with content types, waits out the upload role, removes old files, and uses no npm or token' {
+    $out | Should -Match 'RESULT storage exit=0 deploy=hosting=Storage location=northcentralus swaLocation=centralus uploader=me website=True html=text/html; charset=utf-8 js=text/javascript; charset=utf-8 font=font/woff2 svg=image/svg\+xml oldRemoved=True retried=True npx=0 secrets=0 ref=v1.2.0 anyoneNote=True'
+  }
+  It 'refuses a repo URL or ref that is not plain, and sign-in on storage, before deploying (PH-4)' { $out | Should -Match 'RESULT bad-input refused,refused,refused deploys=0' }
+  It '-Remove deletes the resource group, and is clean the second time' {
+    Get-StepExit $out 'remove' | Should -Be 0
+    Get-StepExit $out 'remove-again' | Should -Be 0
+    $out | Should -Match 'RESULT remove deleted=1'
+  }
+  It 'the scripts name the GitHub Pages portal unless AVD_PORTAL_URL is an https URL, and spell out an override (PH-5)' {
+    $out | Should -Match 'RESULT portal-url default=True hostNamed=True override=True httpIgnored=True'
+  }
+}

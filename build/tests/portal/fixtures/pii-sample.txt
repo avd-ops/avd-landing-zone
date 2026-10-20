@@ -23,6 +23,8 @@ To sign in, use a web browser to open the page https://microsoft.com/devicelogin
   Authorization: Bearer abcDEF123ghiJKL456mnoPQR789
   Resolved from C:\Users\JDoe\Documents
 
+  SWA_CLI_DEPLOYMENT_TOKEN=swadeploy0a1b2c3d4e5f60718293a4b5c6d7e8f9
+  npx @azure/static-web-apps-cli deploy ./site --deployment-token 9f8e7d6c5b4a39281706f5e4d3c2b1a0swa
 == Summary: 1 Fail, 3 Pass, 1 Warn
 <<<AVDLZ-STATE {"v":1,"stage":"predeploy","status":"notready","fix":true,"context":{"parameterFile":"parameters/dev.bicepparam","location":"eastus2","usersGroup":"Fabrikam AVD Users","adminsGroup":"Fabrikam AVD Admins","namePrefix":"fab","environment":"dev"},"counts":{"pass":3,"fail":1,"warn":1},"failures":[{"id":"lz-missing","area":"Landing zone","check":"Landing zone 'fab-dev' deployed in subscription 'Fabrikam Production'","detail":"","remediation":"","data":{"subscription":"Fabrikam Production","found":[]}}],"warnings":[]} AVDLZ-STATE>>>
 PS /home/jdoe/avd-landing-zone>

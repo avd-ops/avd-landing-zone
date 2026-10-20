@@ -198,6 +198,9 @@
   #paste-box h3 { margin-bottom: 8px; }
   #paste { border-style: dashed; border-width: 2px; background: var(--sunken); min-height: 140px; }
   #paste:focus { border-style: solid; }
+  /* Secrets hidden from a paste: a result, so the caution color, never a stop. */
+  #paste-masked { margin: 8px 0 0; padding: 7px 11px; border-radius: var(--radius-sm); background: var(--caution-soft); color: var(--caution); font-size: .9rem; line-height: 1.45; }
+  #paste-masked code { font-family: var(--mono); font-size: .85em; }
 
   /* Tables */
   .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }
@@ -406,11 +409,13 @@
     <div id="findings" class="hidden"></div>
     <div id="actions"></div>
     <p class="status" style="margin-top:12px">Copy a block, paste it into <a href="https://shell.azure.com/powershell" target="_blank" rel="noopener">Cloud Shell</a>, then paste the output below. Keep the Cloud Shell tab in front while it runs.
+      <span id="source-line">Commands run <a href="https://github.com/nickprignano/avd-landing-zone" id="source-repo">nickprignano/avd-landing-zone</a> at <code id="source-ref">master</code>.</span>
       Wrong advice, or stuck? <button type="button" class="linkbtn" id="report-open">Report a problem</button></p>
   </section>
   <section id="paste-box">
     <h3>Paste the output here</h3>
     <textarea id="paste" spellcheck="false" placeholder="Paste everything from the command to the prompt that follows it. The scripts end with a line starting &lt;&lt;&lt;AVDLZ-STATE, which is what this page reads."></textarea>
+    <p id="paste-masked" class="hidden" role="status"></p>
     <div class="row" style="margin-top:10px">
       <button id="analyze">Analyze output</button>
       <button class="secondary" id="clear-paste">Clear</button>
@@ -436,6 +441,7 @@
   <footer class="disclaimer">A personal project, provided as is, without warranty. Not affiliated with the author's employer or with Microsoft. Not for production use.</footer>
 </main>
 
+<script src="portal-config.js"></script>
 <script src="portal-core.js"></script>
 <script src="report.js"></script>
 <script>
@@ -449,14 +455,22 @@
   function load(k, fallback) { try { var v = localStorage.getItem('avdlz.portal.' + k); return v === null ? fallback : JSON.parse(v); } catch (e) { return fallback; } }
   function save(k, v) { try { localStorage.setItem('avdlz.portal.' + k, JSON.stringify(v)); } catch (e) { /* storage unavailable */ } }
 
-  // Clone URL: this repo, or the fork serving the page from <owner>.github.io/<repo>.
+  // Clone URL: the one portal-config.js names (a copy published by Publish-AvdPortal.ps1), else the
+  // fork serving the page from <owner>.github.io/<repo>, else this repo. It goes into every command,
+  // so only a plain https URL is taken.
+  var site = P.siteConfig(window.AVDLZ_PORTAL_CONFIG);
   var repoUrl = P.DEFAULTS.repoUrl;
   var host = location.hostname, seg = location.pathname.split('/').filter(Boolean)[0];
-  if (/\.github\.io$/.test(host) && seg) repoUrl = 'https://github.com/' + host.split('.')[0] + '/' + seg;
+  if (site.repoUrl) repoUrl = site.repoUrl;
+  else if (/\.github\.io$/.test(host) && seg) repoUrl = 'https://github.com/' + host.split('.')[0] + '/' + seg;
   $('repo-link').href = repoUrl;
   $('issues-link').href = repoUrl + '/issues';
+  // Which code the commands run: the repo and, for a published copy, the pinned ref (decision 0017).
+  $('source-repo').href = repoUrl; $('source-repo').textContent = repoUrl.replace(/^https:\/\/github\.com\//, '');
+  $('source-ref').textContent = site.ref || 'master';
+  if (site.ignored.length) $('source-line').appendChild(document.createTextNode(' This copy\'s portal-config.js has an invalid ' + site.ignored.join(' and ') + ', so the commands use the default.'));
 
-  var cfg = Object.assign({}, P.DEFAULTS, load('config', {}), { repoUrl: repoUrl, sizing: load('sizing', null), power: load('power', null), hoursWorkedPerWeek: load('hoursWorked', 50), launch: P.launchTarget(load('launch', null)) });
+  var cfg = Object.assign({}, P.DEFAULTS, load('config', {}), { repoUrl: repoUrl, ref: site.ref, sizing: load('sizing', null), power: load('power', null), hoursWorkedPerWeek: load('hoursWorked', 50), launch: P.launchTarget(load('launch', null)) });
   var step = load('step', null);
   // Furthest step reached, by id: later steps stay hidden until the deployment gets there. (Saved as an
   // index before the Cost step existed; those indexes are read against the old step list.)
@@ -655,7 +669,21 @@
     }
   }
 
+  // Secrets in a paste are replaced before the text shows or is read (report.js maskSecrets), so a
+  // token, key or password is never on screen and never reaches the analysis, the report or storage.
+  var maskedCount = 0;
+  function showMasked() {
+    var n = $('paste-masked');
+    n.classList.toggle('hidden', !maskedCount);
+    if (maskedCount) n.innerHTML = 'Hid ' + maskedCount + ' secret' + (maskedCount === 1 ? '' : 's') + ' (shown as <code>&lt;secret&gt;</code>). The analysis doesn\'t need ' + (maskedCount === 1 ? 'it' : 'them') + ', and nothing you paste is stored or sent.';
+  }
+  function maskPaste() {
+    var m = window.PortalReport.maskSecrets($('paste').value);
+    if (m.count) { $('paste').value = m.text; maskedCount += m.count; }
+    showMasked();
+  }
   function analyzePaste() {
+    maskPaste();
     var text = $('paste').value;
     if (!text.trim()) { $('paste-status').textContent = 'Paste some output first.'; return; }
     var r = P.analyze(text, config(), { rankedRegions: ranked, currentStep: step || 'predeploy' });
@@ -672,14 +700,26 @@
     $('next').classList.remove('flash'); void $('next').offsetWidth; $('next').classList.add('flash');
   }
   $('analyze').addEventListener('click', analyzePaste);
-  $('paste').addEventListener('paste', function () { setTimeout(analyzePaste, 0); });
-  $('clear-paste').addEventListener('click', function () { $('paste').value = ''; $('paste-status').textContent = ''; lastAnalysis = null; render(); refreshReport(true); });
+  $('paste').addEventListener('paste', function (e) {
+    // Mask the clipboard text on its way in, so a secret is never drawn, not even for a frame.
+    var data = e.clipboardData && e.clipboardData.getData('text');
+    if (typeof data === 'string' && data) {
+      e.preventDefault();
+      var m = window.PortalReport.maskSecrets(data), ta = $('paste');
+      ta.setRangeText(m.text, ta.selectionStart, ta.selectionEnd, 'end');
+      maskedCount += m.count;
+    }
+    setTimeout(analyzePaste, 0);
+  });
+  // Typed, dropped or autofilled text too.
+  $('paste').addEventListener('input', maskPaste);
+  $('clear-paste').addEventListener('click', function () { $('paste').value = ''; $('paste-status').textContent = ''; maskedCount = 0; showMasked(); lastAnalysis = null; render(); refreshReport(true); });
   $('reset').addEventListener('click', function () {
     try { Object.keys(localStorage).filter(function (k) { return k.indexOf('avdlz.portal.') === 0; }).forEach(function (k) { localStorage.removeItem(k); }); } catch (e) { /* storage unavailable */ }
-    cfg = Object.assign({}, P.DEFAULTS, { repoUrl: repoUrl, sizing: null, power: null, hoursWorkedPerWeek: 50, launch: null }); step = null; reached = 0; ranked = null; lastAnalysis = null; latency = [];
+    cfg = Object.assign({}, P.DEFAULTS, { repoUrl: repoUrl, ref: site.ref, sizing: null, power: null, hoursWorkedPerWeek: 50, launch: null }); step = null; reached = 0; ranked = null; lastAnalysis = null; latency = [];
     pools = [Object.assign({}, P.HOST_POOL_DEFAULTS)]; estimate = null; renderPools(); renderCost();
     reach = null; $('reach-results').classList.add('hidden'); renderReachability();
-    $('results').classList.add('hidden'); $('paste').value = ''; setConfig({}); render(); showStep();
+    $('results').classList.add('hidden'); $('paste').value = ''; maskedCount = 0; showMasked(); setConfig({}); render(); showStep();
   });
 
   // ---------------------------------------------------------------- issue report (redacted in this browser)

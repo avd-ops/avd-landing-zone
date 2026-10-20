@@ -271,6 +271,36 @@ Every script ends with a machine-readable line (`<<<AVDLZ-STATE {...} AVDLZ-STAT
 
 If the portal gives the wrong advice or you are stuck, use **Report a problem** in the portal. It builds a GitHub issue from the output you pasted. Before anything leaves your browser, it removes email addresses, IDs, subscription and resource names, your name prefix and group names, and secrets. You review the report, tick that it contains nothing private, and submit it on GitHub. Issues are public.
 
+### Your own copy of the portal (optional)
+
+You don't need this: the portal on GitHub Pages works for everyone. Publish a copy when you want it in your own subscription, for a fork, or pinned to a release ([decision 0017](../build/decisions/0017-portal-hosting.md)):
+
+```powershell
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+./scripts/ops/Publish-AvdPortal.ps1 -NamePrefix avdlz -Environment dev -Location eastus2
+```
+
+| | `-Hosting StaticWebApp` (default) | `-Hosting Storage` |
+|---|---|---|
+| Cost | $0 (Free plan: no SLA, 100 GB a month, no overage) | Cents a month |
+| Region | centralus, eastus2, westus2, westeurope or eastasia only | The landing zone's region |
+| Upload | Static Web Apps CLI from npm, pinned; its deployment token is never printed and is reset after the upload | Az PowerShell with your own RBAC (Storage Blob Data Contributor, granted by the template) |
+| Sign-in | `-RequireSignIn`: only users invited to the `operator` role (up to 25); you are invited. Your tenant may need an admin to consent to Static Web Apps' sign-in | None: anyone with the URL can open it |
+| Headers | CSP, no framing, no referrer | Storage defaults |
+
+The Free plan's sign-in accepts any Microsoft account, which is why `-RequireSignIn` uses invitations. Single-tenant sign-in, IP restrictions and a private endpoint need the Standard plan (about $9 a month): change it in the Azure portal if you want it; the script never does. A tenant that blocks user consent, or a Cloud Shell without npm, is what `-Hosting Storage` is for.
+
+The script checks the subscription's allowed-locations policies first. The landing zone allows only its own region, so in a northcentralus landing zone Static Web Apps is blocked: the script stops and says what to do (an allowed Static Web Apps region, an exemption, or `-Hosting Storage`).
+
+The copy's commands clone and check out what `-RepoUrl` and `-Ref` name (default: your checkout's origin and commit), and the page shows which. Republish to move it to a newer version. The script prints the line that points the scripts at your copy:
+
+```powershell
+$env:AVD_PORTAL_URL = 'https://<your copy>/portal/'
+```
+
+Set it again in each new Cloud Shell session. While it is set, the scripts print `Portal host: <host>, set by AVD_PORTAL_URL`. Remove the copy with `-Remove` (or `Remove-AvdDemo.ps1 -IncludeLandingZone`). Either way, the host sees who opens the page (and, with sign-in, who signed in); it never sees what you paste.
+
 ## Recovery
 
 Same-tenant recovery is part of the landing zone and works on its own: any region, and any subscription you can deploy to in your own tenant. Design and what is still unverified: [recovery spec](../build/specs/recovery-spec.md). Everything here is opt-in; the default deployment doesn't change.

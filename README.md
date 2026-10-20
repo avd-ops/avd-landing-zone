@@ -77,6 +77,7 @@ avd-landing-zone/
 ├── bicep/                         # what you deploy
 │   ├── main.bicep                 # subscription-scope orchestration
 │   ├── demo/main.bicep            # demo host pool inside a deployed landing zone
+│   ├── portal/                    # optional: your own copy of the deployment portal (Static Web Apps or storage)
 │   ├── images/                    # golden image gallery and monthly build
 │   └── modules/                   # governance, monitoring, network, privateDns, keyVault,
 │                                  # storage, backup, controlPlane, sessionHosts, autoShutdown
@@ -116,7 +117,7 @@ avd-landing-zone/
 - [`docs/deploy.md`](docs/deploy.md): prerequisites, deployment, post-deployment steps, scaling out, teardown
 - [`docs/operations.md`](docs/operations.md): preflight with fix mode, Well-Architected review, demo host pool with sign-in validation, cleanup
 - [`docs/images.md`](docs/images.md): golden images, step 1: setting up and running the monthly image build
-- [Deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/) ([how it works](site/portal/README.md)): region by latency, then the next command from each pasted Cloud Shell output
+- [Deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/) ([how it works](site/portal/README.md)): region by latency, then the next command from each pasted Cloud Shell output; or [publish your own copy](docs/operations.md#your-own-copy-of-the-portal-optional) into your subscription
 - [`docs/demo.md`](docs/demo.md): a live demo in a 30-minute slot (dev built the night before, test deployed live beside it)
 - [avd-ops site](https://avd-ops.dev/) ([source](https://github.com/nickprignano/avd-ops)): one page for this repo and its four siblings (avd-current-state, avd-swarm, avd-second-brain, avd-liquidware) and how they fit together
 - [`docs/ci.md`](docs/ci.md): validation and deployment pipelines, OIDC setup

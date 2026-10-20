@@ -53,7 +53,16 @@ function Add-AvdCheckResult {
   if ($Remediation -and $Status -in 'Fail', 'Warn') { Write-Host "          -> $Remediation" -ForegroundColor DarkYellow }
 }
 
-$script:PortalUrl = 'https://nickprignano.github.io/avd-landing-zone/portal/'
+# The portal the scripts point operators to: the published one on GitHub Pages, or a copy in the
+# operator's own subscription (Publish-AvdPortal.ps1 prints the AVD_PORTAL_URL to set; decision 0017).
+$script:DefaultPortalUrl = 'https://nickprignano.github.io/avd-landing-zone/portal/'
+
+function Get-AvdPortalUrl {
+  <# The portal URL to print: $env:AVD_PORTAL_URL when it is an https URL, else the GitHub Pages portal. #>
+  param([string] $Url = $env:AVD_PORTAL_URL)
+  if ($Url -match '^https://[A-Za-z0-9.-]+(/[^\s"''<>]*)?$') { return $(if ($Url.EndsWith('/')) { $Url } else { "$Url/" }) }
+  $script:DefaultPortalUrl
+}
 
 function Get-AvdPortalState {
   <#
@@ -96,7 +105,10 @@ function Write-AvdPortalState {
   param([Parameter(Mandatory)] $State)
   $json = $State | ConvertTo-Json -Compress -Depth 8
   Write-Host ''
-  Write-Host "Deployment portal: paste this output into $script:PortalUrl for the next step." -ForegroundColor DarkGray
+  $portal = Get-AvdPortalUrl
+  Write-Host "Deployment portal: paste this output into $portal for the next step." -ForegroundColor DarkGray
+  # An override is spelled out, so an unexpected host stands out (red team PH-5).
+  if ($portal -ne $script:DefaultPortalUrl) { Write-Host "Portal host: $(([uri]$portal).Host), set by AVD_PORTAL_URL" -ForegroundColor DarkGray }
   Write-Host "<<<AVDLZ-STATE $json AVDLZ-STATE>>>" -ForegroundColor DarkGray
   if ($env:AVDLZ_RECORD) {
     $sec = if ($script:JournalStep) { [math]::Round(([datetime]::UtcNow - $script:JournalStep.Started).TotalSeconds, 1) } else { $null }
@@ -496,6 +508,8 @@ function Get-AvdLandingZone {
     ControlPlane = "rg-$base-avd"
     Hosts        = "rg-$base-hosts"
     Demo         = "rg-$base-demo"
+    # The deployment portal, when Publish-AvdPortal.ps1 put a copy in this subscription (decision 0017).
+    Portal       = "rg-$base-portal"
   }
   $existingRgs = @(Get-AzResourceGroup -ErrorAction SilentlyContinue | Select-Object -ExpandProperty ResourceGroupName)
   $rgExists = @{}; foreach ($k in $rg.Keys) { $rgExists[$k] = $existingRgs -contains $rg[$k] }
@@ -2601,6 +2615,124 @@ function Get-AvdRunPosition {
   $o.NextStage = 'postdeploy'
   $o.Basis = "Azure shows the deployment succeeded ($(& $ago $latest.properties.timestamp $Now)). The post-deployment setup is safe to run again if it already ran."
   $o
+}
+
+# =====================================================================
+# Deployment portal published into the subscription (Publish-AvdPortal.ps1, decision 0017)
+# =====================================================================
+# Static Web Apps creates resources only in these regions (the content is served globally).
+$script:StaticWebAppRegions = @('centralus', 'eastus2', 'westus2', 'westeurope', 'eastasia')
+# Built-in policy definitions that can block the portal: allowed locations (resources), and for resource groups.
+$script:AllowedLocationsPolicyIds = @{ Resources = 'e56962a6-4747-49cd-b67b-bf8b01975c4c'; ResourceGroups = 'e765b5de-1225-4ba3-bd56-1ac6695af988' }
+
+function Get-AvdPortalHostRegion {
+  <#
+    Where the portal's resources go, and whether an allowed-locations policy lets them (red team PH-6).
+    Assignments: the subscription's policy assignments, as ARM returns them. Returns Location (the
+    resource group's), ResourceLocation (the host's), Allowed, and Detail/Remediation when blocked.
+  #>
+  param(
+    [Parameter(Mandatory)][ValidateSet('StaticWebApp', 'Storage')][string] $Hosting,
+    [Parameter(Mandatory)][string] $Location,
+    [string] $StaticWebAppLocation,
+    [AllowEmptyCollection()][object[]] $Assignments = @()
+  )
+  $allowed = { param($kind, $all)
+    $id = $script:AllowedLocationsPolicyIds[$kind]
+    $lists = @($all | Where-Object { $_ -and "$($_.properties.policyDefinitionId)" -like "*/$id" -and "$($_.properties.enforcementMode)" -ne 'DoNotEnforce' } |
+        ForEach-Object { , @($_.properties.parameters.listOfAllowedLocations.value | Where-Object { $_ }) })
+    if (-not $lists.Count) { return $null }
+    # Every assignment must allow it: intersect the lists.
+    $set = $lists[0]; foreach ($l in $lists) { $set = @($set | Where-Object { $l -contains $_ }) }
+    , @($set | ForEach-Object { "$_".ToLower() })
+  }
+  $res = & $allowed 'Resources' $Assignments; $rgs = & $allowed 'ResourceGroups' $Assignments
+  $where = $Location.ToLower()
+  if ($Hosting -eq 'StaticWebApp') {
+    $where = if ($StaticWebAppLocation) { $StaticWebAppLocation.ToLower() }
+    elseif ($script:StaticWebAppRegions -contains $Location.ToLower()) { $Location.ToLower() }
+    elseif ($res) { @($script:StaticWebAppRegions | Where-Object { $res -contains $_ }) + @('centralus') | Select-Object -First 1 }
+    else { 'centralus' }
+  }
+  $out = [ordered]@{ Hosting = $Hosting; Location = $Location.ToLower(); ResourceLocation = $where; Allowed = $true; Detail = ''; Remediation = '' }
+  if ($Hosting -eq 'StaticWebApp' -and $script:StaticWebAppRegions -notcontains $where) {
+    $out.Allowed = $false
+    $out.Detail = "Static Web Apps isn't offered in $where; it is in $($script:StaticWebAppRegions -join ', ')."
+    $out.Remediation = "Pass -StaticWebAppLocation with one of those, or publish to a storage static website in $($Location.ToLower()) with -Hosting Storage."
+  }
+  elseif ($rgs -and $rgs -notcontains $out.Location) {
+    $out.Allowed = $false
+    $out.Detail = "An allowed-locations policy blocks resource groups in $($out.Location) (allowed: $($rgs -join ', '))."
+    $out.Remediation = "Pass -Location with one of: $($rgs -join ', ')."
+  }
+  elseif ($res -and $res -notcontains $where) {
+    $out.Allowed = $false
+    $out.Detail = "An allowed-locations policy blocks resources in $where (allowed: $($res -join ', '))."
+    $out.Remediation = if ($Hosting -eq 'StaticWebApp') { "Static Web Apps needs one of $($script:StaticWebAppRegions -join ', ') on the allowed list (the landing zone's allowedLocations parameter, or a policy exemption), or publish with -Hosting Storage, which uses $($out.Location)." } else { "Pass -Location with one of: $($res -join ', ')." }
+  }
+  [pscustomobject]$out
+}
+
+function Get-AvdPortalConfigScript {
+  <#
+    The portal-config.js a published copy serves: one JSON object on one known global (red team PH-4).
+    The portal validates repoUrl and ref again before putting them in a command.
+  #>
+  param(
+    [Parameter(Mandatory)][string] $RepoUrl,
+    [Parameter(Mandatory)][string] $Ref,
+    [Parameter(Mandatory)][string] $PortalUrl,
+    [Parameter(Mandatory)][ValidateSet('StaticWebApp', 'Storage')][string] $Hosting
+  )
+  if ($RepoUrl -notmatch '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?$' -or $RepoUrl -match '\.\.') { throw "-RepoUrl must be a GitHub repository URL (https://github.com/<owner>/<repo>), not '$RepoUrl'." }
+  if ($Ref -notmatch '^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$' -or $Ref -match '\.\.|//|/$|\.lock$') { throw "-Ref must be a tag or commit, not '$Ref'." }
+  $json = [ordered]@{ repoUrl = $RepoUrl.TrimEnd('/'); ref = $Ref; portalUrl = $PortalUrl; hosting = $Hosting } | ConvertTo-Json -Compress
+  "/* Written by scripts/ops/Publish-AvdPortal.ps1 (decision 0017). */`nwindow.AVDLZ_PORTAL_CONFIG = $json;`n"
+}
+
+function Get-AvdStaticWebAppConfig {
+  <#
+    staticwebapp.config.json for a published copy: response headers the page can't set on GitHub
+    Pages (red team PH-9), and with -RequireSignIn every route locked to the invited 'operator' role.
+    The Free plan's built-in sign-in lets any Microsoft account in, so 'authenticated' alone is never
+    used (red team PH-1); GitHub sign-in is turned off.
+  #>
+  param([switch] $RequireSignIn)
+  $csp = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src https:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+  $config = [ordered]@{
+    globalHeaders = [ordered]@{
+      'Content-Security-Policy' = $csp
+      'X-Frame-Options'         = 'DENY'
+      'X-Content-Type-Options'  = 'nosniff'
+      'Referrer-Policy'         = 'no-referrer'
+    }
+  }
+  if ($RequireSignIn) {
+    $config.routes = @(
+      [ordered]@{ route = '/.auth/login/github'; statusCode = 404 },
+      [ordered]@{ route = '/.auth/*'; allowedRoles = @('anonymous') },
+      [ordered]@{ route = '/denied.html'; allowedRoles = @('anonymous') },
+      [ordered]@{ route = '/*'; allowedRoles = @('operator') }
+    )
+    $config.responseOverrides = [ordered]@{
+      '401' = [ordered]@{ redirect = '/.auth/login/aad'; statusCode = 302 }
+      '403' = [ordered]@{ rewrite = '/denied.html'; statusCode = 403 }
+    }
+  }
+  $config | ConvertTo-Json -Depth 6
+}
+
+function Get-AvdPortalContentType {
+  <# The Content-Type a storage static website serves a file with (blobs keep the type they were uploaded with). #>
+  param([Parameter(Mandatory)][string] $Path)
+  $types = @{
+    '.html' = 'text/html; charset=utf-8'; '.js' = 'text/javascript; charset=utf-8'; '.mjs' = 'text/javascript; charset=utf-8'
+    '.css' = 'text/css; charset=utf-8'; '.json' = 'application/json; charset=utf-8'; '.md' = 'text/markdown; charset=utf-8'; '.txt' = 'text/plain; charset=utf-8'
+    '.svg' = 'image/svg+xml'; '.png' = 'image/png'; '.jpg' = 'image/jpeg'; '.ico' = 'image/x-icon'; '.webp' = 'image/webp'
+    '.woff2' = 'font/woff2'; '.woff' = 'font/woff'
+  }
+  $ext = [IO.Path]::GetExtension($Path).ToLower()
+  if ($types.ContainsKey($ext)) { $types[$ext] } else { 'application/octet-stream' }
 }
 
 Export-ModuleMember -Function *-Avd*

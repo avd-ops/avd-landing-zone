@@ -41,6 +41,7 @@
     'ba92f5b4-2d11-453d-a403-e96b0029c9fe', // Storage Blob Data Contributor
     'acdd72a7-3385-48ef-bd42-f606fba81ae7', // Reader
     '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1', // Storage Blob Data Reader
+    'ba92f5b4-2d11-453d-a403-e96b0029c9fe', // Storage Blob Data Contributor (the self-hosted portal's uploader, decision 0017)
     // Entra directory role templates (group owner check in the preflight and deploy.sh)
     '62e90394-69f5-4237-9190-012177145e10', // Global Administrator
     'e8611ab8-c189-46e8-94e1-60213ab1f814', // Privileged Role Administrator
@@ -68,6 +69,34 @@
   };
 
   function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+  /*
+   * maskSecrets(text) -> { text, count }
+   * Only the secrets: tokens, keys, SAS signatures, passwords, device codes. The page runs it on
+   * pasted output before showing or reading it, so a secret is never on screen or kept anywhere;
+   * IDs and names stay, because the analysis needs them. redact() starts with it.
+   */
+  function maskSecrets(text) {
+    var count = 0;
+    function fixed(placeholder) { return function () { count++; return placeholder; }; }
+    function keep(placeholder) { return function (a, p) { count++; return p + placeholder; }; }
+    text = String(text || '')
+      .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g, fixed('<token>'))
+      .replace(/\b(Bearer\s+)(?!<)[A-Za-z0-9._~+\/=-]{16,}/gi, keep('<token>'))
+      .replace(/([?&]sig=)(?!<)[^&\s"']+/gi, keep('<secret>'))
+      .replace(/(AccountKey=)(?!<)[^;\s"']+/gi, keep('<secret>'))
+      .replace(/((?:password|passwd|pwd|secret|client_secret|apikey|api_key)["']?\s*[=:]\s*["']?)(?!<)[^\s"',;]+/gi, keep('<secret>'))
+      .replace(/(enter the code\s+)[A-Z0-9]{6,12}\b/gi, keep('<device-code>'))
+      // Static Web Apps deployment tokens (Publish-AvdPortal.ps1 never prints one; this catches one that was).
+      .replace(/((?:deployment[_ -]?token|SWA_CLI_DEPLOYMENT_TOKEN)["']?\s*[=:\s]\s*["']?)(?!<)[^\s"',;]{16,}/gi, keep('<secret>'))
+      .replace(/[A-Za-z0-9+\/]{40,}={0,2}/g, function (s) {
+        // Keys and tokens: long, mixed-case, with digits. Paths (with / between words) are not.
+        var keyLike = /[0-9]/.test(s) && /[a-z]/.test(s) && /[A-Z]/.test(s) && (/=$/.test(s) || !/\//.test(s));
+        if (!keyLike) return s;
+        count++; return '<secret>';
+      });
+    return { text: text, count: count };
+  }
 
   /*
    * redact(text, options) -> { text, counts {kind: n}, total }
@@ -101,19 +130,9 @@
     }
 
     // 1. Secrets: gone entirely, never numbered.
-    text = text
-      .replace(/\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]*/g, fixed('secret', '<token>'))
-      .replace(/\b(Bearer\s+)[A-Za-z0-9._~+\/=-]{16,}/gi, function (a, p) { count('secret'); return p + '<token>'; })
-      .replace(/([?&]sig=)(?!<)[^&\s"']+/gi, function (a, p) { count('secret'); return p + '<secret>'; })
-      .replace(/(AccountKey=)(?!<)[^;\s"']+/gi, function (a, p) { count('secret'); return p + '<secret>'; })
-      .replace(/((?:password|passwd|pwd|secret|client_secret|apikey|api_key)["']?\s*[=:]\s*["']?)(?!<)[^\s"',;]+/gi, function (a, p) { count('secret'); return p + '<secret>'; })
-      .replace(/(enter the code\s+)[A-Z0-9]{6,12}\b/gi, function (a, p) { count('secret'); return p + '<device-code>'; })
-      .replace(/[A-Za-z0-9+\/]{40,}={0,2}/g, function (s) {
-        // Keys and tokens: long, mixed-case, with digits. Paths (with / between words) are not.
-        var keyLike = /[0-9]/.test(s) && /[a-z]/.test(s) && /[A-Z]/.test(s) && (/=$/.test(s) || !/\//.test(s));
-        if (!keyLike) return s;
-        count('secret'); return '<secret>';
-      });
+    var masked = maskSecrets(text);
+    text = masked.text;
+    if (masked.count) counts.secret = masked.count;
 
     // Private level (run recorder spec section 5): secrets only, for what stays in the operator's own tenant.
     if (options.level === 'private') return finish();
@@ -267,5 +286,5 @@
     return { url: base + encodeURIComponent(best || ''), trimmed: all.length - head - lo };
   }
 
-  return { redact: redact, describe: describe, buildReport: buildReport, issueUrl: issueUrl, PUBLIC_IDS: PUBLIC_IDS };
+  return { redact: redact, maskSecrets: maskSecrets, describe: describe, buildReport: buildReport, issueUrl: issueUrl, PUBLIC_IDS: PUBLIC_IDS };
 });
