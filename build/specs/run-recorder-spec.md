@@ -134,10 +134,10 @@ One JSON object per line (JSONL), schema `build/specs/run-journal.schema.json` (
 | **Azure** `runs/<runId>/` in a recorder storage account | `AVDLZ_RECORD=azure` | Yes, and readable from any device | cents (§9) |
 
 The Azure store is created by `Start-AvdRunRecorder.ps1` (Bicep module `bicep/recorder/main.bicep`, its own template, not part of `main.bicep`):
-- Its own resource group, `<prefix>-runs-rg`, so it outlives the landing zone's cleanup and can hold the teardown evidence.
+- Its own resource group, `<prefix>-runs-rg`. It is a **standing store**: it outlives the landing zone's cleanup, holds the teardown evidence and the history of every recorded run, and is removed only on request (§9.2).
 - One StorageV2 account, LRS, hot tier; shared key access off, minimum TLS 1.2, no public blob access; the operator gets Storage Blob Data Contributor on the account only. Entra auth from Cloud Shell, no keys or SAS anywhere (R2).
 - Append blobs for the journal; block blobs for redacted transcripts and the report.
-- A lifecycle rule deletes blobs after 30 days, in case teardown is skipped.
+- A lifecycle rule deletes run folders after 90 days, so the store stays small without anyone pruning it.
 - **No locked immutability.** A locked time-based retention policy makes the container and account undeletable until it expires (§12, F4), which breaks R6. Integrity comes from a SHA-256 manifest written at the end of the run and included in the report. Locked WORM retention is a §10 option, never a sandbox default.
 - Tagged `avdlz-run: <runId>` and `avdlz-component: recorder`.
 
@@ -172,7 +172,7 @@ Everything read is redacted at the private level before it is stored and at the 
 2. **Portal misses:** every pasted output the portal classified as `source: 'text'` or `'none'` (from the portal side, §8.3), every state `id` the portal has no branch for, and every deviation (§6.2).
 3. **Failures:** each with its `id`, the API error (§6.2) and the matching Activity Log and deployment operation entries.
 4. **Cost:** the run's estimate (from `Get-AvdCostEstimate` before the run) against the actual cost for the run's resource groups once Cost Management has it, which can take a day or more (§12, U5). Until then the report says *pending*, never a guess (R7).
-5. **Teardown evidence:** a Resource Graph query, after cleanup, for anything tagged `avdlz-run: <runId>` or named by the landing zone's convention, with its result; the soft-deleted Key Vault and Log Analytics workspace states (lessons 0022, 0023); and finally the recorder's own resource group removal (`-Remove`), recorded in the report kept locally, because the store it would go to is gone.
+5. **Teardown evidence:** a Resource Graph query, after cleanup, for anything tagged `avdlz-run: <runId>` or named by the landing zone's convention, with its result; the soft-deleted Key Vault and Log Analytics workspace states (lessons 0022, 0023); written to the recorder store, which stays (§9.2).
 6. **Manifest:** SHA-256 of every journal and transcript file.
 
 ### 8.2 Filing it
@@ -211,7 +211,7 @@ The sandbox run is the landing zone's normal cost plus the recorder's. The recor
 
 | Item | Assumption | Estimate |
 |---|---|---|
-| Blob storage, LRS hot | under 50 MB per run, deleted the same day | under $0.01 |
+| Blob storage, LRS hot | under 50 MB per run, kept up to 90 days | under $0.01 per run per month |
 | Write and list operations | about 2,000 per run (append blocks, transcripts, listing) | under $0.02 |
 | Activity Log, deployment operations, Resource Graph reads | ARM and Resource Graph reads | $0 |
 | Diagnostic setting export (`-ExportActivityLog`) | off by default | $0 |
@@ -222,10 +222,10 @@ Prices above are from Microsoft's sample price tables (§12, F5). The real estim
 
 ### 9.2 Teardown rule
 
-1. The landing zone's own cleanup runs first, with the recorder still recording.
-2. `Stop-AvdRunRecorder.ps1 -RunId <id> -Remove` writes the teardown evidence (§8.1, item 5), saves the report locally (`clouddrive` if mounted) and prints the public report link, then deletes `<prefix>-runs-rg`, then confirms it is gone and prints that as the last line.
-3. Inputs are deleted last (lesson 0029): if the report can't be saved, the resource group stays and the script says so.
-4. In the maintainer's sandbox, the recorder is removed the same day as the run. The 30-day lifecycle rule (§6.3) is only the backstop.
+1. The landing zone is torn down after every sandbox run, as today. The recorder keeps recording through the cleanup.
+2. `Stop-AvdRunRecorder.ps1 -RunId <id>` writes the teardown evidence (§8.1, item 5) and the report to the recorder store and prints the public report link. The store stays: the cost line is filled in when Cost Management has it (a day or more), and the next run's resume and history read from it.
+3. The recorder itself is removed only on request: `Stop-AvdRunRecorder.ps1 -Remove` first downloads every run folder to the current directory (`clouddrive` if mounted), confirms the download, then deletes `<prefix>-runs-rg` and confirms it is gone as its last line. Inputs are deleted last (lesson 0029): if the download fails, nothing is deleted.
+4. Idle cost is a few MB of blobs, cents a month, plus Defender for Storage if the plan is on (§9.1). The monthly spend reconciliation lists the recorder as a standing item, so it is never a leftover.
 
 ## 10. Free and open source vs a possible paid, hosted feature
 
@@ -247,7 +247,7 @@ The free tier stays complete for one operator: nothing in it depends on a hosted
 | Cloud Shell resets during `deploy.sh` | The ARM deployment continues; `Get-AvdRunStatus.ps1` reports `running` and the next command |
 | `node` missing, or redaction fails | Nothing uploaded; local transcript kept, journal says `redaction: unavailable` (R8) |
 | Recorder account unreachable (network, RBAC) | Journal falls back to local, the script prints one warning and continues: recording never fails a deployment step |
-| Cleanup removed the landing zone but not the recorder | `Get-AvdRunStatus.ps1` lists the recorder resource group as left over, with the `-Remove` command |
+| Cleanup removed the landing zone; the recorder remains | Expected: `Get-AvdRunStatus.ps1` reports it as the standing store, not a leftover |
 | A report contains a value the patterns missed | Same as decision 0008: the reporter's review, the maintainer's check before committing a fixture, a new pattern and `pii-sample.txt` line |
 | Two runs share a run ID | The portal generates IDs with a random suffix; `Start-AvdRunRecorder` refuses an existing `runs/<runId>/` |
 
@@ -289,5 +289,5 @@ Unverified, to confirm in phase 1 (offline) or the first real run:
 ## 14. Open questions for the owner
 
 1. Should `AVDLZ_RECORD=on` (local) become the portal's default for everyone, or stay opt-in? Local recording costs nothing and nothing leaves the shell, but it writes files in the operator's `clouddrive`. The spec says opt-in.
-2. Is a same-day removal of the recorder right for the sandbox, or should it stay until the cost line can be filled in (a day or more)? Keeping it costs cents; removing it the same day means the cost is added to the issue later by hand.
+2. *Changed 2026-10-20 after the owner asked why it was removed the same day:* the recorder is now a standing store, not removed with each run (§9.2). Confirm or revert.
 3. Should the verified runs table live here or on avd-ops.dev, which already holds the family's user-facing docs?
