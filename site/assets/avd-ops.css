@@ -12,11 +12,13 @@
 @font-face{font-family:"JetBrains Mono";font-weight:400 500;font-display:swap;src:url("fonts/jetbrains-mono-latin-500-normal.woff2") format("woff2")}
 @font-face{font-family:"JetBrains Mono";font-weight:600 700;font-display:swap;src:url("fonts/jetbrains-mono-latin-600-normal.woff2") format("woff2")}
 
-/* Tokens. Neutrals are a cool slate; one blue accent; amber marks the optional Liquidware tier; good, caution and
-   bad are for results only, never decoration. */
+/* Tokens. Neutrals are a cool slate; the accent is the logo's teal, darkened on light backgrounds for contrast
+   (--brand and --brand-ink are the logo's own colors, for brand surfaces only); amber marks the optional
+   Liquidware tier; good, caution and bad are for results only, never decoration. */
 :root{
   --bg:#f4f6f9; --surface:#ffffff; --sunken:#eef2f6; --fg:#152232; --muted:#566578; --line:#d7dee8; --line-strong:#bfc9d6;
-  --accent:#0f5fa8; --accent-hover:#0b4d8a; --on-accent:#ffffff; --accent-soft:#e3eef9; --focus:#0f5fa8;
+  --accent:#0b7a6e; --accent-hover:#09635a; --on-accent:#ffffff; --accent-soft:#e0f2ef; --focus:#0b7a6e;
+  --brand:#1ca998; --brand-ink:#0d1015;
   --tier:#9a5b12; --tier-soft:#f7ecdc;
   --good:#18794e; --good-soft:#e1f3e9; --caution:#8a5a00; --caution-soft:#fbf0d9; --bad:#b42323; --bad-soft:#fbe7e7;
   --warn-bg:#fff6e0; --warn-line:#e2b74a; --warn-fg:#4d3a07;
@@ -33,7 +35,8 @@
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0f1620; --surface:#16202c; --sunken:#121b25; --fg:#e4ebf3; --muted:#9aa9ba; --line:#2a3646; --line-strong:#3a4859;
-  --accent:#6cb0f0; --accent-hover:#93c5f5; --on-accent:#0b1520; --accent-soft:#16304a; --focus:#93c5f5;
+  --accent:#3cc8b4; --accent-hover:#7fe0d2; --on-accent:#0b1520; --accent-soft:#123331; --focus:#7fe0d2;
+  --brand:#1ca998; --brand-ink:#0d1015;
   --tier:#e5a95a; --tier-soft:#3a2a14;
   --good:#4cc286; --good-soft:#10291c; --caution:#e0b04a; --caution-soft:#2c2311; --bad:#ff8a80; --bad-soft:#301818;
   --warn-bg:#2e2610; --warn-line:#8a6d1e; --warn-fg:#f3e3b0;
@@ -42,7 +45,8 @@
   --shadow:0 1px 2px rgba(0,0,0,.35); color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0f1620; --surface:#16202c; --sunken:#121b25; --fg:#e4ebf3; --muted:#9aa9ba; --line:#2a3646; --line-strong:#3a4859;
-  --accent:#6cb0f0; --accent-hover:#93c5f5; --on-accent:#0b1520; --accent-soft:#16304a; --focus:#93c5f5;
+  --accent:#3cc8b4; --accent-hover:#7fe0d2; --on-accent:#0b1520; --accent-soft:#123331; --focus:#7fe0d2;
+  --brand:#1ca998; --brand-ink:#0d1015;
   --tier:#e5a95a; --tier-soft:#3a2a14;
   --good:#4cc286; --good-soft:#10291c; --caution:#e0b04a; --caution-soft:#2c2311; --bad:#ff8a80; --bad-soft:#301818;
   --warn-bg:#2e2610; --warn-line:#8a6d1e; --warn-fg:#f3e3b0;
@@ -64,11 +68,11 @@ pre{background:var(--surface);border:1px solid var(--line);border-radius:var(--r
 .wrap{max-width:var(--measure);margin:0 auto;padding-block:0 4rem;
   padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
 
-/* Top bar. The brand is the logo slot: brand/mark.svg (square) beside the word "avd-ops". A page may follow it with
+/* Top bar. The brand is the mark, brand/mark.svg (square) beside the word "avd-ops". A page may follow it with
    a crumb (.sep, then its own title) and its own links. */
 header.top{display:flex;flex-wrap:wrap;gap:var(--space-2) 1.25rem;align-items:center;padding-block:1.1rem;border-bottom:1px solid var(--line)}
 header.top .brand{display:inline-flex;align-items:center;gap:var(--space-2);font:700 1.05rem var(--display);color:var(--fg);text-decoration:none;letter-spacing:.01em}
-header.top .brand .mark{width:26px;height:26px;flex:none;border-radius:5px;display:block;box-shadow:0 0 0 1px var(--line)}
+header.top .brand .mark{width:26px;height:26px;flex:none;border-radius:5px;display:block}
 header.top .sep{color:var(--line-strong)}
 header.top nav{display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-4);font-size:.95rem}
 header.top nav a{text-decoration:none;color:var(--muted)} header.top nav a:hover{color:var(--fg)} header.top nav a[aria-current]{color:var(--fg);font-weight:600}
