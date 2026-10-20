@@ -97,7 +97,9 @@ else {
   }
 }
 
-$failed = @(Get-AvdCheckResult | Where-Object Status -eq 'Fail').Count
+# Assign before piping: Get-AvdCheckResult emits one array (lesson 0009).
+$all = Get-AvdCheckResult
+$failed = @($all | Where-Object Status -eq 'Fail').Count
 if (-not $failed) {
   Write-AvdSection 'Run store'
   $me = Get-AzADUser -SignedIn -ErrorAction Stop
