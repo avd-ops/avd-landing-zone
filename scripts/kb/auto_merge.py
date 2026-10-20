@@ -40,6 +40,8 @@ ROOT = Path(__file__).resolve().parents[2]
 KB_PATH = "docs/knowledge/"
 HOLD_LABEL = "no-auto-merge"
 DEFAULT_PATHS = ["docs/knowledge/**", "llms.txt"]
+# The pulls/{n}/files API lists at most this many files; a bigger PR can't be fully read.
+MAX_FILES = 3000
 # Never low-risk, whatever auto_merge_paths says: these change rules, automation, agent instructions
 # or running code. Matched against the lower-cased path, anywhere in the tree.
 HARD_DENY = [
@@ -97,7 +99,11 @@ def verdict(pr: dict, files: list[str], owner: str, cfg: dict, env: dict | None 
         return False, "draft"
     if HOLD_LABEL in [lb.get("name") for lb in pr.get("labels", [])]:
         return False, f"labelled {HOLD_LABEL}"
-    if not files or len(set(files)) < int(pr.get("changed_files") or 0):
+    changed = int(pr.get("changed_files") or 0)
+    # Renames are listed under both names, so the count of paths alone can't show a truncated list.
+    if changed > MAX_FILES:
+        return False, f"more than {MAX_FILES} changed files, past what the API lists"
+    if not files or len(set(files)) < changed:
         return False, "couldn't read the full list of changed files"
     for f in files:
         if matches(f.lower(), HARD_DENY) or matches(f, cfg.get("deny", [])):
