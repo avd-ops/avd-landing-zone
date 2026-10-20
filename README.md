@@ -91,7 +91,7 @@ avd-landing-zone/
 ├── releases/                      # how to get a released version, and each release's notes
 │
 ├── site/                          # the website (GitHub Pages, .github/workflows/pages.yml)
-│   ├── index.html, family/        # the AVD family site
+│   ├── index.html, family/        # redirects to the avd-ops site (avd-ops.dev)
 │   ├── portal/                    # the deployment portal
 │   └── region-latency/
 │
@@ -116,7 +116,7 @@ avd-landing-zone/
 - [`docs/images.md`](docs/images.md): golden images, step 1: setting up and running the monthly image build
 - [Deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/) ([how it works](site/portal/README.md)): region by latency, then the next command from each pasted Cloud Shell output
 - [`docs/demo.md`](docs/demo.md): a live demo in a 30-minute slot (dev built the night before, test deployed live beside it)
-- [Family site](https://nickprignano.github.io/avd-landing-zone/) ([source](site/index.html)): one page for this repo and its four siblings (avd-current-state, avd-swarm, avd-second-brain, avd-liquidware) and how they fit together
+- [avd-ops site](https://avd-ops.dev/) ([source](https://github.com/nickprignano/avd-ops)): one page for this repo and its four siblings (avd-current-state, avd-swarm, avd-second-brain, avd-liquidware) and how they fit together
 - [`docs/ci.md`](docs/ci.md): validation and deployment pipelines, OIDC setup
 - [`docs/gotchas.md`](docs/gotchas.md): the things that bite
 - [`docs/out-of-scope.md`](docs/out-of-scope.md): what this repo does not do
