@@ -258,6 +258,10 @@
       return block(cfg, ['./scripts/ops/Test-AvdUserConnection.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment +
         (opts.user ? ' -UserPrincipalName ' + psQuote(opts.user) : '') + (opts.demo ? ' -Demo' : '') + (opts.timeout ? ' -TimeoutMinutes ' + opts.timeout : '')]);
     },
+    // Where did I leave off (run recorder spec section 4): reads where the run stands from Azure.
+    runStatus: function (cfg) {
+      return block(cfg, ['./scripts/ops/Get-AvdRunStatus.ps1' + (cfg.namePrefix ? ' -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment : '')]);
+    },
     removeDemo: function (cfg) {
       return block(cfg, [signIn(cfg), './scripts/ops/Remove-AvdDemo.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment]);
     },
@@ -577,6 +581,25 @@
       note('Session hosts stopped', (pw.deallocated || []).length + ' deallocated' + ((pw.skipped || []).length ? ', ' + pw.skipped.length + ' left running because users are signed in' : '') + '. They start again on the next connection.', '');
       return { step: 'signin', actions: a };
     }
+    if (S === 'resume') {
+      // Get-AvdRunStatus.ps1 (run recorder spec section 4): Azure says where the run stands; the journal only adds detail.
+      var rc = state.context || {}, basis = rc.basis ? ' ' + rc.basis : '';
+      if (rc.lastStage === 'deploy' && rc.lastStatus === 'running') {
+        note('Wait for the deployment', 'Azure shows the deployment still running.' + basis + ' Do not start it again. Check on it with this, and paste the result when it shows Succeeded or Failed.', cmd.deployStatus(cfg, rc.deploymentName));
+        return { step: 'deploy', actions: a };
+      }
+      if (state.status !== 'ready' || !rc.nextStage) {
+        note('Couldn\'t tell where the run stands', 'The status check saw something it doesn\'t recognize.' + basis + ' Use Report a problem so it can be added, and pick the step yourself from the list.', '');
+        return { step: null, actions: a };
+      }
+      if (rc.lastStage === 'deploy' && rc.lastStatus === 'failed') {
+        note('Find out what failed', 'The last deployment failed.' + basis + ' This lists the failed resources and their error codes; paste the result here.', cmd.deployStatus(cfg, rc.deploymentName));
+        return { step: 'deploy', actions: a };
+      }
+      var NEXT = { predeploy: 'Run the pre-deployment preflight', deploy: 'Deploy the landing zone', postdeploy: 'Run the post-deployment setup', signin: 'Deploy the demo and sign in', verify: 'Check access' };
+      note(NEXT[rc.nextStage] || 'Continue', 'This is where the run left off.' + basis, rerunForStep(rc.nextStage, cfg, rc.nextStage === 'postdeploy' ? true : undefined));
+      return { step: rc.nextStage, actions: a };
+    }
     if (S === 'cleanup') {
       // A Graph sign-in that timed out leaves the hosts' device objects (build/lessons/0029).
       var left = byId(warnings, 'devices-left'), lz = state.context && state.context.includeLandingZone;
@@ -592,8 +615,8 @@
     return { step: null, actions: a };
   }
 
-  var STAGE_LABEL = { predeploy: 'Pre-deployment preflight', deploy: 'Deployment', postdeploy: 'Post-deployment setup', demo: 'Demo validation', cleanup: 'Cleanup', power: 'Auto shutdown', verify: 'Access check' };
-  var STATUS_LABEL = { done: 'Done', ready: 'Ready', notready: 'Not ready', succeeded: 'Succeeded', failed: 'Failed', started: 'Still running (or disconnected)', whatif: 'What-if only', locked: 'Locked', resumed: 'Resumed', stopped: 'Stopped', verified: 'Verified', notverified: 'Not verified' };
+  var STAGE_LABEL = { predeploy: 'Pre-deployment preflight', deploy: 'Deployment', postdeploy: 'Post-deployment setup', demo: 'Demo validation', cleanup: 'Cleanup', power: 'Auto shutdown', verify: 'Access check', resume: 'Where you left off' };
+  var STATUS_LABEL = { done: 'Done', ready: 'Ready', notready: 'Not ready', succeeded: 'Succeeded', failed: 'Failed', started: 'Still running (or disconnected)', whatif: 'What-if only', locked: 'Locked', resumed: 'Resumed', stopped: 'Stopped', verified: 'Verified', notverified: 'Not verified', unknown: 'Unknown' };
 
   /*
    * analyze(text, config, options) -> {
