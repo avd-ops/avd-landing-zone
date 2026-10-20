@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "avd-run-record/v1 journal line (journal.jsonl)",
+  "description": "Contract C17. One line of a run's journal.jsonl, one JSON object per line. Core events are checked here; a use case adds events named x.<useCase>.<name>, which readers keep and don't reject. Private level: secrets never appear (parameters named like secrets are '<set>').",
+  "type": "object",
+  "required": ["v", "event", "runId", "ts"],
+  "properties": {
+    "v": { "const": 1 },
+    "event": { "type": "string", "pattern": "^(step\\.start|check|api\\.error|step\\.end|operator\\.note|x\\.[a-z][a-z0-9-]*\\.[a-z0-9.-]+)$" },
+    "runId": { "type": "string", "pattern": "^run-[0-9]{8}-[0-9]{4}-[a-z0-9]{4}$" },
+    "useCase": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$", "description": "Omitted when it is the run's own use case (run.json)." },
+    "ts": { "type": "string", "format": "date-time" },
+    "step": { "type": ["string", "null"] }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "event": { "pattern": "^x\\." } } },
+      "then": { "required": ["useCase"] }
+    },
+    {
+      "if": { "properties": { "event": { "const": "step.start" } } },
+      "then": {
+        "required": ["step", "params", "shell", "cloudShell"],
+        "properties": {
+          "portalStep": { "type": ["string", "null"] },
+          "params": { "type": "object", "additionalProperties": { "type": ["string", "boolean", "array", "null"] } },
+          "repoCommit": { "type": ["string", "null"] },
+          "shell": { "enum": ["pwsh", "bash", "powershell"] },
+          "cloudShell": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "event": { "const": "check" } } },
+      "then": {
+        "required": ["status", "area", "check"],
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "enum": ["Pass", "Fail", "Warn", "Fixed", "Skip"] },
+          "area": { "type": "string" },
+          "check": { "type": "string" },
+          "data": { "type": ["object", "null"] }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "event": { "const": "api.error" } } },
+      "then": {
+        "required": ["api", "method", "path", "status"],
+        "properties": {
+          "api": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$", "description": "arm, graph, or another API a use case calls." },
+          "method": { "type": "string" },
+          "path": { "type": "string" },
+          "status": { "type": "integer" },
+          "code": { "type": ["string", "null"] },
+          "body": { "type": ["string", "null"], "maxLength": 2003 },
+          "correlationId": { "type": ["string", "null"] }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "event": { "const": "step.end" } } },
+      "then": {
+        "required": ["state"],
+        "properties": {
+          "durationSec": { "type": ["number", "null"] },
+          "exitCode": { "type": ["integer", "null"] },
+          "state": { "type": "object" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "event": { "const": "operator.note" } } },
+      "then": { "required": ["text"], "properties": { "text": { "type": "string" } } }
+    }
+  ]
+}
