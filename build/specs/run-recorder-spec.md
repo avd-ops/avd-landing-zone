@@ -45,6 +45,7 @@ Everything above is free and open source. §10 lists what could later be a hoste
 | R6 | Every resource the recorder creates is removed by the recorder, with evidence, before the run is called done | spend rule; lesson 0029 (delete inputs last) |
 | R7 | Cost lines match exactly one retail price meter, or say which meters were seen | decision 0010 |
 | R8 | Fail closed: if redaction can't run, nothing is uploaded or shared | verify-access spec V1 |
+| R9 | Never delete the last copy. Nothing in this spec deletes run data, logs or evidence unless a second copy exists and has been checked against the manifest's hashes. Old data moves to a cheaper tier instead of being deleted | the owner, 2026-10-20; lesson 0029 |
 
 ## 4. The resume point (works without the recorder)
 
@@ -137,7 +138,8 @@ The Azure store is **durable log storage for the sandbox**, set up once per subs
 - Its own resource group, `avdlz-runs-rg`, independent of any landing zone's name prefix. It outlives every landing zone's cleanup, holds the teardown evidence and the history of every recorded run, and is removed only on request (§9.2).
 - One StorageV2 account, LRS, hot tier; shared key access off, minimum TLS 1.2, no public blob access; the operator gets Storage Blob Data Contributor on the account only. Entra auth from Cloud Shell, no keys or SAS anywhere (R2).
 - Append blobs for the journal; block blobs for redacted transcripts and the report.
-- A lifecycle rule deletes run folders after 90 days, so the store stays small without anyone pruning it.
+- A lifecycle rule moves run folders to the cool tier after 30 days and the cold tier after 90 days. It **never deletes** (R9).
+- Blob soft delete and container soft delete (14 days) cover a mistaken delete. Versioning stays off because the journal is append-only.
 - **No locked immutability.** A locked time-based retention policy makes the container and account undeletable until it expires (§12, F4), which breaks R6. Integrity comes from a SHA-256 manifest written at the end of the run and included in the report. Locked WORM retention is a §10 option, never a sandbox default.
 - Tagged `avdlz-run: <runId>` and `avdlz-component: recorder`.
 
@@ -173,6 +175,7 @@ Everything read is redacted at the private level before it is stored and at the 
 3. **Failures:** each with its `id`, the API error (§6.2) and the matching Activity Log and deployment operation entries.
 4. **Cost:** the run's estimate (from `Get-AvdCostEstimate` before the run) against the actual cost for the run's resource groups once Cost Management has it, which can take a day or more (§12, U5). Until then the report says *pending*, never a guess (R7).
 5. **Teardown evidence:** a Resource Graph query, after cleanup, for anything tagged `avdlz-run: <runId>` or named by the landing zone's convention, with its result; the soft-deleted Key Vault and Log Analytics workspace states (lessons 0022, 0023); written to the recorder store, which stays (§9.2).
+6. **The landing zone's own logs, before cleanup deletes them:** the Log Analytics workspace goes with the landing zone, and it holds the only copy of the run's AVD diagnostics (`WVDConnections`, `WVDErrors`, `WVDCheckpoints`, `WVDAgentHealthStatus`) and its host logs. `Stop-AvdRunRecorder.ps1 -BeforeCleanup` exports those tables for the run's window as JSON into the run folder, checks row counts, and adds them to the manifest. The portal's cleanup step runs it first when recording is on. Cleanup itself is unchanged (R1). Only the order of the portal's steps changes.
 6. **Manifest:** SHA-256 of every journal and transcript file.
 
 ### 8.2 Filing it
@@ -211,7 +214,7 @@ The sandbox run is the landing zone's normal cost plus the recorder's. The recor
 
 | Item | Assumption | Estimate |
 |---|---|---|
-| Blob storage, LRS hot | under 50 MB per run, kept up to 90 days | under $0.01 per run per month |
+| Blob storage, LRS, hot then cool and cold | under 50 MB per run, kept indefinitely | under $0.01 per run per month, falling as it tiers down |
 | Write and list operations | about 2,000 per run (append blocks, transcripts, listing) | under $0.02 |
 | Activity Log, deployment operations, Resource Graph reads | ARM and Resource Graph reads | $0 |
 | Activity Log export to the store | a sandbox's control-plane writes, a few MB a month | storage only, cents a month |
@@ -222,9 +225,9 @@ Prices above are from Microsoft's sample price tables (§12, F5). The real estim
 
 ### 9.2 Teardown rule
 
-1. The landing zone is torn down after every sandbox run, as today. The recorder keeps recording through the cleanup.
+1. The landing zone is torn down after every sandbox run, as today, but only after its logs are exported (§8.1, item 6). The recorder keeps recording through the cleanup.
 2. `Stop-AvdRunRecorder.ps1 -RunId <id>` writes the teardown evidence (§8.1, item 5) and the report to the recorder store and prints the public report link. The store stays: the cost line is filled in when Cost Management has it (a day or more), and the next run's resume and history read from it.
-3. The recorder itself is removed only on request: `Stop-AvdRunRecorder.ps1 -Remove` first downloads every run folder to the current directory (`clouddrive` if mounted), confirms the download, then removes the Activity Log diagnostic setting, deletes `avdlz-runs-rg` and confirms it is gone as its last line. Inputs are deleted last (lesson 0029): if the download fails, nothing is deleted.
+3. The run store itself is removed only on request, and never as the last copy (R9). `Stop-AvdRunRecorder.ps1 -Remove -CopyTo <destination>` needs a durable destination: another storage account, or a path on the operator's own machine through `-CopyTo local`, which produces an archive and its hashes to download. Cloud Shell's disk doesn't count. It copies every run folder, re-reads the copy, and checks every file against the manifests. Only then does it remove the Activity Log diagnostic setting, delete `avdlz-runs-rg` and confirm it is gone as its last line. Any mismatch, or no `-CopyTo`, and nothing is deleted. Inputs are deleted last (lesson 0029).
 4. Idle cost is a few MB of blobs, cents a month, plus Defender for Storage if the plan is on (§9.1). The monthly spend reconciliation lists the recorder as a standing item, so it is never a leftover.
 
 ## 10. Free and open source vs a possible paid, hosted feature
