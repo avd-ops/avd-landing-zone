@@ -219,7 +219,7 @@ if ($CopyTo -eq 'github') {
       ($files | Where-Object path -eq $k.Path) | Add-Member -NotePropertyName keptOnlyIn -NotePropertyValue 'azure' -Force
       Add-AvdCheckResult 'Run' "$($k.Path) is 2 GiB or more compressed: kept in Azure only" 'Warn' -Id 'run-copy-kept' -Detail 'Beyond what free GitHub features hold (spec section 9.2).'
     }
-    $copied = @($files | Where-Object { @($_.copies).Count }).Count
+    $copied = @($files | Where-Object { @($_.copies | Where-Object { $_ }).Count }).Count
     Add-AvdCheckResult 'Run' "Verified copies in $PrivateRepo for $copied of $($files.Count) file(s)" $(if ($copied -eq $files.Count) { 'Pass' } else { 'Warn' }) -Id 'run-copy'
     Remove-Item -Recurse -Force -LiteralPath $tmp
   }

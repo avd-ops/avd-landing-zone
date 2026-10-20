@@ -200,4 +200,13 @@ Describe 'Closing a run' {
     @(($m | Where-Object path -eq 'journal.jsonl').copies).Count | Should -Be 1
     ($m | Where-Object path -eq 'cost.json').copies | Should -BeNullOrEmpty
   }
+
+  It 'adds no empty copy when the earlier record has none (ARM-style omitted property)' {
+    $d = Join-Path $TestDrive 'run2'
+    $null = New-Item -ItemType Directory -Path $d -Force
+    Set-Content -LiteralPath (Join-Path $d 'cost.json') -Value 'b' -NoNewline
+    $sha = (Get-FileHash -LiteralPath (Join-Path $d 'cost.json') -Algorithm SHA256).Hash.ToLowerInvariant()
+    $m = @(Get-AvdRunManifest -Folder $d -Previous @([pscustomobject]@{ path = 'cost.json'; sha256 = $sha }))
+    $m[0].PSObject.Properties.Name | Should -Not -Contain 'copies'
+  }
 }

@@ -287,7 +287,9 @@ function Get-AvdRunManifest {
     $e = [ordered]@{ path = $rel; kind = $kind; level = $(if ($rel -like '*.public.*') { 'public' } else { 'private' }); bytes = $f.Length; sha256 = $sha }
     $old = @($Previous | Where-Object { $_.path -eq $rel -and $_.sha256 -eq $sha }) | Select-Object -First 1
     if ($old -and $old.gzSha256) { $e.gzSha256 = $old.gzSha256 }
-    if ($old -and @($old.copies).Count) { $e.copies = @($old.copies) }
+    # ARM-style records omit empty properties and @($null).Count is 1 (lesson 0021): count real copies.
+    $copies = @($old.copies | Where-Object { $_ })
+    if ($copies.Count) { $e.copies = $copies }
     if ($old -and $old.keptOnlyIn) { $e.keptOnlyIn = $old.keptOnlyIn }
     [pscustomobject]$e
   }
