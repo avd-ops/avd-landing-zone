@@ -175,7 +175,7 @@ Everything read is redacted at the private level before it is stored and at the 
 1. **Run summary:** steps in order, durations, outcomes, repo commit, region, sizing.
 2. **Portal misses:** every pasted output the portal classified as `source: 'text'` or `'none'` (from the portal side, §8.3), every state `id` the portal has no branch for, and every deviation (§6.2).
 3. **Failures:** each with its `id`, the API error (§6.2) and the matching Activity Log and deployment operation entries.
-4. **Cost:** the run's estimate (from `Get-AvdCostEstimate` before the run) against the actual cost for the run's resource groups once Cost Management has it, which can take a day or more (§12, U5). Until then the report says *pending*, never a guess (R7).
+4. **Cost:** the run's estimate against its actual cost, from the run's `cost.json` (§9.3a). Until Cost Management has the actual, which can take a day or more (§12, U5), the report says *pending*, never a guess (R7).
 5. **Teardown evidence:** a Resource Graph query, after cleanup, for anything tagged `avdlz-run: <runId>` or named by the landing zone's convention, with its result; the soft-deleted Key Vault and Log Analytics workspace states (lessons 0022, 0023); written to the recorder store, which stays (§9.2).
 6. **The landing zone's own logs, before cleanup deletes them:** the Log Analytics workspace goes with the landing zone, and it holds the only copy of the run's AVD diagnostics (`WVDConnections`, `WVDErrors`, `WVDCheckpoints`, `WVDAgentHealthStatus`) and its host logs. `Stop-AvdRunRecorder.ps1 -BeforeCleanup` exports those tables for the run's window as JSON into the run folder, checks row counts, and adds them to the manifest. The portal's cleanup step runs it first when recording is on. Cleanup itself is unchanged (R1). Only the order of the portal's steps changes.
 6. **Manifest:** SHA-256 of every journal and transcript file.
@@ -257,6 +257,7 @@ Prices above are from Microsoft's sample price tables (§12, F5). The real estim
   | Where | What | Written by |
   |---|---|---|
   | branch `runs` (orphan) | `runs/<runId>/`: one commit per run, the private-level run folder and its manifest | `Stop-AvdRunRecorder.ps1 -CopyTo github` |
+  | branch `runs`, `runs/costs.csv` | one row per run: expected against latest actual cost (§9.3a) | the same, and `-UpdateCost` |
   | releases `run-<runId>` | files from 50 MiB to 2 GiB of that run | the same |
   | default branch, `brain/` | private second-brain material, laid out by avd-second-brain | avd-second-brain's tools (not built here) |
   | default branch, `README.md` | what the repo is, and that it must stay private | created once by the operator |
@@ -264,6 +265,17 @@ Prices above are from Microsoft's sample price tables (§12, F5). The real estim
 - **Free.** A private repository on a free GitHub account is enough; nothing here needs a paid plan or a hosted service. Large-file splitting and second-subscription copies stay outside the free tier (§10).
 - **Set up once:** create the private repository in GitHub, then in Cloud Shell sign in with `gh auth login` (device code) and set `AVD_PRIVATE_REPO`. `Initialize-AvdRunStore.ps1` checks it can see the repo and that it is private, and records the name as a tag on the run store so a new Cloud Shell session finds it again.
 
+
+### 9.3a Expected and actual cost, kept with the run
+
+*Added 2026-10-20 at the owner's request.* Every recorded run keeps its own cost record, `runs/<runId>/cost.json`, next to its logs and teardown proof, and it travels with them to the companion repo (§9.3).
+
+- **Expected,** written before anything is deployed: each line of the printed estimate (`Get-AvdCostEstimate` and the recorder's own meters, §9.1) with the retail meter it matched, unit price, currency, quantity and hours, when the prices were read, the cap, and the go/no-go rule's result (§13a). A line that matched no meter, or several, is kept as such (R7), never filled in with a guess.
+- **Actual,** read from Cost Management's query API for the run's resource groups and the run store over the run's window, by day and by meter. `Stop-AvdRunRecorder.ps1` writes the first reading at the end of the run, marked `settled: false`. `Stop-AvdRunRecorder.ps1 -UpdateCost <runId>` reads it again later, and after 72 hours with no change marks it `settled: true`. Each reading is appended with the time it was taken, so the record shows how the figure moved and nothing is overwritten.
+- **Compared:** total and per-line difference, any meter that appeared in the actuals but not in the estimate (the most useful finding: a cost the estimate doesn't know about), and anything still billing after teardown.
+- **In the companion repo:** each update is a new commit on the `runs` branch, and `runs/costs.csv` keeps one row per run (run ID, date, region, sizing, cap, expected, latest actual, settled), so the history of expected against actual can be read at a glance and reconciled against the card statement.
+- **Shared:** the public report carries only the totals, the per-meter differences and the region and sizes (no subscription or resource names), so a gap between estimate and actual becomes a fix to `Get-AvdCostEstimate` that every operator gets.
+- **Permissions:** reading actuals needs Cost Management Reader (or Reader) on the subscription; without it the record says *actual unavailable: no access* rather than failing the run.
 
 ## 10. Free and open source vs a possible paid, hosted feature
 
@@ -322,7 +334,7 @@ Unverified, to confirm in phase 1 (offline) or the first real run:
 |---|---|---|
 | **P1, offline** | `Get-AvdRunPosition` and `Get-AvdRunStatus.ps1` with fixtures and an offline scenario; stage `resume` in the state line and `portal-core.js` with Node tests; `redact.mjs` and the `level` option with fixture tests; journal writer and schema; local store only | $0 |
 | **P2, portal** | "Where did I leave off?" and "Record this run" in the portal, after a frontend design pass with the avd-ops design system; Playwright tests in a real browser; the portal's local classification log | $0 |
-| **P3, Azure store** | `bicep/recorder/main.bicep`, `Start-`/`Stop-AvdRunRecorder.ps1`, the recorder's cost lines, teardown, AzMock paths and a scenario | $0 offline |
+| **P3, Azure store** | `bicep/recorder/main.bicep`, `Start-`/`Stop-AvdRunRecorder.ps1`, the recorder's cost lines and `cost.json` (§9.3a), teardown, AzMock paths and a scenario | $0 offline |
 | **P4, first real run** | One sandbox run in the maintainer's personal subscription, smallest sizes, northcentralus: deploy, close the tab mid-deploy, resume, post-deployment, cleanup, recorder removal. Confirms U1 to U6 | Only after a written estimate and the owner's yes; teardown evidence and actual cost recorded |
 | **P5, feedback** | Run report issue and label, retro skill entry, `docs/verified-runs.md`, field report path in the family KB | $0 |
 
@@ -343,7 +355,7 @@ Everything in this spec is built offline first, then tested and audited in one r
 | T7 | Teardown proof (§8.1 item 5) | After cleanup, the Resource Graph query finds nothing tagged with the run or named by the landing zone | Query and result |
 | T8 | One run folder, `-TeardownLogs` (§9.2) | Run teardown once with `Keep` (folder stays), once with `Ask` (lists and asks), and once with `Delete` on a throwaway test folder (refuses without a verified copy, then deletes after one) | Each prompt and outcome |
 | T9 | Verified copies (§9.2 step 4, §9.3) | `-CopyTo github` to the companion repo named by `AVD_PRIVATE_REPO`: commit, read back, hashes match; a planted mismatch blocks deletion; a public repo is refused | Receipts and the refusal |
-| T10 | Cost (§9.1, U5, U6) | Defender for Storage plan read first; actual cost from Cost Management when it settles | Estimate against actual |
+| T10 | Cost (§9.1, §9.3a, U5, U6) | Defender for Storage plan read first; `cost.json` written before deploy with every estimate line; first actual at the end of the run, `-UpdateCost` until settled; `costs.csv` row in the companion repo | `cost.json` with expected, each actual reading and the comparison |
 
 ### What gets created
 
@@ -356,7 +368,7 @@ The landing zone at its smallest supported settings (one session host, the small
 - **Target:** one sitting of about three hours, from deploy to teardown.
 - **Cap:** $10 for the run (accepted by the owner 2026-10-20), enforced by the sandbox budget. If the run goes past six hours, teardown starts.
 - **Margin:** the only measured figure is the earlier demo's $0.97 for about eight hours, so a three-hour run should come in at a few dollars. That is a scale, not an estimate: the go/no-go rule is that the printed estimate, including Defender for Storage if it is on, must be **$5 or less** (half the cap). Above that, the run doesn't start, and the plan says which line is high and whether a lower setting would bring it under. If the printed estimate turns out to be under $2, the plan proposes lowering the cap to match, because a tighter budget alert catches a leftover sooner.
-- Actual cost and teardown evidence are recorded after the run, and the actual figure is checked again once Cost Management settles (up to 3 days).
+- Expected and actual cost are kept in the run's `cost.json` and the companion repo's `costs.csv` (§9.3a); the actual is read again until it settles (up to 3 days).
 
 ### Hand steps for the owner
 
