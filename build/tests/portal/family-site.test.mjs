@@ -1,4 +1,4 @@
-// The family site (site/index.html and site/family/) is served by this repo's GitHub Pages beside the portal.
+// The avd-ops site (site/index.html and site/family/, at avd-ops.dev) is served by this repo's GitHub Pages beside the portal.
 // Every page keeps the research-only notice and the invitation to contribute and fork, every relative link
 // resolves, and the site names no partner but Liquidware.
 // Run: node --test "build/tests/portal/*.test.mjs"
@@ -14,6 +14,13 @@ const read = (f) => readFileSync(join(root, f), 'utf8');
 test('the site has a page for each public repo in the family', () => {
   for (const r of ['avd-landing-zone', 'avd-current-state', 'avd-swarm', 'avd-second-brain', 'avd-liquidware']) {
     assert.ok(pages.includes(`site/family/${r}.html`), r);
+  }
+});
+
+test('every page carries the avd-ops name', () => {
+  for (const f of pages) {
+    assert.match(read(f), /<a class="brand" href="[^"]*index\.html">avd-ops<\/a>/, f);
+    assert.doesNotMatch(read(f), /AVD (repo )?family/i, f);
   }
 });
 
