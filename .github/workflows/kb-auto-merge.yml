@@ -1,0 +1,82 @@
+name: kb-auto-merge
+
+# Decision 0014: a pull request that only touches the low-risk paths (by default the knowledge base,
+# never decisions, workflows, scripts or code) turns on GitHub's auto-merge, so it merges itself
+# once the required checks pass. Any other PR has auto-merge turned off. The repo opts in with
+# auto_merge = "on" in its settings; the owner flips "Allow auto-merge" and makes this job a
+# required check, so a push that adds a risky file is caught before the PR can merge.
+#
+# pull_request_target runs this file and scripts/kb/auto_merge.py from the base branch, never from
+# the PR, and the PR's code is never checked out or run: only its list of changed files is read.
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft, labeled, unlabeled, edited]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: kb-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Changed files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate \
+            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/files.txt"
+      # Decision 0008: a family directive can pause this workflow. Missing scripts (a repo without
+      # a KB) skip the step; KB_PAUSED is read by auto_merge.py either way.
+      - id: gate
+        env:
+          KB_PAUSED: ${{ vars.KB_PAUSED }}
+        run: |
+          if [ -f scripts/kb/directives.py ] && [ -f scripts/kb/requirements.txt ]; then
+            pip install -q -r scripts/kb/requirements.txt
+            python3 scripts/kb/directives.py gate kb-auto-merge
+          else
+            echo "paused=false" >> "$GITHUB_OUTPUT"
+          fi
+      - id: verdict
+        env:
+          KB_PAUSED: ${{ vars.KB_PAUSED }}
+          AUTO_MERGE_OWNER: ${{ vars.HANDOFF_OWNER }}
+        run: |
+          if [ -f scripts/kb/auto_merge.py ]; then
+            python3 scripts/kb/auto_merge.py --files "$RUNNER_TEMP/files.txt"
+          else
+            printf 'eligible=false\nreason=scripts/kb/auto_merge.py is missing\n' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Turn auto-merge on
+        if: steps.verdict.outputs.eligible == 'true' && steps.gate.outputs.paused != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --auto --merge --match-head-commit "$HEAD"
+      # always(): if an earlier step failed, a PR armed on an older head is still turned off.
+      - name: Turn auto-merge off
+        if: always() && (steps.verdict.outputs.eligible != 'true' || steps.gate.outputs.paused == 'true')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REASON: ${{ steps.verdict.outputs.reason }}
+        run: |
+          on=$(gh pr view "$PR" --repo "$GITHUB_REPOSITORY" --json autoMergeRequest --jq '.autoMergeRequest != null')
+          if [ "$on" = "true" ]; then
+            gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --disable-auto
+            echo "Auto-merge turned off: $REASON" >> "$GITHUB_STEP_SUMMARY"
+          fi
