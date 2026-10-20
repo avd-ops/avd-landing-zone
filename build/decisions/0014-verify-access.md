@@ -14,7 +14,7 @@ A *Verify access* step in the portal, after *Sign in*, with three layers, run by
   - It reports connection setup time (Started→Connected), named as such: not AVD Insights' time to connect, and not time to a usable desktop.
 
 ## Alternatives considered
-- **A stored test account signing in from Cloud Shell or CI:** a license and a secret to manage. It tests an Azure client, not the user's. That's Track B's job, as an option (decision 0015).
+- **A stored test account signing in from Cloud Shell or CI:** a license and a secret to manage. It tests an Azure client, not the user's.
 - **Timing from the browser or the client:** not measurable from a static page. The telemetry is objective, and it's already collected.
 - **A hard stop on a failed probe:** a corporate proxy or content blocker would block people who can actually connect.
 

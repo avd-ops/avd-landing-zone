@@ -18,5 +18,5 @@ Short records of choices that shape this repo, so they are not reopened without 
 | 0012 | [A second brain that heals by tested playbooks and evolves by pull request](0012-second-brain.md) | Proposed |
 | 0013 | [A generic golden image built by Azure Image Builder, promoted by a person, rotated blue/green](0013-image-pipeline.md) | Proposed |
 | 0014 | [Verify access from the operator's device in three layers, each claiming only what it measures](0014-verify-access.md) | Proposed |
-| 0015 | [An optional computer-use agent on an isolated VM, as its own deployment, with no credential ever reaching the model](0015-foundry-cua.md) | Proposed |
+| 0015 | An optional computer-use agent on an isolated VM (never built; moved out of this repo 2026-10-20) | Withdrawn |
 | 0016 | [One delegated Microsoft Graph sign-in per session, through a dedicated public client app](0016-graph-operator-app.md) | Accepted |
