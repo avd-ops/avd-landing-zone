@@ -5,76 +5,58 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AVD Deployment Portal</title>
 <meta name="description" content="Guides an AVD landing zone deployment step by step: pick a region by latency, paste Cloud Shell output, get the next command.">
+<link rel="icon" href="../assets/brand/favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="../assets/avd-ops.css">
 <style>
-  /* Layout: one guided column; a progress rail on top, one step card in view, a terminal-style command block,
-     and a Back/Next bar that stays at the bottom of the screen. No web fonts: the page makes no requests but
-     the latency test and the reachability probe. */
-  :root {
-    --bg: #f3f5f8; --panel: #ffffff; --sunken: #eef1f5; --text: #16202b; --muted: #5b6676; --border: #d9dfe7; --border-strong: #c3ccd7;
-    --accent: #0b5cad; --accent-hover: #094c90; --accent-text: #ffffff; --accent-soft: #e6effa; --row-sel: #e6effa;
-    --term-bg: #101820; --term-head: #1a2430; --term-text: #dce6f0; --term-muted: #8a99aa; --term-border: #263241;
-    --good: #1a7f37; --good-soft: #e5f4ea; --ok: #8a5d00; --ok-soft: #fbf1dc; --poor: #b42323; --poor-soft: #fbe7e7;
-    --bar: #0b5cad; --chip: #e6effa; --focus: #0b5cad;
-    --shadow: 0 1px 2px rgba(22, 32, 43, .06), 0 2px 8px rgba(22, 32, 43, .04);
-    --font: system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-    --mono: ui-monospace, "Cascadia Code", "Cascadia Mono", SFMono-Regular, Menlo, Consolas, monospace;
-    --radius: 12px; --radius-sm: 8px;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #0d1218; --panel: #151c25; --sunken: #111820; --text: #e5ebf2; --muted: #9ba7b6; --border: #26303c; --border-strong: #354151;
-      --accent: #5aa6f0; --accent-hover: #7db9f4; --accent-text: #08111b; --accent-soft: #132538; --row-sel: #132538;
-      --term-bg: #080d12; --term-head: #111922; --term-text: #dce6f0; --term-muted: #7f8ea0; --term-border: #222d3a;
-      --good: #4cc26e; --good-soft: #10261a; --ok: #d9ac3a; --ok-soft: #2a2110; --poor: #ff8078; --poor-soft: #2e1616;
-      --bar: #5aa6f0; --chip: #132538; --focus: #7db9f4;
-      --shadow: 0 1px 2px rgba(0, 0, 0, .3);
-      color-scheme: dark;
-    }
-  }
-  :root[data-theme="dark"] {
-    --bg: #0d1218; --panel: #151c25; --sunken: #111820; --text: #e5ebf2; --muted: #9ba7b6; --border: #26303c; --border-strong: #354151;
-    --accent: #5aa6f0; --accent-hover: #7db9f4; --accent-text: #08111b; --accent-soft: #132538; --row-sel: #132538;
-    --term-bg: #080d12; --term-head: #111922; --term-text: #dce6f0; --term-muted: #7f8ea0; --term-border: #222d3a;
-    --good: #4cc26e; --good-soft: #10261a; --ok: #d9ac3a; --ok-soft: #2a2110; --poor: #ff8078; --poor-soft: #2e1616;
-    --bar: #5aa6f0; --chip: #132538; --focus: #7db9f4;
-    --shadow: 0 1px 2px rgba(0, 0, 0, .3);
-    color-scheme: dark;
-  }
+  /* Layout: a slim avd-ops bar, a phase-grouped progress rail, then one step card in view. Inside a command
+     step, "Run in Cloud Shell" and "Paste the output" are two numbered stops on a short timeline. Tokens,
+     fonts and the logo slot come from the avd-ops design system, vendored in ../assets/ (avd-ops
+     docs/design-system.md), so the page still makes no requests to other sites but the latency test and the
+     reachability probe. This block holds only the portal's own components. */
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 var(--font); -webkit-font-smoothing: antialiased; }
-  main { max-width: 960px; margin: 0 auto; padding-block: 20px 0; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
-  h1 { font-size: 1.45rem; line-height: 1.2; margin: 0; letter-spacing: -.01em; text-wrap: balance; }
-  h2 { font-size: 1.2rem; line-height: 1.3; margin: 0 0 10px; letter-spacing: -.005em; text-wrap: balance; }
-  h3 { font-size: 1rem; margin: 0 0 4px; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.55 var(--body); -webkit-font-smoothing: antialiased; }
+  main { max-width: 980px; margin: 0 auto; padding-block: 0; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  h1, h2, h3 { font-family: var(--display); font-weight: 700; line-height: 1.2; text-wrap: balance; }
+  h1 { font-size: 1.05rem; margin: 0; letter-spacing: 0; }
+  h2 { font-size: 1.45rem; margin: 0 0 8px; letter-spacing: -.01em; }
+  h3 { font-size: 1.02rem; margin: 0 0 4px; font-weight: 600; }
   p { margin: 0 0 12px; }
   a { color: var(--accent); text-underline-offset: 2px; }
   a:hover { color: var(--accent-hover); }
-  code { font: .88em var(--mono); background: var(--sunken); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; }
+  code { font: .86em var(--mono); background: var(--sunken); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
   :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-  .lede { color: var(--muted); max-width: 70ch; margin: 10px 0 14px; }
   .status, .muted { color: var(--muted); }
-  .status { font-size: .9rem; }
+  .status { font-size: .93rem; }
   .hidden { display: none !important; }
+  .eyebrow { font: 600 .72rem/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
 
-  /* Header: product name, what it deploys, and the settings button. */
-  header.top { display: flex; align-items: center; justify-content: space-between; gap: 10px 16px; flex-wrap: wrap; }
-  .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-  .brand .mark { flex: 0 0 auto; width: 38px; height: 38px; border-radius: 9px; background: var(--accent); color: var(--accent-text); display: grid; place-items: center; font: 700 .78rem/1 var(--font); letter-spacing: .04em; }
-  .brand .eyebrow { display: block; font-size: .72rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
-  #settings-link { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; text-decoration: none; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 6px 12px; background: var(--panel); color: var(--text); }
+  /* Top bar, as on avd-ops.dev: brand, page name, settings. */
+  header.top { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; padding-block: 14px; border-bottom: 1px solid var(--line); }
+  .brand { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin-right: auto; flex-wrap: wrap; }
+  .brand a.home { display: inline-flex; align-items: center; gap: 8px; font: 700 1.05rem var(--display); color: var(--fg); text-decoration: none; }
+  .brand a.home:hover { color: var(--accent); }
+  .brand .sep { color: var(--line-strong); }
+  .toplinks { display: flex; align-items: center; gap: 4px 14px; flex-wrap: wrap; font-size: .95rem; }
+  .toplinks > a:not(#settings-link) { color: var(--muted); text-decoration: none; }
+  .toplinks > a:not(#settings-link):hover { color: var(--accent); }
+  #settings-link { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; text-decoration: none; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 5px 11px; background: var(--surface); color: var(--fg); }
   #settings-link:hover { border-color: var(--accent); color: var(--accent); }
   #settings-link[aria-expanded="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
   #settings-link svg { width: 16px; height: 16px; }
-  .disclaimer { font-size: .85em; color: var(--muted); }
-  p.disclaimer { background: var(--ok-soft); border: 1px solid var(--border); border-left: 3px solid var(--ok); border-radius: var(--radius-sm); padding: 8px 12px; max-width: none; }
-  footer.disclaimer { margin: 28px 0 0; padding: 16px 0 24px; border-top: 1px solid var(--border); text-align: center; }
+  .intro { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px 24px; align-items: start; padding-block: 18px 6px; }
+  .lede { color: var(--muted); margin: 0; max-width: 62ch; font-size: 1rem; }
+  .disclaimer { font-size: .85rem; color: var(--muted); }
+  p.disclaimer { margin: 0; background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn-fg); border-radius: var(--radius-sm); padding: 9px 12px; line-height: 1.45; }
+  p.disclaimer a { color: inherit; }
+  footer.disclaimer { margin: 28px 0 0; padding: 16px 0 calc(24px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--line); }
+  @media (max-width: 720px) { .intro { grid-template-columns: minmax(0, 1fr); } }
 
   /* Panels */
-  section, details.panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow); }
-  details.panel > summary { cursor: pointer; font-weight: 600; font-size: 1.02rem; list-style-position: inside; }
+  section, details.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow); }
+  details.panel > summary { cursor: pointer; font: 600 1rem var(--display); }
   details.panel[open] > summary { margin-bottom: 12px; }
-  #settings-panel { border-color: var(--accent); }
-  .pool { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 12px; background: var(--sunken); }
+  #settings-panel { border-color: var(--accent); margin-top: 16px; }
+  .pool { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 12px; background: var(--sunken); }
   .pool h3 { margin-bottom: 10px; }
 
   /* Forms */
@@ -82,143 +64,178 @@
   .row > .status { flex: 1 1 220px; min-width: 0; }
   label { display: inline-flex; gap: 6px; align-items: center; }
   .field { display: flex; flex-direction: column; align-items: stretch; gap: 4px; flex: 1 1 180px; min-width: 0; }
-  .field span { font-size: .8rem; font-weight: 600; color: var(--muted); }
+  .field span { font-size: .82rem; font-weight: 600; color: var(--muted); }
   input[type=text], input[type=number], select, textarea {
-    font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); padding: 7px 10px; width: 100%;
+    font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 7px 10px; width: 100%;
   }
   input[type=text]:focus, input[type=number]:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   select:disabled, input:disabled { opacity: .55; }
-  textarea { font: 12.5px/1.5 var(--mono); min-height: 160px; resize: vertical; }
-  button, a.btnlink { font: inherit; font-weight: 600; border: 1px solid var(--accent); border-radius: var(--radius-sm); padding: 8px 16px; cursor: pointer; background: var(--accent); color: var(--accent-text); transition: background .12s, border-color .12s; }
-  button:hover:not(:disabled), a.btnlink:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--accent-text); }
-  button.secondary { background: var(--panel); color: var(--accent); border-color: var(--border-strong); }
+  textarea { font: 12.5px/1.55 var(--mono); min-height: 160px; resize: vertical; }
+  button, a.btnlink { font: inherit; font-weight: 600; border: 1px solid var(--accent); border-radius: var(--radius-sm); padding: 8px 16px; cursor: pointer; background: var(--accent); color: var(--on-accent); transition: background .12s, border-color .12s; }
+  button:hover:not(:disabled), a.btnlink:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--on-accent); }
+  button.secondary { background: var(--surface); color: var(--accent); border-color: var(--line-strong); }
   button.secondary:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
   button.linkbtn { background: none; border: 0; padding: 4px 0; color: var(--accent); text-decoration: underline; text-underline-offset: 2px; font-weight: 600; }
   button.linkbtn:hover:not(:disabled) { background: none; color: var(--accent-hover); }
   button:disabled { opacity: .45; cursor: default; }
   a.btnlink { display: inline-block; text-decoration: none; }
   .check { display: flex; gap: 8px; align-items: flex-start; margin-top: 10px; }
-  .check input { margin-top: 4px; }
+  .check input { margin-top: 5px; }
 
   /* Geography filters as toggle chips. */
   #geos { gap: 8px; }
-  #geos label { border: 1px solid var(--border-strong); border-radius: 999px; padding: 4px 12px 4px 8px; cursor: pointer; font-size: .9rem; background: var(--panel); }
+  #geos label { border: 1px solid var(--line-strong); border-radius: 999px; padding: 4px 12px 4px 9px; cursor: pointer; font-size: .92rem; background: var(--surface); }
   #geos label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
   #geos input { accent-color: var(--accent); margin: 0; }
 
-  /* Progress rail: one row, scrolls sideways on narrow screens. Steps not reached yet are locked. */
-  ol.steps { list-style: none; display: flex; gap: 0; padding: 4px 2px 8px; margin: 18px 0 14px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: thin; counter-reset: none; }
-  ol.steps li { flex: 1 0 104px; scroll-snap-align: start; position: relative; }
-  /* The line joining each step to the one before it. */
-  ol.steps li + li::before { content: ""; position: absolute; top: 19px; left: calc(-50% + 18px); right: calc(50% + 18px); height: 2px; background: var(--border-strong); }
-  ol.steps li.done + li::before, ol.steps li.done + li.current::before { background: var(--good); }
-  ol.steps button { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; background: none; color: var(--muted); border: 0; font-weight: 500; font-size: .82rem; line-height: 1.25; padding: 4px 6px; border-radius: var(--radius-sm); }
-  ol.steps button:hover:not(:disabled) { background: var(--accent-soft); color: var(--text); }
-  ol.steps .n { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--border-strong); background: var(--panel); font-weight: 700; font-size: .85rem; color: var(--muted); position: relative; z-index: 1; font-variant-numeric: tabular-nums; }
-  ol.steps li.done button { color: var(--text); }
-  ol.steps li.done .n { border-color: var(--good); background: var(--good); color: var(--panel); }
-  ol.steps li.current button { color: var(--text); font-weight: 700; }
-  ol.steps li.current .n { border-color: var(--accent); background: var(--accent); color: var(--accent-text); box-shadow: 0 0 0 4px var(--accent-soft); }
+  /* Progress rail: three phases (Plan, Deploy, Use), short labels, one row that scrolls sideways when narrow.
+     Steps not reached yet are locked. */
+  ol.steps { list-style: none; display: flex; padding: 26px 4px 6px; margin: 14px 0 14px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; }
+  ol.steps::-webkit-scrollbar { display: none; }
+  ol.steps li { flex: 1 0 84px; scroll-snap-align: start; position: relative; }
+  ol.steps li[data-phase-start]::after { content: attr(data-phase-start); position: absolute; top: -24px; left: 6px; font: 600 .68rem/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+  ol.steps li[data-phase-start]:not(:first-child) { margin-left: 18px; }
+  ol.steps li + li::before { content: ""; position: absolute; top: 15px; left: calc(-50% + 16px); right: calc(50% + 16px); height: 2px; background: var(--line-strong); }
+  ol.steps li[data-phase-start] + li::before { left: calc(-50% + 16px); }
+  ol.steps li[data-phase-start]:not(:first-child)::before { left: calc(-50% - 2px); }
+  ol.steps li.done + li::before { background: var(--good); }
+  ol.steps button { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; background: none; color: var(--muted); border: 0; font-weight: 600; font-size: .88rem; line-height: 1.2; padding: 0 2px 4px; border-radius: var(--radius-sm); }
+  ol.steps button:hover:not(:disabled) { background: none; color: var(--fg); }
+  ol.steps button:hover:not(:disabled) .n { border-color: var(--accent); }
+  ol.steps .n { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--line-strong); background: var(--surface); font: 600 .82rem var(--mono); color: var(--muted); position: relative; z-index: 1; }
+  ol.steps li.done button { color: var(--fg); }
+  ol.steps li.done .n { border-color: var(--good); background: var(--good); color: var(--surface); }
+  ol.steps li.current button { color: var(--accent); }
+  ol.steps li.current .n { border-color: var(--accent); background: var(--accent); color: var(--on-accent); box-shadow: 0 0 0 5px var(--accent-soft); }
   ol.steps li.locked button { opacity: 1; }
   ol.steps li.locked .n { border-style: dashed; background: transparent; }
+  /* Phones: circles only, plus the current step's label. */
+  @media (max-width: 560px) {
+    ol.steps li { flex: 1 0 40px; }
+    ol.steps li .lbl { display: none; }
+    ol.steps li.current { flex: 0 0 auto; padding-inline: 4px; }
+    ol.steps li.current .lbl { display: block; white-space: nowrap; }
+    ol.steps { padding-top: 6px; }
+    ol.steps li[data-phase-start]::after { display: none; }
+    ol.steps li[data-phase-start]:not(:first-child) { margin-left: 0; }
+    ol.steps li[data-phase-start]:not(:first-child)::before { left: calc(-50% + 16px); }
+  }
 
   /* The steps sit side by side and scroll horizontally; the track takes the height of the step in view. */
   .track { display: flex; align-items: flex-start; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scroll-behavior: smooth; gap: 16px; margin-bottom: 0; transition: height .2s ease; scrollbar-width: none; }
   .track::-webkit-scrollbar { display: none; }
-  .track > .slide { flex: 0 0 100%; min-width: 0; scroll-snap-align: start; margin-bottom: 0; padding: 22px 22px 20px; }
+  .track > .slide { flex: 0 0 100%; min-width: 0; scroll-snap-align: start; margin-bottom: 0; padding: 24px 26px 24px; }
   .track > .slide.hidden { display: none !important; }
-  .slide > h2 { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; padding-bottom: 12px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
-  .slide > h2 .n { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; margin-right: -4px; }
-  .slide > h2 > .muted { font-size: .9rem; font-weight: 400 !important; }
-  .slide > .status { max-width: 78ch; }
-  .slot > section { border: 0; padding: 0; margin: 18px 0 0; background: none; box-shadow: none; border-radius: 0; }
-  .slot > section:first-child { margin-top: 0; }
-  .slot > #paste-box { border-top: 1px solid var(--border); padding-top: 18px; }
+  .slide > h2 { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; }
+  .slide > h2 .n { display: none; }
+  .slide > h2 > .muted { font: 400 .95rem var(--body) !important; }
+  .slide > .status { max-width: 76ch; margin-bottom: 18px; }
+  @media (max-width: 560px) { .track > .slide, section, details.panel { padding: 16px; } h2 { font-size: 1.25rem; } }
+
+  /* Command steps: "Run in Cloud Shell" then "Paste the output", two numbered stops on a line. */
+  .slot { counter-reset: stop; margin-top: 18px; }
+  .slot > section { position: relative; border: 0; border-radius: 0; background: none; box-shadow: none; margin: 0; padding: 0 0 24px 46px; counter-increment: stop; }
+  .slot > section:last-child { padding-bottom: 0; }
+  .slot > section::before { content: counter(stop); position: absolute; left: 0; top: -2px; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font: 600 .82rem var(--mono); background: var(--accent-soft); color: var(--accent); border: 2px solid var(--accent); }
+  .slot > section:not(:last-child)::after { content: ""; position: absolute; left: 15px; top: 32px; bottom: 4px; width: 2px; background: var(--line); }
+  /* The stop names read as labels; the action under them is the heading. */
+  .slot > section > .headline { margin-bottom: 10px; min-height: 26px; }
+  .slot #next-title, .slot #paste-box > h3 { font: 600 .74rem/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .slot #paste-box > h3 { margin: 6px 0 12px; }
+  .slot .action h3 { font-size: 1.12rem; }
+  .slot > #next:has(#next-chip.good)::before { content: "\2713"; background: var(--good); border-color: var(--good); color: var(--surface); }
+  .slot > #next:has(#next-chip.poor)::before { content: "!"; background: var(--bad-soft); border-color: var(--bad); color: var(--bad); }
+  .slot > #next:has(#next-chip.ok)::before { background: var(--caution-soft); border-color: var(--caution); color: var(--caution); }
+
+  @media (max-width: 560px) {
+    .slot > section { padding-left: 38px; }
+    .slot > section::before { width: 26px; height: 26px; font-size: .75rem; }
+    .slot > section:not(:last-child)::after { left: 13px; top: 28px; }
+  }
 
   /* Back / Next stays reachable at the bottom of the screen. */
-  .stepnav { position: sticky; bottom: 0; z-index: 5; display: flex; gap: 12px; align-items: center; justify-content: space-between; margin: 0 0 16px; padding: 12px 0 calc(12px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(to top, var(--bg) 75%, transparent); }
+  .stepnav { position: sticky; bottom: 0; z-index: 5; display: flex; gap: 12px; align-items: center; justify-content: space-between; margin: 0 0 16px; padding: 14px 0 calc(12px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(to top, var(--bg) 72%, transparent); }
   .stepnav button { min-width: 7.5rem; box-shadow: var(--shadow); }
-  .stepnav .status { text-align: center; flex: 1; min-width: 0; }
-  @media (max-width: 560px) {
-    .stepnav .status { display: none; }
-    .track > .slide, section, details.panel { padding: 16px; }
-    .brand .mark { display: none; }
-  }
+  #next-step.primary:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  #next-step.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--on-accent); }
+  .stepnav .status { text-align: center; flex: 1; min-width: 0; font-family: var(--mono); font-size: .78rem; letter-spacing: .02em; }
+  @media (max-width: 560px) { .stepnav .status { display: none; } .stepnav button { min-width: 0; flex: 1 1 0; } }
   @media (prefers-reduced-motion: reduce) { .track { scroll-behavior: auto; transition: none; } button, a.btnlink { transition: none; } }
 
   /* Actions: each command is a terminal block with its own Copy button. */
-  .action { border-top: 1px solid var(--border); padding-top: 16px; margin-top: 16px; }
+  .action { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 16px; }
   .action:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
-  .action .why { color: var(--muted); margin: 2px 0 10px; max-width: 78ch; }
+  .action .why { color: var(--muted); margin: 2px 0 10px; max-width: 76ch; }
   .term { border: 1px solid var(--term-border); border-radius: var(--radius-sm); background: var(--term-bg); overflow: hidden; }
   .term-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 6px 12px; background: var(--term-head); border-bottom: 1px solid var(--term-border); }
-  .term-label { font: 600 .74rem/1 var(--mono); letter-spacing: .04em; color: var(--term-muted); text-transform: uppercase; }
-  .term-label::before { content: "PS>"; color: var(--good); margin-right: 8px; letter-spacing: 0; }
-  .term-head button { padding: 4px 12px; font-size: .82rem; background: transparent; color: var(--term-text); border-color: var(--term-border); }
+  .term-label { font: 600 .72rem/1 var(--mono); letter-spacing: .06em; color: var(--term-muted); text-transform: uppercase; }
+  .term-label::before { content: "PS>"; color: var(--prompt); margin-right: 8px; letter-spacing: 0; }
+  .term-head button { padding: 4px 12px; font-size: .85rem; background: transparent; color: var(--term-text); border-color: var(--term-border); }
   .term-head button:hover:not(:disabled) { background: var(--term-border); border-color: var(--term-muted); color: var(--term-text); }
   .term pre { background: transparent; border: 0; border-radius: 0; color: var(--term-text); }
-  pre { background: var(--sunken); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; overflow-x: auto; margin: 0; font: 13px/1.6 var(--mono); white-space: pre; tab-size: 4; }
+  pre { background: var(--sunken); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px; overflow-x: auto; margin: 0; font: 12.5px/1.65 var(--mono); white-space: pre; tab-size: 4; }
 
   /* Result of a pasted run */
   #next { scroll-margin-top: 16px; }
   .headline { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
-  #next-title { font-size: 1.05rem; }
-  #next-headline { font-size: .95rem; color: var(--text); }
-  .chip { display: inline-block; font-size: .75rem; font-weight: 700; letter-spacing: .02em; border-radius: 999px; padding: 2px 10px; background: var(--chip); border: 1px solid transparent; }
-  .chip.good { color: var(--good); background: var(--good-soft); border-color: var(--good); }
-  .chip.ok { color: var(--ok); background: var(--ok-soft); border-color: var(--ok); }
-  .chip.poor { color: var(--poor); background: var(--poor-soft); border-color: var(--poor); }
-  #findings { margin-bottom: 18px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--sunken); }
+  #next-title { font-size: 1.08rem; }
+  #next-headline { font-size: 1rem; color: var(--fg); }
+  .chip { display: inline-block; font: 600 .7rem/1.6 var(--mono); letter-spacing: .06em; text-transform: uppercase; border-radius: 4px; padding: 1px 8px; background: var(--accent-soft); }
+  .chip.good { color: var(--good); background: var(--good-soft); }
+  .chip.ok { color: var(--caution); background: var(--caution-soft); }
+  .chip.poor { color: var(--bad); background: var(--bad-soft); }
+  #findings { margin-bottom: 18px; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--sunken); }
   #findings summary { cursor: pointer; font-weight: 600; }
   ul.findings { margin: 10px 0 0; padding-left: 0; list-style: none; display: grid; gap: 8px; }
-  ul.findings li { padding-left: 12px; border-left: 3px solid var(--border-strong); }
-  ul.findings li:has(> .poor) { border-left-color: var(--poor); }
-  ul.findings li:has(> .ok) { border-left-color: var(--ok); }
-  @keyframes flash { from { box-shadow: 0 0 0 4px var(--accent-soft); background: var(--accent-soft); } to { box-shadow: 0 0 0 4px transparent; background: transparent; } }
+  ul.findings li { padding-left: 12px; border-left: 3px solid var(--line-strong); }
+  ul.findings li:has(> .poor) { border-left-color: var(--bad); }
+  ul.findings li:has(> .ok) { border-left-color: var(--caution); }
+  @keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
   #next.flash { animation: flash 1.6s ease-out; border-radius: var(--radius-sm); }
   @media (prefers-reduced-motion: reduce) { #next.flash { animation: none; } }
 
   /* Paste box */
   #paste-box h3 { margin-bottom: 8px; }
-  #paste { border-style: dashed; border-width: 2px; background: var(--sunken); min-height: 150px; }
+  #paste { border-style: dashed; border-width: 2px; background: var(--sunken); min-height: 140px; }
   #paste:focus { border-style: solid; }
 
   /* Tables */
-  .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel); }
-  table { width: 100%; border-collapse: collapse; font-size: .92rem; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface); }
+  table { width: 100%; border-collapse: collapse; font-size: .95rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
   tbody tr:last-child td { border-bottom: 0; }
-  th { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 700; background: var(--sunken); }
+  th { font: 600 .7rem var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); background: var(--sunken); }
   td.region { white-space: normal; }
-  td.region .muted { display: block; font-size: .8rem; }
-  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td.region .muted { display: block; font: .78rem var(--mono); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: .88rem; }
   th.num { text-align: right; }
-  tr.sel td { background: var(--row-sel); }
+  tr.sel td { background: var(--accent-soft); }
   tr.sel td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
   #rows tr { cursor: pointer; }
   #rows tr:hover td { background: var(--accent-soft); }
   #rows input { accent-color: var(--accent); }
-  .bar { height: 8px; background: var(--bar); border-radius: 4px; min-width: 2px; opacity: .75; }
+  .bar { height: 8px; background: var(--accent); border-radius: 4px; min-width: 2px; opacity: .75; }
   .barcell { width: 25%; min-width: 60px; }
-  .good { color: var(--good); font-weight: 600; } .ok { color: var(--ok); font-weight: 600; } .poor { color: var(--poor); font-weight: 600; }
+  .good { color: var(--good); font-weight: 600; } .ok { color: var(--caution); font-weight: 600; } .poor { color: var(--bad); font-weight: 600; }
   table.kv td:first-child { color: var(--muted); white-space: normal; width: 40%; }
   table.kv td { white-space: normal; }
   td.money, th.money { text-align: right; font-variant-numeric: tabular-nums; }
+  td.money { font-family: var(--mono); font-size: .88rem; }
   #estimate h3 { margin: 16px 0 8px; }
-  #estimate tr:last-child td { border-top: 2px solid var(--border-strong); font-weight: 600; }
-  ul.notes { margin: 10px 0 0; padding-left: 20px; color: var(--muted); font-size: .9rem; }
+  #estimate tr:last-child td { border-top: 2px solid var(--line-strong); font-weight: 600; }
+  ul.notes { margin: 10px 0 0; padding-left: 20px; color: var(--muted); font-size: .93rem; }
   #estimate-line { margin-top: 4px; }
   #report-body { min-height: 220px; }
 
   /* Switches */
   label.switch { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
-  label.switch > input[type=checkbox] { appearance: none; -webkit-appearance: none; flex: 0 0 auto; width: 40px; height: 24px; border-radius: 12px; background: var(--border-strong); position: relative; cursor: pointer; margin-top: 1px; transition: background .15s; }
-  label.switch > input[type=checkbox]::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--panel); box-shadow: 0 1px 2px rgba(0, 0, 0, .25); transition: left .15s; }
+  label.switch > input[type=checkbox] { appearance: none; -webkit-appearance: none; flex: 0 0 auto; width: 40px; height: 24px; border-radius: 12px; background: var(--line-strong); position: relative; cursor: pointer; margin-top: 1px; transition: background .15s; }
+  label.switch > input[type=checkbox]::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 2px rgba(0, 0, 0, .25); transition: left .15s; }
   label.switch > input[type=checkbox]:checked { background: var(--accent); }
   label.switch > input[type=checkbox]:checked::after { left: 19px; }
   label.switch > input[type=checkbox]:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   @media (prefers-reduced-motion: reduce) { label.switch > input[type=checkbox], label.switch > input[type=checkbox]::after { transition: none; } }
-  input[type=time] { font: inherit; color: var(--text); background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px; padding: 2px 6px; margin-left: 6px; }
+  input[type=time] { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 6px; padding: 2px 6px; margin-left: 6px; }
   input[type=time]:disabled { opacity: .5; }
   progress { width: 100%; height: 6px; margin-top: 12px; accent-color: var(--accent); }
 </style>
@@ -226,18 +243,18 @@
 <body>
 <main>
   <header class="top">
-    <div class="brand">
-      <span class="mark" aria-hidden="true">AVD</span>
-      <div><span class="eyebrow">Azure Virtual Desktop landing zone</span><h1>AVD deployment portal</h1></div>
-    </div>
-    <a href="#settings" id="settings-link" role="button" aria-controls="settings-panel" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h7M13 4h1M2 12h1M7 12h7"/><circle cx="11" cy="4" r="2"/><circle cx="5" cy="12" r="2"/></svg>Deployment settings</a>
+    <div class="brand"><a class="home" href="https://avd-ops.dev/"><img class="mark" src="../assets/brand/mark.svg" alt="" width="26" height="26">avd-ops</a><span class="sep" aria-hidden="true">/</span><h1>AVD deployment portal</h1></div>
+    <div class="toplinks"><a href="https://avd-ops.dev/family/avd-landing-zone.html">About the landing zone</a>
+    <a href="#settings" id="settings-link" role="button" aria-controls="settings-panel" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h7M13 4h1M2 12h1M7 12h7"/><circle cx="11" cy="4" r="2"/><circle cx="5" cy="12" r="2"/></svg>Deployment settings</a></div>
   </header>
+  <div class="intro">
   <p class="lede">
     Deploys the <a href="https://github.com/nickprignano/avd-landing-zone" id="repo-link">AVD landing zone</a> step by step.
     Run each command in <a href="https://shell.azure.com/powershell" target="_blank" rel="noopener">Azure Cloud Shell (PowerShell)</a>,
     paste the output back here, and the portal tells you what to run next. Everything happens in your browser: pasted output is never sent anywhere.
   </p>
   <p class="disclaimer" id="disclaimer"><strong>Personal project, not for production.</strong> Provided as is, without warranty of any kind (<a href="https://github.com/nickprignano/avd-landing-zone/blob/master/LICENSE">MIT License</a>). Not affiliated with, endorsed by or supported by the author's employer, and not an official Microsoft product. Use a lab subscription.</p>
+  </div>
 
   <section id="settings-panel" class="hidden" aria-labelledby="settings-title">
     <div class="headline"><h2 id="settings-title" style="margin:0">Deployment settings</h2><button type="button" class="linkbtn" id="settings-close" style="margin-left:auto">Close</button></div>
@@ -392,7 +409,7 @@
       Wrong advice, or stuck? <button type="button" class="linkbtn" id="report-open">Report a problem</button></p>
   </section>
   <section id="paste-box">
-    <h3>Paste Cloud Shell output</h3>
+    <h3>Paste the output here</h3>
     <textarea id="paste" spellcheck="false" placeholder="Paste everything from the command to the prompt that follows it. The scripts end with a line starting &lt;&lt;&lt;AVDLZ-STATE, which is what this page reads."></textarea>
     <div class="row" style="margin-top:10px">
       <button id="analyze">Analyze output</button>
@@ -494,6 +511,9 @@
     render();
     if (opts.scroll !== false) showStep(opts.page);
   }
+  // Short labels and phases for the progress rail; the full step titles stay everywhere else.
+  var RAIL = { region: ['Region', 'Plan'], size: ['Size'], cost: ['Cost'], predeploy: ['Preflight', 'Deploy'], deploy: ['Deploy'], postdeploy: ['Setup'], signin: ['Sign in', 'Use'], verify: ['Verify'] };
+  function phaseOf(i) { for (var j = i; j >= 0; j--) { var r = RAIL[P.STEPS[j].id]; if (r && r[1]) return r[1]; } return ''; }
   function renderSteps() {
     var cur = curIndex(), ol = $('steps');
     ol.textContent = '';
@@ -506,7 +526,10 @@
       if (i > reached) b.title = 'Reached after the steps before it';
       b.setAttribute('aria-current', i === cur ? 'step' : 'false');
       b.innerHTML = '<span class="n">' + (li.className === 'done' ? '✓' : (i + 1)) + '</span>';
-      b.appendChild(document.createTextNode(s.title));
+      var rail = RAIL[s.id] || [s.title];
+      if (rail[1]) li.setAttribute('data-phase-start', rail[1]);
+      b.setAttribute('aria-label', (i + 1) + '. ' + s.title);
+      b.appendChild(el('span', 'lbl', rail[0]));
       b.addEventListener('click', function () { goTo(s.id); });
       li.appendChild(b); ol.appendChild(li);
     });
@@ -521,6 +544,9 @@
     slides().forEach(function (sl, i) {
       sl.classList.toggle('hidden', i > reached);
       sl.querySelector('h2 .n').textContent = (i + 1) + '.';
+      var eb = sl.querySelector(':scope > .eyebrow');
+      if (!eb) { eb = el('p', 'eyebrow'); sl.insertBefore(eb, sl.firstChild); }
+      eb.textContent = phaseOf(i) + ' \u00b7 Step ' + (i + 1) + ' of ' + P.STEPS.length;
       if (i === cur) sl.removeAttribute('inert'); else sl.setAttribute('inert', '');
     });
     var slot = currentSlide().querySelector('.slot'), shared = $('shared');
@@ -529,6 +555,7 @@
     $('prev-step').disabled = cur === 0;
     $('next-step').disabled = cur >= P.STEPS.length - 1;
     $('next-step').innerHTML = (cur < reached ? 'Next' : 'Skip to next step') + ' &rarr;';
+    $('next-step').classList.toggle('primary', cur < reached);
     $('step-pos').textContent = 'Step ' + (cur + 1) + ' of ' + P.STEPS.length + ': ' + P.STEPS[cur].title;
     fitTrack();
   }
@@ -622,7 +649,7 @@
       renderActions(r.actions);
     }
     else {
-      $('next-title').textContent = 'Next step: ' + P.STEPS[stepIndex(step || 'region')].title;
+      $('next-title').textContent = 'Run in Cloud Shell';
       chip.className = 'chip hidden'; head.classList.add('hidden'); $('findings').classList.add('hidden'); $('estimate-line').classList.add('hidden');
       renderActions(P.actionsForStep(step || 'region', config()));
     }

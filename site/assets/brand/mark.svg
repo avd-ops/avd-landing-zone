@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="avd-ops">
+  <!-- avd-ops mark: a shield holding a desktop with a cloud, and the >< of a remote session. Rebuilt as vector from the 2026-10-20 logo. -->
+  <rect width="100" height="100" fill="#1ca998"/>
+  <path d="M17 14H83V63L50 86L17 63Z" fill="#0d1015"/>
+  <path d="M24 20H77V57H24ZM27.5 23.5V53.5H73.5V23.5Z" fill="#1ca998" fill-rule="evenodd"/>
+  <path d="M34 47L32 44.5V41.5L34.5 39H38L39.5 35.5L42.5 33H46L48 30.5H53L56 33L57.5 36H61L63.5 38.5V41L66 43V45L64 47Z" fill="#1ca998"/>
+  <path d="M47.5 57H52.5V60.5H59V63H41V60.5H47.5Z" fill="#1ca998"/>
+  <path d="M42 68.5L46.5 72L42 75.5M58 66L52.5 70.5L58 75" fill="none" stroke="#1ca998" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
