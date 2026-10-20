@@ -45,7 +45,7 @@ Everything above is free and open source. §10 lists what could later be a hoste
 | R6 | Every resource the recorder creates is removed by the recorder, with evidence, before the run is called done | spend rule; lesson 0029 (delete inputs last) |
 | R7 | Cost lines match exactly one retail price meter, or say which meters were seen | decision 0010 |
 | R8 | Fail closed: if redaction can't run, nothing is uploaded or shared | verify-access spec V1 |
-| R9 | Never delete the last copy. Nothing in this spec deletes run data, logs or evidence unless a second copy exists and has been checked against the manifest's hashes. Old data moves to a cheaper tier instead of being deleted | the owner, 2026-10-20; lesson 0029 |
+| R9 | Never delete the last copy. Nothing in this spec deletes run data, logs or evidence unless a second copy exists and has been checked against the manifest's hashes. Old data moves to a cheaper tier instead of being deleted. The one exception is a person choosing to delete large files with no second copy, after being shown that (§9.2) | the owner, 2026-10-20; lesson 0029 |
 
 ## 4. The resume point (works without the recorder)
 
@@ -232,10 +232,11 @@ Prices above are from Microsoft's sample price tables (§12, F5). The real estim
      1. **Compress first.** Every file is gzip-compressed before the copy; JSON logs and transcripts usually shrink several times over. The manifest records both hashes.
      2. **Under 50 MiB compressed:** committed to the `runs` branch. GitHub warns above 50 MiB and blocks files over 100 MiB.
      3. **50 MiB to 2 GiB:** uploaded as an asset of a release named after the run (`run-<runId>`) in the same private repository. Each asset must be under 2 GiB, and a release has no total size or bandwidth limit. The commit holds the manifest and a pointer to the asset; the script downloads the asset again and checks its hash.
-     4. **2 GiB or more:** split into numbered parts under 2 GiB, each an asset with its own hash, plus the whole file's hash. If that's impractical, the file stays in Azure, but only with a verified second copy in a second storage account in another subscription. Another region in the same subscription isn't enough, and the sandbox's region policy blocks it anyway.
+     4. **2 GiB or more (beyond what GitHub gives for free):** not copied, and not split. The free tier stops at free GitHub features. Such a file stays in the run store's separate `large` container, its hash is in the manifest, and the commit lists it as *kept in Azure only*. Splitting large files into parts and verified copies to a second subscription are not part of the free tier (§10).
      - Git LFS is not used: its free allowance is 10 GiB of storage and bandwidth a month, and it doesn't add anything release assets lack.
      - A normal sandbox run is expected to be well under 50 MiB in total, so steps 3 and 4 are for long transcripts and log exports from a landing zone that ran for weeks.
-   - `Stop-AvdRunRecorder.ps1 -CopyTo github:...` also works without `-Remove`, after every run. The run then has a second copy off Azure from day one. Only then does it remove the Activity Log diagnostic setting, delete `avdlz-runs-rg` and confirm it is gone as its last line. Any mismatch, or no `-CopyTo`, and nothing is deleted. Inputs are deleted last (lesson 0029).
+   - **The operator decides about large files, separately from teardown.** The `large` container sits in the run store (`avdlz-runs-rg`), not in any landing zone resource group, so no landing zone cleanup can touch it. When the landing zone is torn down, the cleanup lists what is in `large` for that run, with sizes and the monthly storage cost, and leaves it. Deleting it is a separate, explicit step, `Remove-AvdRunLargeFile.ps1 -RunId <id>`, which shows that these files have no second copy and asks the operator to type the run ID. That is the one place where a person can choose to delete a last copy (R9). The default is to keep it, and an operator can set the preference once with `-LargeFilePreference Keep|Ask|Delete` on `Initialize-AvdRunStore.ps1`, stored as a tag on the store. `Delete` still lists the files and asks once per run.
+   - `Stop-AvdRunRecorder.ps1 -CopyTo github:...` also works without `-Remove`, after every run. The run then has a second copy off Azure from day one. Only then does it remove the Activity Log diagnostic setting, delete `avdlz-runs-rg` and confirm it is gone as its last line. Any mismatch, or no `-CopyTo`, and nothing is deleted. Large files with no second copy also block it: the operator first keeps them by moving them elsewhere or deletes them with `Remove-AvdRunLargeFile.ps1`. Inputs are deleted last (lesson 0029).
 4. Idle cost is a few MB of blobs, cents a month, plus Defender for Storage if the plan is on (§9.1). The monthly spend reconciliation lists the recorder as a standing item, so it is never a leftover.
 
 ## 10. Free and open source vs a possible paid, hosted feature
@@ -245,6 +246,7 @@ Prices above are from Microsoft's sample price tables (§12, F5). The real estim
 | The journal, transcripts and redaction | Run history across many runs, landing zones and tenants, with search and trends |
 | `Get-AvdRunStatus.ps1` and the portal's resume action | Cross-device resume without pasting (a hosted service that reads the operator's store with their consent) |
 | The local and the in-tenant Azure store | Compliance retention: locked WORM, evidence packs for a change board, signed manifests |
+| Copies within free GitHub features: commits under 50 MiB, release assets under 2 GiB | Large files beyond those limits: splitting into verified parts, and verified copies to a second subscription |
 | Run reports filed as GitHub issues | Opt-in, anonymized failure analytics across adopters ("this error hits 30% of first deployments in this region") |
 | The verified runs table and KB field reports | Automated triage that drafts the fixture, scenario and lesson PR from a report for a person to approve |
 | | Team views: who ran what, when, with approvals |
