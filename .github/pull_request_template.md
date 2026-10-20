@@ -11,6 +11,6 @@
      Otherwise: "None". See .claude/skills/retro/SKILL.md. -->
 
 ## KB
-<!-- Knowledge capture (ai-brain decision 0011, checked by kb-capture): this repo's lessons go to avd-second-brain's KB.
+<!-- Knowledge capture (avd-second-brain decision 0013, checked by kb-capture): this repo's lessons go to avd-second-brain's KB.
      KB: <link to the avd-second-brain PR or page that carries the lesson>
      or add the no-kb label and write: No KB entry: <reason> -->
