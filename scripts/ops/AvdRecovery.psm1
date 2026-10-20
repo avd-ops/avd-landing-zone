@@ -293,7 +293,7 @@ function Get-AvdConfigurationSnapshot {
   param([AllowNull()][object] $InputObject)
   if ($null -eq $InputObject) { return $null }
   if ($InputObject -is [string] -or $InputObject -is [ValueType]) { return $InputObject }
-  if ($InputObject -is [System.Collections.IDictionary] -or $InputObject -is [pscustomobject]) {
+  if ($InputObject -is [System.Collections.IDictionary] -or $InputObject -is [System.Management.Automation.PSCustomObject]) {
     $pairs = if ($InputObject -is [System.Collections.IDictionary]) { @($InputObject.Keys | ForEach-Object { , @($_, $InputObject[$_]) }) }
     else { @($InputObject.PSObject.Properties | ForEach-Object { , @($_.Name, $_.Value) }) }
     $o = [ordered]@{}
@@ -316,7 +316,7 @@ function Get-AvdConfigurationDrift {
   #>
   [CmdletBinding()]
   param([AllowNull()][object] $Reference, [AllowNull()][object] $Current, [string] $Path = '')
-  $isMap = { param($x) $x -is [System.Collections.IDictionary] -or $x -is [pscustomobject] }
+  $isMap = { param($x) $x -is [System.Collections.IDictionary] -or $x -is [System.Management.Automation.PSCustomObject] }
   $toMap = { param($x) if ($x -is [System.Collections.IDictionary]) { $x } else { $h = [ordered]@{}; foreach ($p in $x.PSObject.Properties) { $h[$p.Name] = $p.Value }; $h } }
   $key = { param($x, $i) if ((& $isMap $x)) { $m = & $toMap $x; if ($m['id']) { "$($m['id'])".ToLower() } elseif ($m['name']) { "$($m['name'])" } else { "[$i]" } } else { "[$i]" } }
   if ((& $isMap $Reference) -and (& $isMap $Current)) {

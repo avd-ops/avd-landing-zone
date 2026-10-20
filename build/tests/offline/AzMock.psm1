@@ -71,11 +71,11 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
       return & $ok @{ value=@($rc.points | ForEach-Object { $i++; @{ name="93288113855580286$i"; id="$itemId/recoveryPoints/93288113855580286$i"; properties=@{ objectType='AzureFileShareRecoveryPoint'; recoveryPointTime=$_; recoveryPointType='FileSystemConsistent' } } }) }
     }
     if ($Method -eq 'POST' -and $Path -match '/recoveryPoints/([^/]+)/restore\?') {
-      $rc.restored = @($rc.restored) + @{ point=$Matches[1]; body=($Payload | ConvertFrom-Json) }
+      $rc.restored = @($rc.restored | Where-Object { $_ }) + @{ point=$Matches[1]; body=($Payload | ConvertFrom-Json) }
       return [pscustomobject]@{ StatusCode=202; Content='' }
     }
     if ($Path -match 'vaults/rsv-avdlz-dev/backupJobs\?') {
-      if (-not @($rc.restored).Count) { return & $ok @{ value=@() } }
+      if (-not @($rc.restored | Where-Object { $_ }).Count) { return & $ok @{ value=@() } }
       $rc.jobPolls++
       $st = if ($rc.jobPolls -lt 2) { 'InProgress' } else { $rc.restoreStatus }
       $j = @{ name='7e0ee41e-6e31-4728-a25c-98ff6b777641'; properties=@{ operation='Restore'; status=$st; startTime=(Get-Date).ToUniversalTime().ToString('o')
@@ -85,7 +85,7 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
     }
     if ($Path -match "storageAccounts/$saName/fileServices/default/shares/profiles\?") { return & $ok @{ name='profiles'; properties=@{ shareQuota=100; enabledProtocols='SMB' } } }
     if ($Path -match 'storageAccounts/(strt[a-z0-9]+)(/fileServices/default/shares/[^/?]+)?\?') {
-      if ($Method -eq 'PUT') { $rc.created = @($rc.created) + "$($Matches[1])$($Matches[2])"; $rc.createdBodies = @($rc.createdBodies) + $Payload }
+      if ($Method -eq 'PUT') { $rc.created = @($rc.created | Where-Object { $_ }) + "$($Matches[1])$($Matches[2])"; $rc.createdBodies = @($rc.createdBodies | Where-Object { $_ }) + $Payload }
       return & $ok @{ name=$Matches[1]; properties=@{ provisioningState='Succeeded' } }
     }
     if ($Path -match 'rg-avdlz-dev-hosts/providers/Microsoft.Compute/virtualMachines\?') {

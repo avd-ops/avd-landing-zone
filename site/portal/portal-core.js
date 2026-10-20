@@ -262,6 +262,21 @@
     runStatus: function (cfg) {
       return block(cfg, ['./scripts/ops/Get-AvdRunStatus.ps1' + (cfg.namePrefix ? ' -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment : '')]);
     },
+    // Same-tenant recovery (build/specs/recovery-spec.md): read-only status, the configuration snapshot, and a
+    // recovery test that only plans and prices until it is run again with -Go.
+    recoveryStatus: function (cfg, opts) {
+      opts = opts || {};
+      var tier = /^R[012]$/.test(opts.tier || '') ? opts.tier : '';
+      var loc = /^[a-z0-9]+$/.test(opts.recoveryLocation || '') ? opts.recoveryLocation : '';
+      return block(cfg, ['./scripts/ops/Get-AvdRecoveryStatus.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment +
+        (tier && tier !== 'R0' ? ' -RecoveryTier ' + tier : '') + (loc ? ' -RecoveryLocation ' + loc : '')]);
+    },
+    exportConfig: function (cfg, identity) {
+      return block(cfg, (identity ? [signIn(cfg)] : []).concat(['./scripts/ops/Export-AvdConfiguration.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment + (identity ? ' -IncludeIdentity' : '')]));
+    },
+    recoveryTest: function (cfg) {
+      return block(cfg, ['./scripts/ops/Start-AvdRecoveryTest.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment]);
+    },
     removeDemo: function (cfg) {
       return block(cfg, [signIn(cfg), './scripts/ops/Remove-AvdDemo.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment]);
     },
@@ -600,6 +615,30 @@
       note(NEXT[rc.nextStage] || 'Continue', 'This is where the run left off.' + basis, rerunForStep(rc.nextStage, cfg, rc.nextStage === 'postdeploy' ? true : undefined));
       return { step: rc.nextStage, actions: a };
     }
+    if (S === 'recovery') {
+      // Get-AvdRecoveryStatus.ps1 and Start-AvdRecoveryTest.ps1: one action for the first thing that isn't met.
+      var rv = state.context || {}, open = failures.concat(warnings);
+      var has = function (id) { return byId(open, id).length > 0; };
+      var opts = { tier: rv.tier, recoveryLocation: rv.recoveryLocation };
+      if (rv.test) {
+        if (rv.mode === 'plan' && state.status === 'ready') note('Run the recovery test when you are ready', 'The plan above restores the newest recovery point into a new storage account and prints its cost. Nothing was created. Add -Go to the same command to run it, and remove it after with -Cleanup.', cmd.recoveryTest(cfg) + ' -Go');
+        else if (rv.mode === 'plan') note('Not ready for a recovery test', ((failures[0] || {}).detail || '') + ' Nothing was created.', '');
+        else if (state.status === 'passed') note('Remove the test copy', 'The restore passed; the measured RPO and restore time are in the run record. Remove the test copy now so it stops billing.', cmd.recoveryTest(cfg) + ' -Cleanup -RunId ' + psQuote(rv.runId || ''));
+        else if (state.status === 'done') note('Check the recovery status again', 'The test copy is removed. The status check now counts the passed test.', cmd.recoveryStatus(cfg, opts));
+        else note('Remove the test, then look at the error', ((failures[0] || {}).detail || 'The test did not pass.') + ' Remove what it created first, so nothing keeps billing.', rv.runId ? cmd.recoveryTest(cfg) + ' -Cleanup -RunId ' + psQuote(rv.runId) : '');
+        return { step: 'recovery', actions: a };
+      }
+      if (state.status === 'met') {
+        note('Recovery tier ' + (rv.tier || 'R0') + ' is met', rv.met + ' of ' + rv.total + ' items are met. Run the status check again monthly, after a snapshot and a copy.', '');
+        return { step: 'recovery', actions: a };
+      }
+      if (has('dr-profile-backup') || has('dr-profile-backup-access')) note('Fix the profile backup first', [(byId(open, 'dr-profile-backup')[0] || byId(open, 'dr-profile-backup-access')[0]).detail, 'The post-deployment preflight reports the cause it knows.'].join(' '), cmd.postdeploy(cfg, false));
+      if (has('dr-config') || has('dr-identity')) note('Take a configuration snapshot', 'It records what the Bicep doesn\'t hold (assignments, scaling schedules, drain state' + (has('dr-identity') ? ', and the AVD groups and their Conditional Access policies' : '') + '). Then copy it with the command it prints, so it counts.', cmd.exportConfig(cfg, has('dr-identity')));
+      if (has('dr-tested')) note('Plan a recovery test', 'A tier only counts once a restore has been tested. This prints the plan and the estimate; nothing is created.', cmd.recoveryTest(cfg));
+      if (has('dr-iac')) note('Deploy from a pushed commit', byId(open, 'dr-iac')[0].detail, '');
+      if (!a.length) note('Recovery tier ' + (rv.tier || 'R0') + ' is not met', 'See the failures above.', '');
+      return { step: 'recovery', actions: a };
+    }
     if (S === 'cleanup') {
       // A Graph sign-in that timed out leaves the hosts' device objects (build/lessons/0029).
       var left = byId(warnings, 'devices-left'), lz = state.context && state.context.includeLandingZone;
@@ -615,8 +654,8 @@
     return { step: null, actions: a };
   }
 
-  var STAGE_LABEL = { predeploy: 'Pre-deployment preflight', deploy: 'Deployment', postdeploy: 'Post-deployment setup', demo: 'Demo validation', cleanup: 'Cleanup', power: 'Auto shutdown', verify: 'Access check', resume: 'Where you left off' };
-  var STATUS_LABEL = { done: 'Done', ready: 'Ready', notready: 'Not ready', succeeded: 'Succeeded', failed: 'Failed', started: 'Still running (or disconnected)', whatif: 'What-if only', locked: 'Locked', resumed: 'Resumed', stopped: 'Stopped', verified: 'Verified', notverified: 'Not verified', unknown: 'Unknown' };
+  var STAGE_LABEL = { predeploy: 'Pre-deployment preflight', deploy: 'Deployment', postdeploy: 'Post-deployment setup', demo: 'Demo validation', cleanup: 'Cleanup', power: 'Auto shutdown', verify: 'Access check', resume: 'Where you left off', recovery: 'Recovery' };
+  var STATUS_LABEL = { done: 'Done', ready: 'Ready', notready: 'Not ready', succeeded: 'Succeeded', failed: 'Failed', started: 'Still running (or disconnected)', whatif: 'What-if only', locked: 'Locked', resumed: 'Resumed', stopped: 'Stopped', verified: 'Verified', notverified: 'Not verified', unknown: 'Unknown', met: 'Met', notmet: 'Not met', passed: 'Passed' };
 
   /*
    * analyze(text, config, options) -> {

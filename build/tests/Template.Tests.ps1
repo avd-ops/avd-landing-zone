@@ -270,3 +270,26 @@ Describe 'Recovery region and profile backup tier (build/specs/recovery-spec.md)
     $account.properties.parameters.fileServices.value.protocolSettings.smb.authenticationMethods | Should -Be 'Kerberos;'
   }
 }
+
+Describe 'Profile backup tier (build/specs/recovery-spec.md section 4)' {
+  BeforeAll {
+    $t = Get-CompiledTemplate 'parameters/prod.bicepparam'
+    $script:backup = Find-Deployment $t 'avdlz-backup'
+    $inner = $script:backup['properties']['template']
+    $res = @($inner['resources'].Values) + @($inner['resources']) | Where-Object { $_ -is [System.Collections.IDictionary] }
+    $script:vault = $res | Where-Object { $_['type'] -eq 'Microsoft.RecoveryServices/vaults' }
+    $script:policy = $res | Where-Object { $_['type'] -eq 'Microsoft.RecoveryServices/vaults/backupPolicies' }
+    $script:main = $t
+  }
+  It 'passes profileBackupTier from main.bicep, defaulting to Snapshot' {
+    $script:backup['properties']['parameters']['profileBackupTier']['value'] | Should -Be "[parameters('profileBackupTier')]"
+    $script:main['parameters']['profileBackupTier']['defaultValue'] | Should -Be 'Snapshot'
+  }
+  It 'changes the vault''s redundancy only for the vaulted tier, so the default deployment is unchanged' {
+    $script:vault['properties'] | Should -Match "if\(variables\('vaulted'\), createObject\('redundancySettings', createObject\('standardTierStorageRedundancy', 'GeoRedundant', 'crossRegionRestore', 'Enabled'\)\), createObject\(\)\)"
+  }
+  It 'keeps the snapshot policy name for the default tier and adds a vault retention policy only for Vaulted' {
+    $script:policy['name'] | Should -Match "if\(variables\('vaulted'\), 'fslogix-daily-vaulted', 'fslogix-daily'\)"
+    $script:policy['properties'] | Should -Match "if\(variables\('vaulted'\), createObject\('vaultRetentionPolicy'"
+  }
+}

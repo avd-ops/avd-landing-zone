@@ -1,6 +1,6 @@
 # Spec: backup, recovery and disaster recovery
 
-- **Status:** Proposed, partly built (offline only, nothing has run against a real tenant, no spend): the recovery region setting, the preflight's Recovery checks and the vaulted tier's key access setting (sections 4.1 and 6.1). The rest is planned in the landing zone itself.
+- **Status:** Proposed, partly built (offline only, nothing has run against a real tenant, no spend): the recovery region setting, the preflight's Recovery checks and the vaulted tier's key access setting (sections 4.1 and 6.1); the status check (6), the configuration snapshot (7), the T-profile recovery test (8), the verify routine (9) and the vaulted tier in `backup.bicep` (P5), each marked *Built* below. T-config, T-image, T-signin, gallery replicas and R2 are still planned. The landing zone does all of this on its own: nothing here needs the second brain or avd-swarm.
 - **Date:** 2026-10-20
 - **Scope:** what a landing zone deployed by this repo needs to come back after a loss (a deleted resource, a bad change, a lost subscription or a region outage), using the same plumbing as the run recorder: run folders, hash manifests, verified copies, the private companion repo and the copy hook. The default landing zone deployment does not change: everything here is opt-in, except one check that reports what is and isn't protected.
 - **Same-tenant recovery lives here** (the owner, 2026-10-20). Any region and any subscription the operator can deploy to inside their own tenant is in scope for this repo. Recovery into a separate tenant, another cloud, and recovery run on a schedule without an operator are outside it; anything that offers them builds on these scripts and their run records instead of repeating them.
@@ -118,6 +118,8 @@ For each item in section 3.1 it prints one result with an `id`:
 | `dr-capacity` (R1+) | Quota for the host family in the recovery region | Always at least a warning: quota isn't capacity (F11) |
 | `dr-tested` | Date and result of the last recovery test for the tier | None in 90 days |
 
+**Built** (offline): `scripts/ops/Get-AvdRecoveryStatus.ps1`, pure checks in `scripts/ops/AvdRecovery.psm1` (`Get-AvdRecoveryVerdict` and friends, unit tests in `build/tests/Recovery.Tests.ps1`), the `Recovery` offline scenario, and the portal's `recovery` stage. `dr-image` checks replicas only (the buildable-template branch is not built); `dr-standby` is always a Skip until R2 exists; `dr-identity` checks that the groups are set and that a verified snapshot holds them, not the operator app. A read that fails adds a `dr-read` warning with the full error.
+
 The last line is a state line the portal can read (`STATE: recovery tier=R0 met=6/9 ...`), and `-AsJson` prints the same results for the run record. A check that can't read something (no permission, API error) reports the full error per lesson 0012, and counts as not met.
 
 ### 6.1 Built: the preflight's Recovery section
@@ -151,6 +153,8 @@ Everything that recovery would otherwise have to reconstruct by hand, read throu
 ### 7.3 Where it goes
 The snapshot is a run (section 10): it writes `config/` into a run folder in the run store, with the manifest, and `Stop-AvdRunRecorder.ps1 -CopyTo github` copies it to the companion repo's `runs` branch like any run (run recorder 9.2 step 4, 9.3). Snapshots are small JSON, far under the 50 MiB limit. The companion repo also keeps `config/latest/` on the `runs` branch, so a recovery reads one path. The snapshot is private-level: it holds object IDs and names; it never goes to a public repo or issue.
 
+**Built** (offline): `scripts/ops/Export-AvdConfiguration.ps1` writes `config/*.json` (host pools, application groups, applications, workspaces, scaling plans and schedules, session host drain state, role assignments, diagnostic settings, budgets, resource groups, the deployment with its commit and parameters) and, with `-IncludeIdentity`, `config/identity.json`. Secret-looking properties (registration tokens, passwords, keys) are written as `<present>`. Drift is diffed against the **previous snapshot** (`drift.json`), not yet against what the Bicep at the deployed commit would produce. `config/latest/` on the companion repo is not built; recovery reads the newest snapshot run.
+
 A daily run is a few ARM and Graph reads and one commit. The operator schedules it, or runs it before any change; the status check only reports its age.
 
 ## 8. Recovery tests
@@ -164,6 +168,8 @@ A tier is only met when it has been tested (D3). `Start-AvdRecoveryTest.ps1` run
 | **T-image** | Creates one host from the recovery-region replica (R1) or the source gallery (R0) and registers it | Images come back | Time to a registered host |
 | **T-signin** | Signs in a test user to the restored pool and loads the restored profile (`Test-AvdUserConnection.ps1`) | End to end | RTO from start of test to a working session |
 | **T-failover** (R2) | Microsoft's test pattern: a test group gets the standby pool's application groups, is removed from the primary's, signs in, and fails back (F16) | The failover procedure | Time to first session in the standby region |
+
+**Built** (offline): T-profile, as `scripts/ops/Start-AvdRecoveryTest.ps1`. Without `-Go` it only plans: newest recovery point, the target names, and a printed estimate priced from exactly one retail meter (or unpriced, never guessed). `-Go` creates `rg-<prefix>-<env>-rtest-<suffix>` with a new FileStorage account and share **in the vault's region** (F20), restores to `restored/` with `FailOnConflict`, waits for the job and records the measured RPO, restore time and file counts. `-Cleanup -RunId` deletes only the test's resource group, refuses when the source account is gone, and writes `teardown.json`. Mounting the restored share from a test host and opening a test user's container is not built; the job's file counts are the evidence for now. T-config, T-image, T-signin and T-failover are planned.
 
 Rules:
 - **Never Site Recovery test failover for session hosts.** Microsoft warns that it creates a duplicate VM that registers with the control plane and conflicts with the original (F6). Not used.
@@ -182,6 +188,8 @@ Copies rot silently: a commit that was never pushed, a release asset deleted by 
 5. **Configuration:** run a snapshot and diff it against `config/latest/`; drift is reported, not applied.
 6. **Status:** run section 6 and write all of the above as one `recovery` run with `kind: verify`.
 
+**Built** (offline): `scripts/ops/Test-AvdRecoveryCopies.ps1` does steps 1, 2, 3 and 6 (release assets with `-IncludeReleaseAssets`), reading the companion repo through `gh api` and comparing each file's SHA-256 with the hash recorded at copy time. Steps 4 (gallery replication) and 5 (run `Export-AvdConfiguration.ps1` for the drift) are left to the status check and the snapshot script.
+
 Nothing in the routine deletes, overwrites or "fixes" a copy. It reports, and a person decides.
 
 ## 10. The run record: use case `recovery` (contract C17)
@@ -191,6 +199,8 @@ Recovery actions write `avd-run-record/v1` like every run, with a new line in av
 ```json
 { "id": "recovery", "producer": "avd-landing-zone", "status": "proposed", "covers": "configuration snapshots, backup checks, recovery tests, verify routine and restores", "spec": "build/specs/recovery-spec.md" }
 ```
+
+**Self-contained.** The landing zone writes these records with its vendored C17 schema and reads them back itself; the line above in the brain's registry is for the brain's own use and the landing zone never needs it. Built kinds: `snapshot`, `verify`, `test` (`restore` is planned).
 
 Fields it adds under `extensions.recovery` (additive within v1; the schema for them goes to the brain's `contracts/schemas/` when this is built):
 
@@ -242,6 +252,7 @@ Checked on 2026-10-20 against Microsoft Learn and the Azure retail prices API.
 | F17 | Share snapshots stay with the share; a permanently deleted share loses its snapshot-tier recovery points | *Secure your Azure Files*; Azure Files backup troubleshooting (UserErrorRestoreAFSInDeleteState) |
 | F18 | Retail prices, northcentralus, read 2026-10-20 (section 13): Azure Files protected instance $5/month; Azure Files Vaulted protected instance $12/month; Vaulted data stored LRS $0.0492, ZRS $0.0576, GRS $0.0912 per GB-month; Premium ZRS Files provisioned $0.20 and snapshots $0.17 per GB-month; Standard HDD LRS snapshots $0.05 per GB-month; P10 disk $19.71/month; E4as v5 Windows $0.41/hour; inter-region transfer $0.02/GB | Azure retail prices API (prices.azure.com) |
 | F19 | Azure Files backup prerequisites: the storage account either permits access with account keys or has public network access disabled. A backup refused for lack of key access fails with `UserErrorStorageKeyBasedAuthenticationNotPermitted` | *Back up Azure Files*, prerequisites (learn.microsoft.com/azure/backup/backup-azure-files); *Troubleshoot problems while backing up Azure Files* |
+| F20 | Restoring an Azure Files backup to an alternate location needs a target storage account in the same region as the vault; cross-region restores use Cross Region Restore from the paired region instead | *Restore Azure Files* (learn.microsoft.com/azure/backup/restore-afs), alternate location; REST: *Restore Azure Files with the REST API* (`AzureFileShareRestoreRequest`, `recoveryType: AlternateLocation`) |
 
 Unverified, to check before building or in the first test:
 
@@ -252,6 +263,10 @@ Unverified, to check before building or in the first test:
 | U3 | How gallery replica storage is billed (provisioned or used size) for a 127 GiB image | Compute Gallery pricing docs; first R1 test's actuals |
 | U4 | Restore time for a share of the sandbox's size, from snapshot and from vault tier | T-profile measures it |
 | U5 | Which AVD properties the ARM export misses (for example, per-host settings) | T-config's diff |
+| U7 | Whether the REST restore accepts a target storage account in another subscription of the same tenant (the PowerShell and CLI docs say same subscription only). `Start-AvdRecoveryTest.ps1` restores into the same subscription for now | First cross-subscription test, with the owner's go |
+| U8 | Whether the restore target account must allow key access (the test account allows it, per F14) and whether the vault must be registered to the target account first | T-profile in the sandbox |
+| U9 | Whether an existing vault's storage redundancy can change from LRS to GRS once items are protected, or the vaulted tier needs a new vault | Microsoft Learn before the first R1 deployment on an existing landing zone; warn, never apply silently |
+| U10 | The `backupJobs` `$filter` format the test uses to find its restore job | T-profile in the sandbox |
 | U6 | Whether a VHDX can be copied from the Entra Kerberos-only share to the run store from Cloud Shell, or needs a host-side copy (the share is private and SMB-only, decision 0005) | Offline design check, then the first profile export |
 
 ## 13. Cost
@@ -280,9 +295,9 @@ Defender for Storage, if on, bills per storage account per month (run recorder 9
 | Phase | What | Cost |
 |---|---|---|
 | **P0** | This spec | $0 |
-| **P1, offline** | `Get-AvdRecoveryStatus.ps1` and its pure checks, mocks in `AzMock.psm1`, an offline scenario, the portal's state branch and tests; the `recovery` use case and its schema (paired avd-second-brain PR) | $0 |
-| **P2, offline** | `Export-AvdConfiguration.ps1`, the AVD-scoped identity snapshot, the drift diff; `Test-AvdRecoveryCopies.ps1` against a fake GitHub API | $0 |
+| **P1, offline** (built) | `Get-AvdRecoveryStatus.ps1` and its pure checks, mocks in `AzMock.psm1`, an offline scenario, the portal's state branch and tests; the `recovery` use case and its schema (paired avd-second-brain PR) | $0 |
+| **P2, offline** (built, except the Bicep diff) | `Export-AvdConfiguration.ps1`, the AVD-scoped identity snapshot, the drift diff; `Test-AvdRecoveryCopies.ps1` against a fake GitHub API | $0 |
 | **P3, first real status check** | Read-only against the sandbox's landing zone: answers U1 | $0 (reads) |
 | **P4, first recovery test** | T-profile, T-config, T-signin in the sandbox, same region | Printed estimate, the owner's go |
-| **P5** | R1 pieces: the vaulted tier in `backup.bicep` (reads `profileBackupTier`; key access is already wired), gallery replica | Same |
+| **P5** | R1 pieces: the vaulted tier in `backup.bicep` (built, offline) (reads `profileBackupTier`; key access is already wired), gallery replica | Same |
 | **P6** | R2 standby and T-failover, only on request | Same |

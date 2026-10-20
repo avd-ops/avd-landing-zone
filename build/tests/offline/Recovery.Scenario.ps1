@@ -37,15 +37,18 @@ Write-Host "RESULT drift changes=$($drift.Count) path=$($drift[0].Path) before=$
 # What Stop-AvdRunRecorder.ps1 -CopyTo github records after reading the copy back: each file gzip-compressed,
 # committed under runs/<runId>/<path>.gz, its SHA-256 in copies[]. The fake gh below serves those blobs.
 $global:Blobs = @{}
-$run = Get-Content (Join-Path $folder 'run.json') -Raw | ConvertFrom-Json -AsHashtable
-foreach ($f in $run.files) {
-  $ms = [IO.MemoryStream]::new(); $z = [IO.Compression.GZipStream]::new($ms, [IO.Compression.CompressionLevel]::Optimal)
-  $bytes = [IO.File]::ReadAllBytes((Join-Path $folder $f.path)); $z.Write($bytes, 0, $bytes.Length); $z.Dispose()
-  $gz = $ms.ToArray(); $sha = -join ([Security.Cryptography.SHA256]::HashData($gz) | ForEach-Object { $_.ToString('x2') })
-  $f.gzSha256 = $sha; $f.copies = @(@{ target = 'github'; verifiedAt = $now.ToString('yyyy-MM-ddTHH:mm:ssZ'); sha256 = $sha })
-  $global:Blobs["runs/$($snap.runId)/$($f.path).gz"] = [Convert]::ToBase64String($gz)
+function Copy-Run([string] $Folder) {
+  $run = Get-Content (Join-Path $Folder 'run.json') -Raw | ConvertFrom-Json -AsHashtable
+  foreach ($f in $run.files) {
+    $ms = [IO.MemoryStream]::new(); $z = [IO.Compression.GZipStream]::new($ms, [IO.Compression.CompressionLevel]::Optimal)
+    $bytes = [IO.File]::ReadAllBytes((Join-Path $Folder $f.path)); $z.Write($bytes, 0, $bytes.Length); $z.Dispose()
+    $gz = $ms.ToArray(); $sha = -join ([Security.Cryptography.SHA256]::HashData($gz) | ForEach-Object { $_.ToString('x2') })
+    $f.gzSha256 = $sha; $f.copies = @(@{ target = 'github'; verifiedAt = $now.ToString('yyyy-MM-ddTHH:mm:ssZ'); sha256 = $sha })
+    $global:Blobs["runs/$($run.runId)/$($f.path).gz"] = [Convert]::ToBase64String($gz)
+  }
+  $run | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $Folder 'run.json')
 }
-$run | ConvertTo-Json -Depth 10 | Set-Content (Join-Path $folder 'run.json')
+Copy-Run $folder
 function global:gh {
   $a = $args -join ' '
   if ($a -match 'git/trees/runs') { $i = 0; foreach ($k in $global:Blobs.Keys) { $i++; "$k blob$i" }; $global:LASTEXITCODE = 0; return }
@@ -98,4 +101,19 @@ $global:St.recovery.vaulted = $true; $global:St.recovery.gallery = $true; $globa
 Invoke-ScenarioStep 'status-r1-vaulted' { & ./scripts/ops/Get-AvdRecoveryStatus.ps1 -NamePrefix avdlz -Environment dev -RecoveryTier R1 -RecoveryLocation southcentralus -LocalRoot $root } *>&1 | Tee-Object -Variable out
 $s = & $state $out
 Write-Host "RESULT status-r1-vaulted ids=$(& $ids $s)"
+
+# Everything met for R0: deployed from a pushed commit, and an identity snapshot copied.
+$global:St.deploymentRecords[0].parameters.autoShutdownRunbookUri.value = "https://raw.githubusercontent.com/contoso/avd-landing-zone/$commit/scripts/automation/Invoke-AvdPowerAction.ps1"
+$global:MgCtx = [pscustomobject]@{ TenantId = '55555555-5555-5555-5555-555555555555'; Scopes = @(Get-Content -Raw ./scripts/ops/Initialize-AvdGraphApp.ps1 | Select-String "'[A-Za-z]+\.[A-Za-z.]+'" -AllMatches | ForEach-Object { $_.Matches.Value.Trim("'") }); ClientId = $null }
+[System.Threading.Thread]::Sleep(1100)
+Invoke-ScenarioStep 'export-identity' { & ./scripts/ops/Export-AvdConfiguration.ps1 -NamePrefix avdlz -Environment dev -IncludeIdentity -LocalRoot $root }
+$snap = (& $snapshots)[-1]
+$folder = Join-Path $runs $snap.runId
+$id = Get-Content (Join-Path $folder 'config/identity.json') -Raw | ConvertFrom-Json
+$dep = Get-Content (Join-Path $folder 'config/deployment.json') -Raw | ConvertFrom-Json
+Write-Host "RESULT export-identity groups=$(@($id.groups).Count) members=$(@($id.groups[0].memberIds).Count) commit=$($dep.commit -eq $commit)"
+Copy-Run $folder
+Invoke-ScenarioStep 'status-met' { & ./scripts/ops/Get-AvdRecoveryStatus.ps1 -NamePrefix avdlz -Environment dev -LocalRoot $root } *>&1 | Tee-Object -Variable out
+$s = & $state $out
+Write-Host "RESULT status-met status=$($s.status) met=$($s.context.met)/$($s.context.total) ids=$(& $ids $s)"
 Remove-Item -Recurse -Force $root

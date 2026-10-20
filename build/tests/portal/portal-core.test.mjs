@@ -760,3 +760,47 @@ test('commands: where did I leave off is a self-contained block', () => {
   assert.match(c, /Set-Location ~\/avd-landing-zone/);
   assert.equal(last(c), './scripts/ops/Get-AvdRunStatus.ps1 -NamePrefix avdlz -Environment dev');
 });
+
+// Same-tenant recovery (build/specs/recovery-spec.md): the status check and the recovery test.
+test('state: recovery not met -> snapshot with identity, then plan a test; nothing runs on its own', () => {
+  const r = analyze('state-recovery-notmet.txt');
+  assert.equal(r.stage, 'recovery');
+  assert.equal(r.status, 'notmet');
+  assert.match(r.headline, /^Recovery: Not met/);
+  const titles = r.actions.map((a) => a.title);
+  assert.deepEqual(titles, ['Take a configuration snapshot', 'Plan a recovery test', 'Deploy from a pushed commit']);
+  assert.equal(last(r.actions[0].command), './scripts/ops/Export-AvdConfiguration.ps1 -NamePrefix avdlz -Environment dev -IncludeIdentity');
+  assert.match(r.actions[0].command, /Connect-AvdLandingZone\.ps1/);
+  assert.equal(last(r.actions[1].command), './scripts/ops/Start-AvdRecoveryTest.ps1 -NamePrefix avdlz -Environment dev');
+  assert.doesNotMatch(r.actions[1].command, /-Go/);
+  assert.equal(r.actions[2].command, '');
+  assertSelfContained(r);
+});
+
+test('state: recovery met -> no command', () => {
+  const r = analyze('state-recovery-met.txt');
+  assert.equal(r.status, 'met');
+  assert.equal(r.actions.length, 1);
+  assert.match(r.actions[0].title, /R0 is met/);
+  assert.equal(r.actions[0].command, '');
+});
+
+test('state: recovery test planned -> the same command with -Go, only when the operator runs it', () => {
+  const r = analyze('state-recovery-test-plan.txt');
+  assert.equal(r.status, 'ready');
+  assert.equal(last(r.actions[0].command), './scripts/ops/Start-AvdRecoveryTest.ps1 -NamePrefix avdlz -Environment dev -Go');
+  assert.match(r.actions[0].why, /Nothing was created/);
+});
+
+test('state: recovery test passed -> remove the test copy by its run ID', () => {
+  const r = analyze('state-recovery-test-passed.txt');
+  assert.equal(r.status, 'passed');
+  assert.match(last(r.actions[0].command), /^\.\/scripts\/ops\/Start-AvdRecoveryTest\.ps1 -NamePrefix avdlz -Environment dev -Cleanup -RunId 'run-\d{8}-\d{4}-[a-z0-9]{4}'$/);
+});
+
+test('commands: recovery status passes the tier and region only when they are valid', () => {
+  const cfg = { ...P.DEFAULTS, namePrefix: 'avdlz', environment: 'prod' };
+  assert.equal(last(P.commands.recoveryStatus(cfg)), './scripts/ops/Get-AvdRecoveryStatus.ps1 -NamePrefix avdlz -Environment prod');
+  assert.equal(last(P.commands.recoveryStatus(cfg, { tier: 'R1', recoveryLocation: 'southcentralus' })), './scripts/ops/Get-AvdRecoveryStatus.ps1 -NamePrefix avdlz -Environment prod -RecoveryTier R1 -RecoveryLocation southcentralus');
+  assert.equal(last(P.commands.recoveryStatus(cfg, { tier: 'R9; rm', recoveryLocation: 'x y' })), './scripts/ops/Get-AvdRecoveryStatus.ps1 -NamePrefix avdlz -Environment prod');
+});

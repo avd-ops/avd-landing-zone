@@ -204,7 +204,7 @@ while ([datetime]::UtcNow -lt $deadline) {
       Sort-Object { [datetime]$_.properties.startTime } -Descending | Select-Object -First 1
   }
   catch { & $fail 'Read the restore job' $_ }
-  if ($job -and "$($job.properties.status)" -notin 'InProgress', 'Cancelling', '') { break }
+  if ($job -and "$($job.properties.status)" -notmatch '^(InProgress|Cancel.*)?$') { break }   # Azure's in-flight states
   Start-Sleep -Seconds 30
 }
 $done = [datetime]::UtcNow

@@ -591,3 +591,51 @@ Describe 'Run recorder: run store and the cost gate' {
     $out | Should -Match 'RESULT start-unpriced gate=False unpriced=1 match=none noGuess=True localOnly=True'
   }
 }
+
+Describe 'Same-tenant recovery (build/specs/recovery-spec.md)' {
+  BeforeAll { $script:out = Invoke-OfflineScenario 'Recovery' }
+
+  It 'reports a fresh landing zone as not met, item by item, with a recovery state line' {
+    Get-StepExit $out 'status-fresh' | Should -Be 1
+    $out | Should -Match 'RESULT status-fresh stage=recovery status=notmet met=4/8 ids=dr-config,dr-identity,dr-tested,dr-iac'
+  }
+  It 'writes the configuration snapshot as a C17 run and never copies the host pool registration token' {
+    Get-StepExit $out 'export' | Should -Be 0
+    $out | Should -Match 'RESULT export valid=True useCase=recovery kind=snapshot configFiles=12 tokenLeaked=False tokenPresent=True roleAssignments=3'
+  }
+  It 'reports drift since the previous snapshot by resource and property' {
+    $out | Should -Match 'RESULT drift changes=1 path=hostpools\[/subscriptions/.+/hostpools/vdpool-avdlz-dev\]\.properties\.maxSessionLimit before=8 after=10'
+  }
+  It 'counts a snapshot only once its copy has been read back' { $out | Should -Match 'RESULT status-copied met=5/8 ids=dr-identity,dr-tested,dr-iac' }
+  It 'catches a corrupted copy in the companion repo, and repairs nothing' {
+    Get-StepExit $out 'verify' | Should -Be 0
+    Get-StepExit $out 'verify-corrupted' | Should -Be 1
+    $out | Should -Match 'RESULT verify-corrupted mismatch=True'
+  }
+  It 'plans a recovery test with an estimate and writes nothing' {
+    Get-StepExit $out 'test-plan' | Should -Be 0
+    $out | Should -Match 'RESULT test-plan writes=0 status=ready estimate=True'
+  }
+  It 'restores into a new storage account, never over the source, and records the measured RPO' {
+    Get-StepExit $out 'test-go' | Should -Be 0
+    $out | Should -Match 'RESULT test-go status=passed outcome=passed valid=True recoveryType=AlternateLocation intoNew=True rpoMinutes=True created=2'
+  }
+  It 'counts a passed test toward the tier' { $out | Should -Match 'RESULT status-tested met=6/8 ids=dr-identity,dr-iac' }
+  It 'removes the test resources and records a clean teardown, leaving the source alone' {
+    Get-StepExit $out 'test-cleanup' | Should -Be 0
+    $out | Should -Match 'RESULT test-cleanup rgGone=True teardown=clean sourceKept=True'
+  }
+  It 'shows the restore job''s own error when a test fails' {
+    Get-StepExit $out 'test-go-failed' | Should -Be 1
+    $out | Should -Match 'RESULT test-go-failed errorShown=True'
+  }
+  It 'fails R1 on a snapshot-only backup and passes it with the vaulted tier and an image replica, warning about capacity' {
+    $out | Should -Match 'RESULT status-r1-snapshot ids=dr-profile-offsite,dr-identity,dr-tested,dr-iac,dr-capacity'
+    $out | Should -Match 'RESULT status-r1-vaulted ids=dr-identity,dr-tested,dr-iac,dr-capacity'
+  }
+  It 'is met for R0 with a pushed commit, a copied identity snapshot and a passed test' {
+    $out | Should -Match 'RESULT export-identity groups=2 members=1 commit=True'
+    Get-StepExit $out 'status-met' | Should -Be 0
+    $out | Should -Match 'RESULT status-met status=met met=8/8 ids=$'
+  }
+}

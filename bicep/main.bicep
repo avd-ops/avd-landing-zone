@@ -460,6 +460,7 @@ module backup 'modules/backup.bicep' = if (enableProfileBackup) {
     storageAccountResourceId: storage.outputs.resourceId
     shareName: profileShareName
     retentionDays: profileBackupRetentionDays
+    profileBackupTier: profileBackupTier
     logAnalyticsWorkspaceResourceId: monitoring.outputs.logAnalyticsWorkspaceResourceId
   }
 }
