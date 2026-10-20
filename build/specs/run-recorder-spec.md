@@ -236,13 +236,32 @@ Prices above are from Microsoft's sample price tables (§12, F5). The real estim
 
    The preference is set once with `-TeardownLogs Keep|Ask|Delete` on `Initialize-AvdRunStore.ps1` (stored as a tag on the store), and a single teardown can override it with the same parameter on `Remove-AvdDemo.ps1 -IncludeLandingZone`.
 4. **Copies before anything is deleted.** `Stop-AvdRunRecorder.ps1 -CopyTo <destination>` copies a run folder, re-reads the copy, and checks every file against the manifest. It can run after every run, without deleting anything, so each run has a second copy off Azure from day one. Supported destinations: another storage account; the operator's own machine (`-CopyTo local`, an archive and its hashes to download, because Cloud Shell's disk doesn't count); or a private GitHub repository:
-   - `-CopyTo github:<owner>/<repo>` commits the run folder to an orphan `runs` branch (one commit per run, like a ledger branch), then reads the files back through the API and compares hashes. Sign-in is the GitHub CLI's device flow in Cloud Shell (`gh auth login`), so no token is stored or typed. The script refuses a public repository: these records are private-level, with secrets removed but tenant names and IDs still in them. Public repositories and issues only ever get the public-level report (section 8.2).
+   - `-CopyTo github` (or `github:<owner>/<repo>` to name another) copies to the operator's private companion repo (§9.3): it commits the run folder to an orphan `runs` branch (one commit per run, like a ledger branch), then reads the files back through the API and compares hashes. Sign-in is the GitHub CLI's device flow in Cloud Shell (`gh auth login`), so no token is stored or typed. The script refuses a public repository: these records are private-level, with secrets removed but tenant names and IDs still in them. Public repositories and issues only ever get the public-level report (section 8.2).
    - **The free tier stops at what GitHub gives for free** (limits checked 2026-10-20, §12 F8). Every file is gzip-compressed first, and the manifest records both hashes. Under 50 MiB compressed, it's committed to the `runs` branch: GitHub warns above 50 MiB and blocks files over 100 MiB. From 50 MiB to 2 GiB, it's uploaded as an asset of a release named after the run (`run-<runId>`). Each asset must be under 2 GiB, a release has no total size or bandwidth limit, and the script downloads the asset again and checks its hash. Files of 2 GiB or more aren't copied or split. They stay in the run folder, their hash is in the manifest, and the commit lists them as *kept in Azure only*. Splitting large files, and verified copies to a second subscription, aren't part of the free tier (§10).
    - **Your own archive:** `-CopyTo hook` sends the manifest to your own archive. It runs the executable named in `AVD_COPY_HOOK` with the path to a `request.json` (class, files, sizes, SHA-256, origin) and reads back a `receipt.json` (each file's SHA-256 as read back from the destination, the destination URI, `verifiedBy`). It deletes nothing unless every hash matches. Without `AVD_COPY_HOOK` it refuses and lists the free targets above. When a receipt covers a file with no other copy, teardown shows "verified copy at <verifiedBy>", and the `-TeardownLogs` preference stays the operator's. The request and receipt schemas go into avd-second-brain's `contracts/schemas/` when this is built, because they cross a repo boundary.
    - Git LFS isn't used: its free allowance is 10 GiB of storage and bandwidth a month, and it adds nothing release assets lack.
    - A normal sandbox run should come to well under 50 MiB in total. The larger tiers are for long transcripts and log exports from a landing zone that ran for weeks.
 5. **Removing the whole run store** is a separate request: `Stop-AvdRunRecorder.ps1 -Remove`. It applies step 3's rules to every run folder (copies verified first, typed confirmation for anything with no copy). Only then does it remove the Activity Log diagnostic setting, delete `avdlz-runs-rg`, and confirm it's gone as its last line. Any mismatch and nothing is deleted. Inputs are deleted last (lesson 0029).
 6. Idle cost is a few MB of blobs, cents a month, plus Defender for Storage if the plan is on (§9.1). The monthly spend reconciliation lists the run store as a standing item, so it's never a leftover.
+
+### 9.3 The private companion repo
+
+*Decided 2026-10-20 by the owner.* Run records go to a **separate private GitHub repository that each operator creates and owns**, not to any of the project's repositories and not to a paid product. The project's own sandbox uses one too, set up the same way as anyone else's.
+
+- **Named by a variable, not a product.** `AVD_PRIVATE_REPO=<owner>/<repo>` names it; the scripts never assume a name. Without it, `-CopyTo github` refuses and says how to set it. The scripts check that the repository is private before every write and refuse a public one.
+- **One repo for everything private in the family.** Besides run records, it is the place for anything from the open-source tools that must stay private for the person using them, such as avd-second-brain material that holds their own estate's names (its estate vault and private notes). The open-source repos stay free of that data; the companion repo is where it goes.
+- **Layout:**
+
+  | Where | What | Written by |
+  |---|---|---|
+  | branch `runs` (orphan) | `runs/<runId>/`: one commit per run, the private-level run folder and its manifest | `Stop-AvdRunRecorder.ps1 -CopyTo github` |
+  | releases `run-<runId>` | files from 50 MiB to 2 GiB of that run | the same |
+  | default branch, `brain/` | private second-brain material, laid out by avd-second-brain | avd-second-brain's tools (not built here) |
+  | default branch, `README.md` | what the repo is, and that it must stay private | created once by the operator |
+
+- **Free.** A private repository on a free GitHub account is enough; nothing here needs a paid plan or a hosted service. Large-file splitting and second-subscription copies stay outside the free tier (§10).
+- **Set up once:** create the private repository in GitHub, then in Cloud Shell sign in with `gh auth login` (device code) and set `AVD_PRIVATE_REPO`. `Initialize-AvdRunStore.ps1` checks it can see the repo and that it is private, and records the name as a tag on the run store so a new Cloud Shell session finds it again.
+
 
 ## 10. Free and open source vs a possible paid, hosted feature
 
@@ -321,7 +340,7 @@ Everything in this spec is built offline first, then tested and audited in one r
 | T6 | Logs exported before cleanup (§8.1 item 6) | Export the AVD tables, check row counts, then run cleanup | Exported tables and counts |
 | T7 | Teardown proof (§8.1 item 5) | After cleanup, the Resource Graph query finds nothing tagged with the run or named by the landing zone | Query and result |
 | T8 | One run folder, `-TeardownLogs` (§9.2) | Run teardown once with `Keep` (folder stays), once with `Ask` (lists and asks), and once with `Delete` on a throwaway test folder (refuses without a verified copy, then deletes after one) | Each prompt and outcome |
-| T9 | Verified copies (§9.2 step 4) | `-CopyTo github:<private repo>`: commit, read back, hashes match; a planted mismatch blocks deletion; a public repo is refused | Receipts and the refusal |
+| T9 | Verified copies (§9.2 step 4, §9.3) | `-CopyTo github` to the companion repo named by `AVD_PRIVATE_REPO`: commit, read back, hashes match; a planted mismatch blocks deletion; a public repo is refused | Receipts and the refusal |
 | T10 | Cost (§9.1, U5, U6) | Defender for Storage plan read first; actual cost from Cost Management when it settles | Estimate against actual |
 
 ### What gets created
@@ -333,7 +352,8 @@ The landing zone at its smallest supported settings (one session host, the small
 - **Run store:** under $0.05 for the run, then cents a month (§9.1), plus Defender for Storage if the plan is on, which the preflight reports before anything is deployed.
 - **Landing zone and demo:** priced by `Get-AvdCostEstimate` for the chosen size and the hours of the run, printed before the go (R7: no price is guessed here). For scale only: an earlier sandbox demo with one session host cost $0.97 for about eight hours, not counting the landing zone itself.
 - **Target:** one sitting of about three hours, from deploy to teardown.
-- **Cap:** proposed at $10 for the run, enforced by the sandbox budget. If the estimate is over the cap, or the run goes past six hours, teardown starts.
+- **Cap:** $10 for the run (accepted by the owner 2026-10-20), enforced by the sandbox budget. If the run goes past six hours, teardown starts.
+- **Margin:** the only measured figure is the earlier demo's $0.97 for about eight hours, so a three-hour run should come in at a few dollars. That is a scale, not an estimate: the go/no-go rule is that the printed estimate, including Defender for Storage if it is on, must be **$5 or less** (half the cap). Above that, the run doesn't start, and the plan says which line is high and whether a lower setting would bring it under. If the printed estimate turns out to be under $2, the plan proposes lowering the cap to match, because a tighter budget alert catches a leftover sooner.
 - Actual cost and teardown evidence are recorded after the run, and the actual figure is checked again once Cost Management settles (up to 3 days).
 
 ### Hand steps for the owner
@@ -341,7 +361,7 @@ The landing zone at its smallest supported settings (one session host, the small
 1. Read the printed estimate and say go (or not).
 2. In Cloud Shell: run the commands the portal gives, in order. Sign in to Microsoft Graph once (`Connect-AvdLandingZone.ps1`) and to GitHub once (`gh auth login`, device code). Both are device-code sign-ins: no secrets are typed or stored.
 3. Close the Cloud Shell tab when the portal says so during the deployment (T1), and reopen it from a second device.
-4. Create or name the private repository for run records (open question §14).
+4. Create a private companion repository for run records (§9.3) and set `AVD_PRIVATE_REPO` to it.
 5. Approve the teardown prompts (T8).
 6. Nothing else: the scripts write the evidence into the run folder, and the run report is filed as a redacted issue for review.
 
@@ -350,5 +370,5 @@ The landing zone at its smallest supported settings (one session host, the small
 1. Should `AVDLZ_RECORD=on` (local) become the portal's default for everyone, or stay opt-in? Local recording costs nothing and nothing leaves the shell, but it writes files in the operator's `clouddrive`. The spec says opt-in.
 2. *Decided 2026-10-20 by the owner:* the sandbox keeps durable log storage. The run store is set up once per subscription and is not removed with each run (§6.3, §9.2).
 3. Should the verified runs table live here or on avd-ops.dev, which already holds the family's user-facing docs?
-4. Which private repository holds the sandbox's run records (§9.2 step 4)?
-5. Is $10 the right cap for the phase 4 run (§13a)?
+4. *Decided 2026-10-20 by the owner:* run records go to a separate, operator-owned private companion repository named by `AVD_PRIVATE_REPO`, which can also hold private second-brain material (§9.3).
+5. *Decided 2026-10-20 by the owner:* $10 cap for the phase 4 run, with the printed estimate required to be $5 or less (§13a).
