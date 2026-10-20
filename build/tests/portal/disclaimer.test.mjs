@@ -33,7 +33,7 @@ test('the portal shows the disclaimer at the top and in the footer', () => {
 
 test('entry-point code carries the notice', () => {
   const files = ['scripts/deploy/deploy.sh', 'scripts/ops/Test-AvdLandingZoneReadiness.ps1', 'scripts/ops/Deploy-AvdDemo.ps1',
-    'scripts/ops/Remove-AvdDemo.ps1', 'scripts/ops/AvdLandingZone.psm1', 'scripts/automation/Invoke-AvdPowerAction.ps1',
+    'scripts/ops/Remove-AvdDemo.ps1', 'scripts/ops/Get-AvdRunStatus.ps1', 'scripts/ops/AvdLandingZone.psm1', 'scripts/automation/Invoke-AvdPowerAction.ps1',
     'bicep/main.bicep', 'bicep/demo/main.bicep', 'site/portal/portal-core.js', 'site/portal/report.js',
     'bicep/images/main.bicep', 'bicep/images/build.bicep', 'scripts/ops/Start-AvdImageBuild.ps1', 'scripts/ops/Connect-AvdLandingZone.ps1', 'scripts/ops/Initialize-AvdGraphApp.ps1', 'scripts/ops/ConvertFrom-AvdTargetState.ps1', 'scripts/ops/AvdTargetState.psm1', 'scripts/image/Invoke-Wdot.ps1', 'scripts/image/Test-GoldenImage.ps1'];
   for (const f of files) {

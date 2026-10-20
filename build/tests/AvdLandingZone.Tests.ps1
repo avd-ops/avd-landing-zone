@@ -480,3 +480,67 @@ Describe 'Get-AvdUserConnectionOutcome (decision 0014)' {
     $o.Connected[0].connectionSetupSeconds | Should -Be 3.1
   }
 }
+
+Describe 'Get-AvdRunPosition' {
+  # Fixtures omit empty properties the way ARM does (lesson 0021).
+  BeforeAll {
+    $now = [datetime]'2026-10-20T17:30:00Z'
+    $all = @{ Network = $true; Management = $true; Storage = $true; ControlPlane = $true; Hosts = $true; Demo = $false }
+    $none = @{ Network = $false; Management = $false; Storage = $false; ControlPlane = $false; Hosts = $false; Demo = $false }
+    $dep = { param($name, $state, $time) [pscustomobject]@{ name = $name; properties = [pscustomobject]@{ provisioningState = $state; timestamp = $time } } }
+  }
+
+  It 'says start from the beginning when there is nothing' {
+    $p = Get-AvdRunPosition -Environment dev -RgExists $none -Now $now
+    $p.Status | Should -Be 'ready'
+    $p.NextStage | Should -Be 'predeploy'
+  }
+
+  It 'waits for a running deployment, even when an older one succeeded' {
+    $d = @((& $dep 'avdlz-dev-20261019-100000' 'Succeeded' '2026-10-19T10:40:00Z'), (& $dep 'avdlz-dev-20261020-171800' 'Running' '2026-10-20T17:18:00Z'))
+    $p = Get-AvdRunPosition -Environment dev -Deployment $d -RgExists $none -Now $now
+    $p.LastStatus | Should -Be 'running'
+    $p.NextStage | Should -Be 'deploy'
+    $p.DeploymentName | Should -Be 'avdlz-dev-20261020-171800'
+    $p.Basis | Should -Match '12 minutes ago'
+  }
+
+  It 'reports a failed deployment' {
+    $p = Get-AvdRunPosition -Environment dev -Deployment @(& $dep 'avdlz-dev-20261020-171800' 'Failed' '2026-10-20T17:25:00Z') -RgExists $all -Now $now
+    $p.LastStatus | Should -Be 'failed'
+    $p.NextStage | Should -Be 'deploy'
+  }
+
+  It 'goes to the post-deployment setup after a successful deployment' {
+    $p = Get-AvdRunPosition -Environment dev -Deployment @(& $dep 'avdlz-dev-20261020-171800' 'Succeeded' '2026-10-20T17:25:00Z') -RgExists $all -Now $now
+    $p.NextStage | Should -Be 'postdeploy'
+  }
+
+  It 'goes to the access check once the demo is deployed' {
+    $rg = $all.Clone(); $rg.Demo = $true
+    $p = Get-AvdRunPosition -Environment dev -Deployment @(& $dep 'avdlz-dev-20261020-171800' 'Succeeded' '2026-10-20T17:25:00Z') -RgExists $rg `
+      -DemoDeployment (& $dep 'avdlz-demo-avdlz-dev' 'Succeeded' '2026-10-20T17:29:00Z') -Now $now
+    $p.LastStage | Should -Be 'demo'
+    $p.NextStage | Should -Be 'verify'
+  }
+
+  It 'starts again after a cleanup removed the landing zone' {
+    $p = Get-AvdRunPosition -Environment dev -Deployment @(& $dep 'avdlz-dev-20261020-171800' 'Succeeded' '2026-10-20T17:25:00Z') -RgExists $none -Now $now
+    $p.LastStage | Should -Be 'cleanup'
+    $p.NextStage | Should -Be 'predeploy'
+  }
+
+  It 'is unknown, never a guess, with resource groups but no deployment record' {
+    $p = Get-AvdRunPosition -Environment dev -RgExists $all -Now $now
+    $p.Status | Should -Be 'unknown'
+    $p.NextStage | Should -BeNullOrEmpty
+  }
+
+  It 'ignores the demo record and other environments when picking the deployment' {
+    $d = @((& $dep 'avdlz-demo-avdlz-dev' 'Running' '2026-10-20T17:29:00Z'), (& $dep 'avdlz-prod-20261020-172000' 'Running' '2026-10-20T17:20:00Z'),
+      (& $dep 'avdlz-dev-20261020-171800' 'Succeeded' '2026-10-20T17:25:00Z'))
+    $p = Get-AvdRunPosition -Environment dev -Deployment $d -RgExists $all -Now $now
+    $p.DeploymentName | Should -Be 'avdlz-dev-20261020-171800'
+    $p.NextStage | Should -Be 'postdeploy'
+  }
+}

@@ -11,6 +11,7 @@ PowerShell scripts in [`scripts/ops/`](../scripts/ops) that run against a **depl
 | `Connect-AvdLandingZone.ps1` | Signs in to Microsoft Graph once for the whole Cloud Shell session; the other scripts reuse the sign-in ([decision 0016](../build/decisions/0016-graph-operator-app.md)). |
 | `Initialize-AvdGraphApp.ps1` | One-time, by an administrator: creates the avd-opsbot app, so operators sign in with no consent prompts. |
 | `Test-AvdUserConnection.ps1` | After you open the desktop: confirms from Azure telemetry that your sign-in reached it (Verified, Failed or Not verified). The deployment portal's Verify access step ([decision 0014](../build/decisions/0014-verify-access.md)). |
+| `Get-AvdRunStatus.ps1` | Where did I leave off? After Cloud Shell resets or on another device: reads where the run stands from Azure (deployment records, resource groups) and tells the portal the next step. Read-only ([run recorder spec](../build/specs/run-recorder-spec.md) section 4). |
 
 They share `AvdLandingZone.psm1`. The landing zone's resources, Entra groups and AVD service principal are discovered from its naming convention and the role assignments it created, so the only required inputs are `-NamePrefix` and `-Environment`.
 
@@ -43,6 +44,7 @@ bash ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus -
 
 # 4. After opening the desktop: did the connection reach it? (waits up to 15 minutes for the logs)
 ./scripts/ops/Test-AvdUserConnection.ps1 -NamePrefix avdlz -Environment dev
+./scripts/ops/Get-AvdRunStatus.ps1                                    # where did I leave off
 ```
 
 ### Microsoft Graph sign-in

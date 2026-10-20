@@ -61,7 +61,7 @@ function Get-AvdPortalState {
     warning with its stable Id and Data. Schema: site/portal/README.md.
   #>
   param(
-    [Parameter(Mandatory)][ValidateSet('predeploy', 'postdeploy', 'demo', 'cleanup', 'verify')][string] $Stage,
+    [Parameter(Mandatory)][ValidateSet('predeploy', 'postdeploy', 'demo', 'cleanup', 'verify', 'resume')][string] $Stage,
     [switch] $Fix,
     [hashtable] $Context = @{},
     # A stage-specific outcome (verify: verified, failed, notverified) instead of ready/notready.
@@ -2202,6 +2202,69 @@ function Get-AvdImageVersionName {
   $taken = @($Existing | Where-Object { $_ -like "$prefix.*" } | ForEach-Object { [int]($_.Split('.')[2]) })
   $next = if ($taken.Count) { ($taken | Measure-Object -Maximum).Maximum + 1 } else { 1 }
   "$prefix.$next"
+}
+
+function Get-AvdRunPosition {
+  <#
+    Where a run stands, for Get-AvdRunStatus.ps1 (build/specs/run-recorder-spec.md section 4).
+    Azure is the source of truth: the newest deploy.sh deployment record (avdlz-<parameter file>-<yyyyMMdd-HHmmss>),
+    the landing zone's resource groups and the demo's deployment record. Anything it can't classify is
+    'unknown' with what it saw, never a guess. A running deployment wins over everything.
+    Returns @{ Status = ready|unknown; LastStage; LastStatus; NextStage; DeploymentName; Basis }.
+  #>
+  param(
+    [Parameter(Mandatory)][string] $Environment,
+    # ARM subscription deployment records (name, properties.provisioningState, properties.timestamp).
+    [AllowEmptyCollection()][object[]] $Deployment = @(),
+    # Get-AvdLandingZone's RgExists: Network, Management, Storage, ControlPlane, Hosts, Demo.
+    [Parameter(Mandatory)][hashtable] $RgExists,
+    # The demo's record (avdlz-demo-<prefix>-<env>), if there is one.
+    [object] $DemoDeployment,
+    [datetime] $Now = (Get-Date).ToUniversalTime()
+  )
+  $o = [ordered]@{ Status = 'ready'; LastStage = $null; LastStatus = $null; NextStage = $null; DeploymentName = $null; Basis = '' }
+  $runs = @($Deployment | Where-Object { $_ -and $_.name -match '^avdlz-(?!demo-).+-\d{8}-\d{6}$' })
+  $mine = @($runs | Where-Object { $_.name -match "^avdlz-$([regex]::Escape($Environment))-\d{8}-\d{6}$" })
+  if ($mine.Count) { $runs = $mine }
+  $latest = $runs | Sort-Object { [datetime]$_.properties.timestamp } -Descending | Select-Object -First 1
+  $core = @('Network', 'Management', 'Storage', 'ControlPlane', 'Hosts' | Where-Object { $RgExists[$_] })
+  $ago = { param($t) $m = [math]::Max(0, [math]::Round(($Now - ([datetime]$t).ToUniversalTime()).TotalMinutes)); if ($m -lt 120) { "$m minutes ago" } else { "$([math]::Round($m / 60)) hours ago" } }
+
+  if ($latest) {
+    $o.DeploymentName = $latest.name
+    $state = "$($latest.properties.provisioningState)"
+    $when = & $ago $latest.properties.timestamp
+    if ($state -in 'Running', 'Accepted', 'Deploying', 'Created') {
+      $o.LastStage = 'deploy'; $o.LastStatus = 'running'; $o.NextStage = 'deploy'
+      $o.Basis = "Azure shows deployment $($latest.name) running (last update $when)."
+      return $o
+    }
+    if ($state -in 'Failed', 'Canceled') {
+      $o.LastStage = 'deploy'; $o.LastStatus = 'failed'; $o.NextStage = 'deploy'
+      $o.Basis = "Azure shows deployment $($latest.name) $($state.ToLower()) ($when)."
+      return $o
+    }
+  }
+  if (-not $core.Count) {
+    $o.LastStage = if ($latest) { 'cleanup' } else { $null }
+    $o.NextStage = 'predeploy'
+    $o.Basis = if ($latest) { "No landing zone resource groups found; the last deployment ($($latest.name)) was removed since." } else { 'No landing zone and no deployment record found: start from the beginning.' }
+    return $o
+  }
+  if (-not $latest -or "$($latest.properties.provisioningState)" -ne 'Succeeded' -or $core.Count -lt 5) {
+    $o.Status = 'unknown'
+    $o.Basis = "Found resource groups ($($core -join ', ')) but $(if ($latest) { "deployment $($latest.name) is $($latest.properties.provisioningState) and not every group exists" } else { 'no deployment record' })."
+    return $o
+  }
+  $o.LastStage = 'deploy'; $o.LastStatus = 'succeeded'
+  if ($RgExists['Demo'] -and $DemoDeployment -and "$($DemoDeployment.properties.provisioningState)" -eq 'Succeeded') {
+    $o.LastStage = 'demo'; $o.NextStage = 'verify'
+    $o.Basis = "The landing zone and the demo are deployed ($(& $ago $DemoDeployment.properties.timestamp)): check that you can connect."
+    return $o
+  }
+  $o.NextStage = 'postdeploy'
+  $o.Basis = "Azure shows the deployment succeeded ($(& $ago $latest.properties.timestamp)). The post-deployment setup is safe to run again if it already ran."
+  $o
 }
 
 Export-ModuleMember -Function *-Avd*

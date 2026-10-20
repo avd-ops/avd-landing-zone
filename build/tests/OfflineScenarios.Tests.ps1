@@ -279,6 +279,29 @@ Describe 'Post-deployment quota on a deployed landing zone (real run, 2026-09-30
   }
 }
 
+Describe 'Where did I leave off' {
+  BeforeAll { $script:out = Invoke-OfflineScenario 'RunStatus' }
+
+  It 'waits for a running deployment and never deploys again' {
+    Get-StepExit $out 'running' | Should -Be 0
+    $s = (Get-PortalState $out)[0]
+    $s.stage | Should -Be 'resume'
+    $s.context.lastStatus | Should -Be 'running'
+    $s.context.nextStage | Should -Be 'deploy'
+    $s.context.deploymentName | Should -Be 'avdlz-dev-20261020-171800'
+  }
+  It 'finds the only landing zone and moves on to the post-deployment setup' {
+    $s = (Get-PortalState $out)[1]
+    $s.context.namePrefix | Should -Be 'avdlz'
+    $s.context.nextStage | Should -Be 'postdeploy'
+  }
+  It 'starts again from the preflight after cleanup' {
+    $s = (Get-PortalState $out)[2]
+    $s.context.lastStage | Should -Be 'cleanup'
+    $s.context.nextStage | Should -Be 'predeploy'
+  }
+}
+
 Describe 'No landing zone in the subscription' {
   BeforeAll { $script:out = Invoke-OfflineScenario 'NoLandingZone' }
 
