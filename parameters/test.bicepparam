@@ -15,6 +15,8 @@ param deploySubscriptionSettings = false
 param location = empty(readEnvironmentVariable('AVD_LOCATION', ''))
   ? 'northcentralus'
   : readEnvironmentVariable('AVD_LOCATION', '')
+// Recovery region the guardrails also allow (build/specs/recovery-spec.md); empty: none.
+param recoveryLocation = readEnvironmentVariable('AVD_RECOVERY_LOCATION', '')
 
 // ---- Identity (Entra ID) ----
 param avdUsersGroupObjectId = readEnvironmentVariable('AVD_USERS_GROUP_ID')

@@ -36,6 +36,12 @@ Describe 'Post-deployment: preflight, demo and cleanup' {
   It 'is clean when checked again' { Get-StepExit $out 'recheck' | Should -Be 0 }
   It 'warns when Security Defaults is on, without blocking' { $out | Should -Match 'RESULT security-defaults warned=True stillReady=True' }
   It 'fails when the profile share allows only AES-256-GCM channel encryption (lesson 0028)' { $out | Should -Match 'RESULT smb-channel failed=True notReady=True' }
+  It 'checks the recovery region against every allowed-locations policy and its quota, as warnings' {
+    $out | Should -Match 'RESULT recovery-region skipped=True ownWarned=True ownSaysRedeploy=True foreignNamed=True quotaWarned=True allowedPassed=True stillReady=True'
+  }
+  It 'reports the profile backup''s access, last status and age, as warnings' {
+    $out | Should -Match 'RESULT profile-backup healthy=True access=True failedWarned=True keyHint=True stale=True never=True stillReady=True'
+  }
   It 'tells the storage app Azure created from a user-registered one of the same name by its owners' { $out | Should -Match 'RESULT storage-app-imposter besideReady=True besideApp=True onlyFailed=True onlyExcluded=0' }
   It 'fails the demo host check by name when a Kerberos client service is stopped' { $out | Should -Match 'RESULT kerberos-services failed=True named=True' }
   It 'deploys and validates the demo, then removes it' {
@@ -103,6 +109,14 @@ Describe 'Pre-deployment: empty subscription, then a blocked prod deployment' {
     Get-StepExit $out 'recheck' | Should -Be 0
     $out | Should -Match 'deploy\.sh -p parameters/dev\.bicepparam -l northcentralus'
   }
+  It 'passes a recovery region this deployment adds to its own guardrail, and warns on one a management group blocks' {
+    $planned = $out.Substring($out.IndexOf('######## recovery-planned'))
+    $planned | Should -Match '\[PASS \] Recovery region southcentralus allowed by Azure Policy\s+This deployment adds it'
+    $foreign = $out.Substring($out.IndexOf('######## recovery-foreign'))
+    $foreign | Should -Match '\[WARN \] Recovery region southcentralus allowed by Azure Policy\s+Blocked by: Corp allowed RG locations \(allows northcentralus\)'
+    Get-StepExit $out 'recovery-foreign' | Should -Be 0
+    $out | Should -Match '\[SKIP \] Recovery region\s+None set'
+  }
   It 'reads the AVD host pool regions from the provider API' { $out | Should -Match '\[PASS \] AVD host pools offered in northcentralus' }
   It 'blocks prod on a soft-deleted, purge-protected Key Vault' {
     Get-StepExit $out 'prod-zone-and-vault' | Should -Be 1
@@ -110,7 +124,7 @@ Describe 'Pre-deployment: empty subscription, then a blocked prod deployment' {
   }
   It 'gives the portal the context and structured failures it needs' {
     $s = Get-PortalState $out
-    ($s | ForEach-Object { "$($_.stage):$($_.status)" }) -join ' ' | Should -Be 'predeploy:notready predeploy:ready predeploy:ready predeploy:notready predeploy:notready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:notready predeploy:ready'
+    ($s | ForEach-Object { "$($_.stage):$($_.status)" }) -join ' ' | Should -Be 'predeploy:notready predeploy:ready predeploy:ready predeploy:notready predeploy:notready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:notready predeploy:ready predeploy:ready predeploy:ready'
     $s[1].context.parameterFile | Should -Be 'parameters/dev.bicepparam'
     $s[1].context.location | Should -Be 'northcentralus'
     $s[1].context.usersGroup | Should -Be 'AVD Users'

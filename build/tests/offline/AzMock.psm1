@@ -262,7 +262,19 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
   if ($Method -eq 'POST' -and $Path -match 'virtualMachines/([^/]+)/deallocate\?') { $pw.state[$Matches[1]] = 'deallocating'; return [pscustomobject]@{ StatusCode=202; Content='' } }
   if ($Path -match '/sessionHosts\?') { return & $ok @{ value=@(@{ name='vdpool-avdlz-dev-demo/avdlzddemo-001'; properties=@{status='Available';allowNewSession=$true;agentVersion='1.0.9999';sessionHostHealthCheckResults=@(@{healthCheckName='DomainJoinedCheck';healthCheckResult='HealthCheckSucceeded'})} }) } }
   if ($Path -match '/runCommands/') { return & $ok @{ properties=@{ instanceView=@{executionState='Succeeded';exitCode=0} } } }
-  if ($Path -match 'policyAssignments\?') { return & $ok @{ value=@(@{name='avdlz-allowed-locations';id="$S/providers/Microsoft.Authorization/policyAssignments/avdlz-allowed-locations"},@{name='avdlz-inherit-rg-tag-workload';id="$S/pa2";identity=@{principalId='44444444-0000-0000-0000-000000000000'}},@{name='someone-else';id='x'}) } }
+  # The landing zone's allowed-locations guardrail allows $global:St.allowedLocations; $global:St.foreignAllowed adds an
+  # assignment someone else owns (inherited from a management group, as atScope() returns it). ARM omits empty parameters.
+  if ($Path -match 'policyAssignments\?') {
+    $allowed = if ($global:St.allowedLocations) { $global:St.allowedLocations } else { @('eastus2', 'northcentralus') }
+    $list = @(@{name='avdlz-allowed-locations';id="$S/providers/Microsoft.Authorization/policyAssignments/avdlz-allowed-locations"
+        properties=@{ displayName='AVD LZ - allowed locations'; policyDefinitionId='/providers/Microsoft.Authorization/policyDefinitions/e56962a6-4747-49cd-b67b-bf8b01975c4c'; enforcementMode='Default'; parameters=@{ listOfAllowedLocations=@{ value=@($allowed) } } } },
+      @{name='avdlz-inherit-rg-tag-workload';id="$S/pa2";identity=@{principalId='44444444-0000-0000-0000-000000000000'}},@{name='someone-else';id='x'})
+    if ($global:St.foreignAllowed) {
+      $list += @{ name='corp-allowed-rg-locations'; id='/providers/Microsoft.Management/managementGroups/corp/providers/Microsoft.Authorization/policyAssignments/corp-allowed-rg-locations'
+        properties=@{ displayName='Corp allowed RG locations'; policyDefinitionId='/providers/Microsoft.Authorization/policyDefinitions/e765b5de-1225-4ba3-bd56-1ac6695af988'; parameters=@{ listOfAllowedLocations=@{ value=@($global:St.foreignAllowed) } } } }
+    }
+    return & $ok @{ value=$list }
+  }
   # Subscription deployment records for Get-AvdRunStatus.ps1. $global:St.deploymentRecords: @{ name; state; timestamp }.
   # ARM leaves out what a record doesn't have (lesson 0021): no outputs here.
   if ($Path -match '^/subscriptions/[^/]+/providers/Microsoft\.Resources/deployments\?' -and $Method -eq 'GET') {
@@ -296,8 +308,18 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
         @{ name='AzureMonitorAgent'; properties=@{ publisher='Microsoft.Azure.Monitor'; type='AzureMonitorWindowsAgent'; provisioningState=$(if ($global:St.waf.amaFailed) { 'Failed' } else { 'Succeeded' }) } }) } }
   if ($Path -match 'Microsoft.Network/networkInterfaces\?') { return & $ok @{ value=@(@{ name='avdlzdsh-001-nic'; properties=@{ enableAcceleratedNetworking=$true } }) } }
   if ($Path -match "storageAccounts/$saName/fileServices/default\?") { return & $ok @{ properties=@{ shareDeleteRetentionPolicy=@{ enabled=$true; days=14 }; protocolSettings=@{ smb=@{ versions='SMB3.1.1;'; authenticationMethods='Kerberos;'; kerberosTicketEncryption='AES-256;'; channelEncryption=$(if ($global:St.smbChannel) { $global:St.smbChannel } else { 'AES-128-GCM;AES-256-GCM;' }) } } } } }
-  if ($Path -match "storageAccounts/$saName\?api-version") { return & $ok @{ sku=@{ name=$(if ($g) { 'Premium_ZRS' } else { 'Premium_LRS' }) }; properties=@{ minimumTlsVersion='TLS1_2'; supportsHttpsTrafficOnly=$true; allowSharedKeyAccess=$false } } }
-  if ($Path -match 'backupProtectedItems\?') { return & $ok @{ value=@(if ($g) { @{ name='AzureFileShare;profiles' } }) } }
+  if ($Path -match "storageAccounts/$saName\?api-version") { return & $ok @{ sku=@{ name=$(if ($g) { 'Premium_ZRS' } else { 'Premium_LRS' }) }; properties=@{ minimumTlsVersion='TLS1_2'; supportsHttpsTrafficOnly=$true; allowSharedKeyAccess=[bool]$global:St.sharedKey; publicNetworkAccess='Disabled' } } }
+  # The profile share's protected item (AzureFileshareProtectedItem). $global:St.backup: @{ status; ageHours; state };
+  # an item that never ran has no lastBackupTime (ARM omits it, lesson 0021).
+  if ($Path -match 'backupProtectedItems\?') {
+    $b = $global:St.backup
+    if (-not $g -and -not $b) { return & $ok @{ value=@() } }
+    $p = @{ friendlyName='profiles'; protectedItemType='AzureFileShareProtectedItem'; protectionState=$(if ($b.state) { $b.state } else { 'Protected' }); healthStatus='Passed'; lastBackupStatus=$(if ($b.status) { $b.status } else { 'Healthy' }) }
+    if (-not $b -or $null -ne $b.ageHours) { $p.lastBackupTime = [datetime]::UtcNow.AddHours(-$(if ($b) { $b.ageHours } else { 3 })).ToString('o') }
+    return & $ok @{ value=@(@{ name='AzureFileShare;profiles'; properties=$p }) }
+  }
+  # A vaulted-tier policy has vaultRetentionPolicy ($global:St.vaultedPolicy).
+  if ($Path -match '/backupPolicies\?') { return & $ok @{ value=@(@{ name='fslogix-daily'; properties=$(if ($global:St.vaultedPolicy) { @{ backupManagementType='AzureStorage'; vaultRetentionPolicy=@{ snapshotRetentionInDays=5 } } } else { @{ backupManagementType='AzureStorage' } }) }) } }
   if ($Path -match 'Microsoft.Security/pricings\?') { return & $ok @{ value=@('VirtualMachines','StorageAccounts','KeyVaults','Containers' | ForEach-Object { @{ name=$_; properties=@{ pricingTier=$(if ($g) { 'Standard' } else { 'Free' }) } } }) } }
   if ($Path -match '/rg/kv\?api-version') { return & $ok @{ properties=@{ enablePurgeProtection=$true; enableRbacAuthorization=$true; publicNetworkAccess='Disabled' } } }
   if ($Path -match 'Microsoft.Consumption/budgets\?') { return & $ok @{ value=@(if ($g) { @{ name='budget-avdlz-prod' } }) } }
