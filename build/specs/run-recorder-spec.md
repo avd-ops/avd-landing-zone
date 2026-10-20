@@ -110,18 +110,20 @@ $env:AVDLZ_RECORD = 'on'          # or 'azure' to also keep it in the tenant (6.
 $env:AVDLZ_RUN_ID = 'run-20261020-1652-k3p9'   # generated once by the portal for the whole run
 ```
 
-`deploy.sh` reads the same two variables. With neither set, the scripts behave exactly as today.
+`deploy.sh` reads the same two variables (not built yet). With neither set, the scripts behave exactly as today. The portal can add `$env:AVDLZ_PORTAL_STEP = '<step>'` so `step.start` records which step printed the command.
+
+**Built in phase 1 (PowerShell):** `Write-AvdJournalEvent` in `AvdLandingZone.psm1`. Every script that calls `Initialize-AvdAzContext` writes `step.start` with its own parameters, `Add-AvdCheckResult` writes `check`, `Invoke-AvdArm` writes `api.error` before it throws, and `Write-AvdPortalState` writes `step.end`. Run `Add-AvdRunNote "..."` after importing the module to add a note. A bad mode or run ID turns the journal off with one warning, and a journal that can't be written warns once: neither ever stops the run. `azure` mode writes the local journal for now; the upload comes with the run store (phase 3).
 
 ### 6.2 Events
 
-One JSON object per line (JSONL), schema `build/specs/run-journal.schema.json` (added in phase 1), version `v: 1`:
+One JSON object per line (JSONL), schema [`build/specs/run-journal.schema.json`](run-journal.schema.json), version `v: 1`:
 
 | Event | Fields |
 |---|---|
-| `step.start` | `runId`, `step` (script and stage), `portalStep` (the step that printed the command, if any), `params` (names, non-secret values, `<set>` for secrets), `repoCommit`, `shell` (`pwsh`/`bash`), `cloudShell` (bool), `ts` |
+| `step.start` | `runId`, `step` (script and stage), `portalStep` (the step that printed the command, if any), `params` (names, non-secret values, `<set>` for secrets and for any name containing password, secret, token, credential, sas or key), `repoCommit`, `shell` (`pwsh`/`bash`), `cloudShell` (bool), `ts` |
 | `check` | the check's `id`, `status`, `area`, and `data`: the same objects the state line carries |
 | `api.error` | step, HTTP status, error code, body excerpt and correlation ID (lesson 0012). Private level only. |
-| `step.end` | exit code, duration, the full state line |
+| `step.end` | duration and the full state line (the state's status stands in for the exit code) |
 | `operator.note` | free text from `Add-AvdRunNote "..."`, for "I did X by hand in the portal" |
 
 `portalStep` against the actual `params` gives the **deviation** signal: when operators keep changing the command the portal gave them, the portal is wrong.

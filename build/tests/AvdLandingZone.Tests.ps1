@@ -544,3 +544,82 @@ Describe 'Get-AvdRunPosition' {
     $p.NextStage | Should -Be 'postdeploy'
   }
 }
+
+Describe 'Run journal' {
+  BeforeAll {
+    $runId = 'run-20261020-1652-k3p9'
+  }
+  AfterEach {
+    Remove-Item Env:AVDLZ_RECORD, Env:AVDLZ_RUN_ID -ErrorAction SilentlyContinue
+  }
+
+  It 'is off unless AVDLZ_RECORD is set' {
+    (Get-AvdJournalSetting -HomePath '/home/op').Enabled | Should -BeFalse
+    (Get-AvdJournalSetting -Record off -RunId $runId -HomePath '/home/op').Reason | Should -Be 'off'
+  }
+
+  It 'refuses an unknown mode or a missing run ID instead of guessing' {
+    (Get-AvdJournalSetting -Record yes -RunId $runId -HomePath '/home/op').Reason | Should -Match 'on, azure or off'
+    $s = Get-AvdJournalSetting -Record on -RunId 'my run' -HomePath '/home/op'
+    $s.Enabled | Should -BeFalse
+    $s.Reason | Should -Match 'AVDLZ_RUN_ID'
+  }
+
+  It 'writes to clouddrive when it is mounted, so the journal survives a reset' {
+    $s = Get-AvdJournalSetting -Record on -RunId $runId -HomePath '/home/op' -CloudDriveExists $true
+    $s.Enabled | Should -BeTrue
+    $s.Durable | Should -BeTrue
+    $s.Path | Should -Be (Join-Path (Join-Path (Join-Path (Join-Path '/home/op' 'clouddrive') 'avdlz-runs') $runId) 'journal.jsonl')
+  }
+
+  It 'writes to the home folder in an ephemeral session' {
+    $s = Get-AvdJournalSetting -Record azure -RunId $runId -HomePath '/home/op'
+    $s.Durable | Should -BeFalse
+    $s.Folder | Should -Be (Join-Path (Join-Path '/home/op' 'avdlz-runs') $runId)
+  }
+
+  It 'never keeps a secret parameter' {
+    $p = Get-AvdJournalParam @{
+      NamePrefix = 'avdlz'; Fix = [switch]$true; AdminPassword = 'Placeholder-only-1!'; KeyVaultName = 'kv-x'
+      Secure = (ConvertTo-SecureString 'Placeholder-only-1!' -AsPlainText -Force); Regions = @('northcentralus', 'eastus2')
+    }
+    $p.NamePrefix | Should -Be 'avdlz'
+    $p.Fix | Should -BeTrue
+    $p.AdminPassword | Should -Be '<set>'
+    $p.KeyVaultName | Should -Be '<set>'
+    $p.Secure | Should -Be '<set>'
+    $p.Regions | Should -Be @('northcentralus', 'eastus2')
+    ($p | ConvertTo-Json -Compress) | Should -Not -Match 'Placeholder'
+  }
+
+  It 'builds a line with the version, event, run ID and UTC time first' {
+    $e = Get-AvdJournalEvent -Name check -RunId $runId -Field ([ordered]@{ id = 'x'; status = 'Pass' }) -Now ([datetime]'2026-10-20T17:30:00Z')
+    @($e.Keys)[0..3] | Should -Be @('v', 'event', 'runId', 'ts')
+    $e.ts | Should -Be '2026-10-20T17:30:00.000Z'
+    $e.status | Should -Be 'Pass'
+  }
+
+  It 'appends one JSON object per line when recording is on' {
+    $env:AVDLZ_RECORD = 'on'; $env:AVDLZ_RUN_ID = $runId
+    Write-AvdJournalEvent 'operator.note' ([ordered]@{ step = 'test'; text = 'set the share quota by hand' }) -HomePath $TestDrive
+    Write-AvdJournalEvent 'check' ([ordered]@{ step = 'test'; id = 'a'; status = 'Warn'; area = 'Run'; check = 'c' }) -HomePath $TestDrive
+    $lines = @(Get-Content (Join-Path (Join-Path (Join-Path $TestDrive 'avdlz-runs') $runId) 'journal.jsonl'))
+    $lines.Count | Should -Be 2
+    ($lines[0] | ConvertFrom-Json).text | Should -Be 'set the share quota by hand'
+    ($lines[1] | ConvertFrom-Json).event | Should -Be 'check'
+  }
+
+  It 'writes nothing when recording is off' {
+    $home_ = Join-Path $TestDrive 'off'
+    Write-AvdJournalEvent 'operator.note' @{ text = 'x' } -HomePath $home_
+    $home_ | Should -Not -Exist
+  }
+
+  It 'journals every check result when recording is on' {
+    $env:AVDLZ_RECORD = 'on'; $env:AVDLZ_RUN_ID = $runId
+    Mock Write-AvdJournalEvent -ModuleName AvdLandingZone
+    Add-AvdCheckResult 'Run' 'A check' 'Warn' -Id 'a-check' -Data @{ n = 1 } 6>$null
+    Should -Invoke Write-AvdJournalEvent -ModuleName AvdLandingZone -Times 1 -ParameterFilter { $Name -eq 'check' -and $Field.id -eq 'a-check' -and $Field.status -eq 'Warn' }
+    Clear-AvdCheckResult
+  }
+}

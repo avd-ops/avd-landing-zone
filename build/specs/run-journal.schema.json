@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/nickprignano/avd-landing-zone/build/specs/run-journal.schema.json",
+  "title": "Run journal line (run recorder spec section 6.2)",
+  "description": "One line of journal.jsonl. Written by Write-AvdJournalEvent in scripts/ops/AvdLandingZone.psm1 when AVDLZ_RECORD and AVDLZ_RUN_ID are set. Private level: secrets never appear (parameters named like secrets are '<set>'), but tenant names and IDs may.",
+  "type": "object",
+  "required": ["v", "event", "runId", "ts"],
+  "properties": {
+    "v": { "const": 1 },
+    "event": { "enum": ["step.start", "check", "api.error", "step.end", "operator.note"] },
+    "runId": { "type": "string", "pattern": "^run-[0-9]{8}-[0-9]{4}-[a-z0-9]{4}$" },
+    "ts": { "type": "string", "format": "date-time" },
+    "step": { "type": ["string", "null"], "description": "The script that wrote the line, for example Test-AvdLandingZoneReadiness.ps1." }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "event": { "const": "step.start" } } },
+      "then": {
+        "required": ["step", "params", "shell", "cloudShell"],
+        "properties": {
+          "portalStep": { "type": ["string", "null"], "description": "AVDLZ_PORTAL_STEP: the portal step that printed the command." },
+          "params": { "type": "object", "additionalProperties": { "type": ["string", "boolean", "array", "null"] } },
+          "repoCommit": { "type": ["string", "null"] },
+          "shell": { "enum": ["pwsh", "bash"] },
+          "cloudShell": { "type": "boolean" }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "event": { "const": "check" } } },
+      "then": {
+        "required": ["status", "area", "check"],
+        "properties": {
+          "id": { "type": "string" },
+          "status": { "enum": ["Pass", "Fail", "Warn", "Fixed", "Skip"] },
+          "area": { "type": "string" },
+          "check": { "type": "string" },
+          "data": { "type": ["object", "null"] }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "event": { "const": "api.error" } } },
+      "then": {
+        "required": ["api", "method", "path", "status"],
+        "properties": {
+          "api": { "enum": ["arm", "graph"] },
+          "method": { "type": "string" },
+          "path": { "type": "string" },
+          "status": { "type": "integer" },
+          "code": { "type": ["string", "null"] },
+          "body": { "type": ["string", "null"], "maxLength": 2003 },
+          "correlationId": { "type": ["string", "null"] }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "event": { "const": "step.end" } } },
+      "then": {
+        "required": ["state"],
+        "properties": {
+          "durationSec": { "type": ["number", "null"] },
+          "exitCode": { "type": ["integer", "null"] },
+          "state": { "type": "object", "description": "The portal state line's JSON (site/portal/README.md)." }
+        }
+      }
+    },
+    {
+      "if": { "properties": { "event": { "const": "operator.note" } } },
+      "then": { "required": ["text"], "properties": { "text": { "type": "string" } } }
+    }
+  ]
+}

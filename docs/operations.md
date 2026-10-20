@@ -260,6 +260,8 @@ Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 
 Every script ends with a machine-readable line (`<<<AVDLZ-STATE {...} AVDLZ-STATE>>>`): the stage, whether it passed, the context for the next command, and each failure with a stable id. Paste the output into the [deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/) and it tells you what to run next. The format is described in [`site/portal/README.md`](../site/portal/README.md).
 
+**Recording a run (optional, off by default).** Set `$env:AVDLZ_RECORD = 'on'` and `$env:AVDLZ_RUN_ID = 'run-<yyyyMMdd>-<HHmm>-<4 letters or digits>'` in the Cloud Shell session, and the scripts also write a journal of each step, check and API error to `~/clouddrive/avdlz-runs/<run ID>/journal.jsonl` (or `~/avdlz-runs/` without mounted storage). Secrets are never written; parameters named like secrets show as `<set>`. The journal stays in your Cloud Shell storage until you share a redacted report. Design: [run recorder spec](../build/specs/run-recorder-spec.md), section 6.
+
 If the portal gives the wrong advice or you are stuck, use **Report a problem** in the portal. It builds a GitHub issue from the output you pasted. Before anything leaves your browser, it removes email addresses, IDs, subscription and resource names, your name prefix and group names, and secrets. You review the report, tick that it contains nothing private, and submit it on GitHub. Issues are public.
 
 ## Exit codes
