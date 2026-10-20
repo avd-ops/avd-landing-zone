@@ -73,7 +73,7 @@ jobs:
         shell: bash # -eo pipefail: a lint that fails with no output must fail the step, not read as clean
         run: |
           failed=0
-          for f in bicep/main.bicep bicep/demo/main.bicep bicep/images/main.bicep bicep/images/build.bicep parameters/*.bicepparam; do
+          for f in bicep/main.bicep bicep/demo/main.bicep bicep/images/main.bicep bicep/images/build.bicep bicep/recorder/main.bicep parameters/*.bicepparam; do
             results=$(az bicep lint --file "$f" --diagnostics-format sarif | jq -r '.runs[].results[] | "\(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine) \(.level // "warning") \(.ruleId): \(.message.text)"')
             if [ -n "$results" ]; then echo "$f"; echo "$results"; failed=1; else echo "$f: clean"; fi
           done
@@ -85,6 +85,7 @@ jobs:
           az bicep build --file bicep/demo/main.bicep --stdout > /dev/null
           az bicep build --file bicep/images/main.bicep --stdout > /dev/null
           az bicep build --file bicep/images/build.bicep --stdout > /dev/null
+          az bicep build --file bicep/recorder/main.bicep --stdout > /dev/null
           for f in parameters/*.bicepparam; do
             echo "build-params $f"
             az bicep build-params --file "$f" --stdout > /dev/null

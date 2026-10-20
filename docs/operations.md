@@ -12,6 +12,13 @@ PowerShell scripts in [`scripts/ops/`](../scripts/ops) that run against a **depl
 | `Initialize-AvdGraphApp.ps1` | One-time, by an administrator: creates the avd-opsbot app, so operators sign in with no consent prompts. |
 | `Test-AvdUserConnection.ps1` | After you open the desktop: confirms from Azure telemetry that your sign-in reached it (Verified, Failed or Not verified). The deployment portal's Verify access step ([decision 0014](../build/decisions/0014-verify-access.md)). |
 | `Get-AvdRunStatus.ps1` | Where did I leave off? After Cloud Shell resets or on another device: reads where the run stands from Azure (deployment records, resource groups) and tells the portal the next step. Read-only ([run recorder spec](../build/specs/run-recorder-spec.md) section 4). |
+| `Initialize-AvdRunStore.ps1` | Optional, once per subscription: durable storage for recorded runs (`avdlz-runs-rg`), outside every landing zone so cleanup never removes it. Checks Defender for Storage and your private companion repo first; supports `-WhatIf` ([run recorder spec](../build/specs/run-recorder-spec.md) sections 6.3 and 9.3). |
+| `Start-AvdRunRecorder.ps1` | Optional, before a recorded run: prices the run, refuses it when the expected cost is over half the cap or a line can't be priced, and writes `run.json` and `cost.json` to the run folder (spec sections 9.3a and 13a). |
+| `Stop-AvdRunRecorder.ps1` | Optional, for a recorded run: `-BeforeCleanup` exports the landing zone's AVD logs before cleanup deletes the workspace; at the end it records the status and the first actual cost; `-UpdateCost` adds later readings; `-CopyTo github` copies the run to your private companion repo and checks every file read back. Deletes nothing (spec sections 8.1, 9.2, 9.3a). |
+| `Get-AvdRecoveryStatus.ps1` | Read-only: if this subscription were gone tomorrow, what would you lose? Reports each item's last good copy against the recovery tier's targets (R0 rebuild, R1 restore anywhere) and tells the portal what to do next ([recovery spec](../build/specs/recovery-spec.md) section 6). |
+| `Export-AvdConfiguration.ps1` | Writes a configuration snapshot (AVD objects, role assignments, budgets, the deployment's commit and parameters; `-IncludeIdentity` adds the AVD groups and the Conditional Access policies that name them) to a run folder, with the drift since the last one. Registration tokens and passwords are recorded as `<present>`, never their value. |
+| `Start-AvdRecoveryTest.ps1` | Restores the profile share into a new storage account and measures RPO and restore time. Plans and prints the estimate unless you add `-Go`; `-Cleanup -RunId` removes only the test's resource group. |
+| `Test-AvdRecoveryCopies.ps1` | Monthly, read-only: reads every copy in your private companion repo back and compares its hash, and checks the vault's soft delete, immutability and newest recovery point. Reports, never repairs. |
 
 They share `AvdLandingZone.psm1`. The landing zone's resources, Entra groups and AVD service principal are discovered from its naming convention and the role assignments it created, so the only required inputs are `-NamePrefix` and `-Environment`.
 
@@ -263,6 +270,58 @@ Every script ends with a machine-readable line (`<<<AVDLZ-STATE {...} AVDLZ-STAT
 **Recording a run (optional, off by default).** Set `$env:AVDLZ_RECORD = 'on'` and `$env:AVDLZ_RUN_ID = 'run-<yyyyMMdd>-<HHmm>-<4 letters or digits>'` in the Cloud Shell session, and the scripts also write a journal of each step, check and API error to `~/clouddrive/avdlz-runs/<run ID>/journal.jsonl` (or `~/avdlz-runs/` without mounted storage). Secrets are never written; parameters named like secrets show as `<set>`. The journal stays in your Cloud Shell storage until you share a redacted report. Design: [run recorder spec](../build/specs/run-recorder-spec.md), section 6.
 
 If the portal gives the wrong advice or you are stuck, use **Report a problem** in the portal. It builds a GitHub issue from the output you pasted. Before anything leaves your browser, it removes email addresses, IDs, subscription and resource names, your name prefix and group names, and secrets. You review the report, tick that it contains nothing private, and submit it on GitHub. Issues are public.
+
+## Recovery
+
+Same-tenant recovery is part of the landing zone and works on its own: any region, and any subscription you can deploy to in your own tenant. Design and what is still unverified: [recovery spec](../build/specs/recovery-spec.md). Everything here is opt-in; the default deployment doesn't change.
+
+**Tiers.** `-RecoveryTier` only sets the targets the status check holds you to; it changes nothing in Azure.
+
+| Tier | Targets | What it needs |
+|---|---|---|
+| R0, rebuild | RPO 24 h, RTO 8 h | A deployment from a pushed commit, a daily profile backup, a configuration snapshot with a verified copy, a passed recovery test in the last 90 days |
+| R1, restore anywhere | RPO 24 h, RTO 8 h | R0, plus `param profileBackupTier = 'Vaulted'` in your parameter file with `enableProfileBackup` on (a geo-redundant vault with Cross Region Restore, and key access on the profile account), a recovery region (`AVD_RECOVERY_LOCATION`), and a gallery image replica there |
+
+**1. Where do you stand?** Read-only.
+
+```powershell
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+./scripts/ops/Get-AvdRecoveryStatus.ps1 -NamePrefix avdlz -Environment dev -RecoveryTier R0
+```
+
+**2. Take a configuration snapshot, then copy it to your private companion repo.** The snapshot counts once a copy has been read back. `-IncludeIdentity` needs the Graph sign-in.
+
+```powershell
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+./scripts/ops/Connect-AvdLandingZone.ps1
+./scripts/ops/Export-AvdConfiguration.ps1 -NamePrefix avdlz -Environment dev -IncludeIdentity
+# It prints the copy command with the run ID, for example:
+# ./scripts/ops/Stop-AvdRunRecorder.ps1 -RunId <run ID> -Local -CopyTo github
+```
+
+**3. Test a profile restore.** The first run only plans and prints the estimate. Add `-Go` when you accept it, and clean up right after: the test's storage account bills until it is gone.
+
+```powershell
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+./scripts/ops/Start-AvdRecoveryTest.ps1 -NamePrefix avdlz -Environment dev          # plan and estimate
+./scripts/ops/Start-AvdRecoveryTest.ps1 -NamePrefix avdlz -Environment dev -Go      # restore and measure
+./scripts/ops/Start-AvdRecoveryTest.ps1 -NamePrefix avdlz -Environment dev -Cleanup -RunId <run ID>
+```
+
+The restore goes to a new storage account in the **vault's region** (Azure Backup's alternate-location restore requires it) and in the same subscription; restoring into another subscription of your tenant is in scope but not yet verified (spec U7). It never writes over the source share.
+
+**4. Once a month, read the copies back.**
+
+```powershell
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+./scripts/ops/Test-AvdRecoveryCopies.ps1 -NamePrefix avdlz -Environment dev -PrivateRepo '<owner>/<private companion repo>'
+```
+
+A mismatch or a file with no copy is a finding; nothing is repaired or deleted. Recovery into a separate tenant, another cloud, or on a schedule without an operator is out of scope here; anything that offers it builds on these scripts and their run records.
 
 ## Exit codes
 

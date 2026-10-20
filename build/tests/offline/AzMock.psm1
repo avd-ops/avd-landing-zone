@@ -42,6 +42,87 @@ function Get-AzStorageAccount { param($ResourceGroupName,$ErrorAction)
 function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
   Log "ARM $Method $Path"
   $ok = { param($o) [pscustomobject]@{StatusCode=200;Content=($o|ConvertTo-Json -Depth 20)} }
+  # ---- Recovery (Get-AvdRecoveryStatus, Export-AvdConfiguration, Start-AvdRecoveryTest, Test-AvdRecoveryCopies;
+  # build/specs/recovery-spec.md). Only when $global:St.recovery is set: vaulted (bool), points (recovery point
+  # times), restoreStatus (the restore job's end state), gallery (hosts on a gallery image), replicaRegions.
+  # ARM leaves out what a resource doesn't have (lesson 0021): a snapshot-tier policy has no vaultRetentionPolicy.
+  $rc = $global:St.recovery
+  if ($rc) {
+    $vaultId = "$S/resourceGroups/rg-avdlz-dev-storage/providers/Microsoft.RecoveryServices/vaults/rsv-avdlz-dev"
+    $itemId = "$vaultId/backupFabrics/Azure/protectionContainers/storagecontainer;Storage;rg-avdlz-dev-storage;$saName/protectedItems/AzureFileShare;profiles"
+    $polName = if ($rc.vaulted) { 'fslogix-daily-vaulted' } else { 'fslogix-daily' }
+    if ($Path -match 'vaults/rsv-avdlz-dev\?api-version') {
+      $v = @{ name='rsv-avdlz-dev'; id=$vaultId; location='eastus2'; properties=@{ securitySettings=@{ softDeleteSettings=@{ softDeleteState='Enabled'; softDeleteRetentionPeriodInDays=14 }; immutabilitySettings=@{ state='Unlocked' } }
+          redundancySettings=@{ standardTierStorageRedundancy='GeoRedundant'; crossRegionRestore=$(if ($rc.vaulted) { 'Enabled' } else { 'Disabled' }) } } }
+      return & $ok $v
+    }
+    if ($Path -match 'vaults/rsv-avdlz-dev/backupProtectedItems\?') {
+      $newest = @($rc.points | Sort-Object -Descending)[0]
+      return & $ok @{ value=@(@{ name='AzureFileShare;profiles'; id=$itemId; properties=@{ policyId="$vaultId/backupPolicies/$polName"; protectionState='Protected'; lastBackupStatus='Healthy'; lastBackupTime=$newest } }) }
+    }
+    if ($Path -match "backupPolicies/$polName\?") {
+      $ret = @{ retentionPolicyType='LongTermRetentionPolicy'; dailySchedule=@{ retentionDuration=@{ count=30; durationType='Days' } } }
+      $p = @{ backupManagementType='AzureStorage'; workLoadType='AzureFileShare' }
+      if ($rc.vaulted) { $p.vaultRetentionPolicy = @{ snapshotRetentionInDays=7; vaultRetention=$ret } } else { $p.retentionPolicy = $ret }
+      return & $ok @{ name=$polName; properties=$p }
+    }
+    if ($Path -match 'protectedItems/AzureFileShare;profiles/recoveryPoints\?') {
+      $i = 0
+      return & $ok @{ value=@($rc.points | ForEach-Object { $i++; @{ name="93288113855580286$i"; id="$itemId/recoveryPoints/93288113855580286$i"; properties=@{ objectType='AzureFileShareRecoveryPoint'; recoveryPointTime=$_; recoveryPointType='FileSystemConsistent' } } }) }
+    }
+    if ($Method -eq 'POST' -and $Path -match '/recoveryPoints/([^/]+)/restore\?') {
+      $rc.restored = @($rc.restored | Where-Object { $_ }) + @{ point=$Matches[1]; body=($Payload | ConvertFrom-Json) }
+      return [pscustomobject]@{ StatusCode=202; Content='' }
+    }
+    if ($Path -match 'vaults/rsv-avdlz-dev/backupJobs\?') {
+      if (-not @($rc.restored | Where-Object { $_ }).Count) { return & $ok @{ value=@() } }
+      $rc.jobPolls++
+      $st = if ($rc.jobPolls -lt 2) { 'InProgress' } else { $rc.restoreStatus }
+      $j = @{ name='7e0ee41e-6e31-4728-a25c-98ff6b777641'; properties=@{ operation='Restore'; status=$st; startTime=(Get-Date).ToUniversalTime().ToString('o')
+          extendedInfo=@{ propertyBag=@{ 'Number Of Restored Files'='12'; 'Number Of Failed Files'=$(if ($st -eq 'Failed') { '3' } else { '0' }) } } } }
+      if ($st -eq 'Failed') { $j.properties.errorDetails = @(@{ errorCode='UserErrorStorageAccountInternetRoutingNotSupported'; errorString='The target storage account is not reachable by Azure Backup.' }) }
+      return & $ok @{ value=@($j) }
+    }
+    if ($Path -match "storageAccounts/$saName/fileServices/default/shares/profiles\?") { return & $ok @{ name='profiles'; properties=@{ shareQuota=100; enabledProtocols='SMB' } } }
+    if ($Path -match 'storageAccounts/(strt[a-z0-9]+)(/fileServices/default/shares/[^/?]+)?\?') {
+      if ($Method -eq 'PUT') { $rc.created = @($rc.created | Where-Object { $_ }) + "$($Matches[1])$($Matches[2])"; $rc.createdBodies = @($rc.createdBodies | Where-Object { $_ }) + $Payload }
+      return & $ok @{ name=$Matches[1]; properties=@{ provisioningState='Succeeded' } }
+    }
+    if ($Path -match 'rg-avdlz-dev-hosts/providers/Microsoft.Compute/virtualMachines\?') {
+      $img = if ($rc.gallery) { @{ id="$S/resourceGroups/rg-avdlz-images/providers/Microsoft.Compute/galleries/galavdlz/images/win11-avd-m365/versions/2026.1020.1" } } else { @{ publisher='MicrosoftWindowsDesktop'; offer='office-365'; sku='win11-24h2-avd-m365'; version='latest' } }
+      return & $ok @{ value=@(@{ name='avdlzdsh-001'; properties=@{ storageProfile=@{ imageReference=$img } } }) }
+    }
+    if ($Path -match 'galleries/galavdlz/images/win11-avd-m365/versions/2026\.1020\.1\?') {
+      return & $ok @{ name='2026.1020.1'; properties=@{ publishingProfile=@{ targetRegions=@($rc.replicaRegions | ForEach-Object { @{ name=$_ } }) } } }
+    }
+    # Export-AvdConfiguration: the host pool carries a registration token, which must never reach a snapshot.
+    if ($Path -match 'rg-avdlz-dev-avd/providers/Microsoft.DesktopVirtualization/hostPools\?') {
+      return & $ok @{ value=@(@{ name='vdpool-avdlz-dev'; id=$hpId; etag='"e1"'; properties=@{ hostPoolType='Pooled'; maxSessionLimit=$(if ($rc.maxSessions) { $rc.maxSessions } else { 8 }); startVMOnConnect=$true
+              registrationInfo=@{ token='eyJhbGciOi.secret-registration-token'; expirationTime='2026-10-21T00:00:00Z' }; customRdpProperty='drivestoredirect:s:;' } }) }
+    }
+    if ($Path -match '/applicationGroups/[^/]+/applications\?') { return & $ok @{ value=@() } }
+    if ($Path -match 'scalingPlans/[^/]+/pooledSchedules\?') { return & $ok @{ value=@(@{ name='weekdays'; properties=@{ daysOfWeek=@('Monday','Tuesday'); rampUpStartTime=@{ hour=7; minute=0 } } }) } }
+    if ($Path -match 'scalingPlans\?') { return & $ok @{ value=@(@{ name='vdscaling-avdlz-dev'; id="$S/resourceGroups/rg-avdlz-dev-avd/providers/Microsoft.DesktopVirtualization/scalingPlans/vdscaling-avdlz-dev"; properties=@{ hostPoolReferences=@(@{ hostPoolArmPath=$hpId; scalingPlanEnabled=$true }) } }) } }
+    if ($Path -match '^(.+)/providers/Microsoft\.Authorization/roleAssignments\?') {
+      $scope = $Matches[1]
+      return & $ok @{ value=@(Get-AzRoleAssignment | Where-Object { $_.Scope -eq $scope } | ForEach-Object { @{ id="$scope/providers/Microsoft.Authorization/roleAssignments/$($_.ObjectId)-$($_.RoleDefinitionName -replace ' ')"; properties=@{ scope=$scope; roleDefinitionId="/providers/Microsoft.Authorization/roleDefinitions/$($_.RoleDefinitionName -replace ' ')"; principalId=$_.ObjectId; principalType=$_.ObjectType } } }) }
+    }
+  }
+  # ---- Run store (Initialize-AvdRunStore.ps1, Start-AvdRunRecorder.ps1). $global:St.runStore: defender
+  # ('Standard'/'Free'), deployed (bool). The single-plan pricing read returns 404 when it was never set.
+  $rs = $global:St.runStore
+  if ($rs -and $Path -match '/providers/Microsoft.Security/pricings/StorageAccounts\?') {
+    if (-not $rs.defender) { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"NotFound","message":"Not found"}}' } }
+    return & $ok @{ name='StorageAccounts'; properties=@{ pricingTier=$rs.defender } } }
+  # Cost Management query (Stop-AvdRunRecorder.ps1): $rs.costRows as [cost, meter, currency], or $rs.costForbidden.
+  if ($rs -and $Method -eq 'POST' -and $Path -match '/providers/Microsoft.CostManagement/query\?') {
+    $q = $Payload | ConvertFrom-Json
+    Log "COSTQUERY $($q.timePeriod.from) $(@($q.dataset.filter.dimensions.values) -join ',')"
+    if ($rs.costForbidden) { return [pscustomobject]@{ StatusCode=403; Content='{"error":{"code":"RBACAccessDenied","message":"The client does not have authorization to perform action."}}' } }
+    return & $ok @{ properties=@{ columns=@(@{ name='Cost'; type='Number' }, @{ name='Meter'; type='String' }, @{ name='Currency'; type='String' }); rows=@($rs.costRows) } } }
+  if ($rs -and $Path -match '/resourceGroups/avdlz-runs-rg/providers/Microsoft.Storage/storageAccounts/(avdlzruns[0-9a-f]+)\?') {
+    if (-not $rs.deployed) { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"ResourceNotFound","message":"The Resource was not found."}}' } }
+    return & $ok @{ name=$Matches[1]; properties=@{ allowSharedKeyAccess=$false; minimumTlsVersion='TLS1_2' } } }
   # ---- Golden image pipeline (scripts/ops/Start-AvdImageBuild.ps1): rg-avdlz-images, its gallery,
   # per-build image templates, and the marketplace versions. $global:St.images holds the state.
   $im = $global:St.images
@@ -197,7 +278,7 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
   # Subscription deployment records for Get-AvdRunStatus.ps1. $global:St.deploymentRecords: @{ name; state; timestamp }.
   # ARM leaves out what a record doesn't have (lesson 0021): no outputs here.
   if ($Path -match '^/subscriptions/[^/]+/providers/Microsoft\.Resources/deployments\?' -and $Method -eq 'GET') {
-    return & $ok @{ value=@($global:St.deploymentRecords | Where-Object { $_ } | ForEach-Object { @{ name=$_.name; properties=@{ provisioningState=$_.state; timestamp=$_.timestamp } } }) }
+    return & $ok @{ value=@($global:St.deploymentRecords | Where-Object { $_ } | ForEach-Object { $p = @{ provisioningState=$_.state; timestamp=$_.timestamp }; if ($_.parameters) { $p.parameters = $_.parameters }; @{ name=$_.name; properties=$p } }) }
   }
   if ($Path -match 'providers/Microsoft.Resources/deployments/(avdlz-demo-[^/?]+)\?' -and $Method -eq 'GET') {
     if (@($global:St.deployments) -notcontains $Matches[1]) { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"DeploymentNotFound"}}' } }
@@ -320,6 +401,12 @@ function Get-AzVMUsage { param($Location) $l = $global:St.quotaLimit; @(
     [pscustomobject]@{Name=[pscustomobject]@{Value='standardDSv5Family'};Limit=$(if ($null -ne $global:St.dsLimit) { $global:St.dsLimit } else { 10 });CurrentValue=0},
     [pscustomobject]@{Name=[pscustomobject]@{Value='cores'};Limit=$(if ($l) { $l } else { 20 });CurrentValue=4}) }
 # Az.Storage, as Start-AvdImageBuild.ps1 reads AIB's customization log with the signed-in identity.
+# Run store uploads: $global:St.blobs holds container/blob -> the uploaded file's text.
+function Set-AzStorageBlobContent { param($File,$Container,$Blob,$Context,[switch]$Force,$ErrorAction)
+  Log "blob put $($Context.StorageAccountName)/$Container/$Blob"
+  if ($null -eq $global:St.blobs) { $global:St.blobs = @{} }
+  $global:St.blobs["$Container/$Blob"] = Get-Content -LiteralPath $File -Raw
+  [pscustomobject]@{ Name=$Blob } }
 function New-AzStorageContext { param($StorageAccountName,[switch]$UseConnectedAccount) [pscustomobject]@{ StorageAccountName=$StorageAccountName } }
 function Get-AzStorageBlob { param($Container,$Context,$ErrorAction)
   if ($global:St.images.logUnreadable) { throw 'This request is not authorized to perform this operation using this permission. (403)' }
@@ -344,6 +431,12 @@ function Invoke-AzVMRunCommand { param($ResourceGroupName,$VMName,$CommandId,$Sc
   [pscustomobject]@{ Value=@([pscustomobject]@{Code='ComponentStatus/StdOut/succeeded';Message=('<<<AVDJSON'+($o|ConvertTo-Json -Compress)+'AVDJSON>>>')},[pscustomobject]@{Code='ComponentStatus/StdErr/succeeded';Message=''}) }
 }
 function New-AzSubscriptionDeployment { param($Name,$Location,$TemplateFile,$TemplateParameterObject,$ErrorAction)
+  if ($TemplateFile -like '*recorder*main.bicep') {
+    Log "deploy $Name runstore=$($TemplateParameterObject.storageAccountName) teardownLogs=$($TemplateParameterObject.teardownLogs) repo=$($TemplateParameterObject.privateRepo) activityLog=$($TemplateParameterObject.exportActivityLog)"
+    foreach ($k in 'location','storageAccountName','operatorPrincipalId') { if (-not $TemplateParameterObject[$k]) { throw "missing $k" } }
+    $global:St.runStore.deployed = $true
+    return [pscustomobject]@{ ProvisioningState='Succeeded'; Outputs=@{} }
+  }
   Log "deploy $Name pwType=$($TemplateParameterObject.localAdminPassword.GetType().Name) dns=$($TemplateParameterObject.avdPrivateDnsZoneResourceId -split '/' | select -last 1)"
   foreach ($k in 'sessionHostSubnetResourceId','usersGroupObjectId','avdServicePrincipalObjectId','profileShareUncPath') { if (-not $TemplateParameterObject[$k]) { throw "missing $k" } }
   $global:St.rgs += 'rg-avdlz-dev-demo'

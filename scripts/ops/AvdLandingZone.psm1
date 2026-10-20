@@ -62,7 +62,7 @@ function Get-AvdPortalState {
     warning with its stable Id and Data. Schema: site/portal/README.md.
   #>
   param(
-    [Parameter(Mandatory)][ValidateSet('predeploy', 'postdeploy', 'demo', 'cleanup', 'verify', 'resume')][string] $Stage,
+    [Parameter(Mandatory)][ValidateSet('predeploy', 'postdeploy', 'demo', 'cleanup', 'verify', 'resume', 'recovery')][string] $Stage,
     [switch] $Fix,
     [hashtable] $Context = @{},
     # A stage-specific outcome (verify: verified, failed, notverified) instead of ready/notready.
