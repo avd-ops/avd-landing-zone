@@ -72,6 +72,8 @@
    * redact(text, options) -> { text, counts {kind: n}, total }
    * options.known: [{ kind, value }] values from the operator's settings (name prefix, groups, ...)
    * options.extraTerms: [string] anything else the operator wants removed
+   * options.level: 'public' (default, everything above) or 'private' (secrets only: what the run
+   *   journal keeps in the operator's own tenant, build/specs/run-recorder-spec.md section 5)
    */
   function redact(text, options) {
     options = options || {};
@@ -111,6 +113,9 @@
         if (!keyLike) return s;
         count('secret'); return '<secret>';
       });
+
+    // Private level (run recorder spec section 5): secrets only, for what stays in the operator's own tenant.
+    if (options.level === 'private') return finish();
 
     // 2. The operator's own terms and settings.
     replaceTerms('custom', (options.extraTerms || []).map(function (t) { return String(t).trim(); }));
@@ -179,8 +184,12 @@
       .replace(/(\/home\/)(?!<)([A-Za-z0-9._-]+)/g, function (a, p, u) { return p + token('user', u); })
       .replace(/([A-Za-z]:\\Users\\)(?!<)([^\\\s"']+)/g, function (a, p, u) { return p + token('user', u); });
 
-    var total = 0; Object.keys(counts).forEach(function (k) { if (counts[k] > 0) total += counts[k]; else delete counts[k]; });
-    return { text: text, counts: counts, total: total };
+    return finish();
+
+    function finish() {
+      var total = 0; Object.keys(counts).forEach(function (k) { if (counts[k] > 0) total += counts[k]; else delete counts[k]; });
+      return { text: text, counts: counts, total: total };
+    }
   }
 
   function describe(counts) {
