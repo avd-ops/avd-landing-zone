@@ -134,7 +134,7 @@ param sessionHostImageId string = ''
 ])
 param sessionHostGeneration string = ''
 
-@description('The host pool tags the rotation script owns (avdlz-image, avdlz-generation, avdlz-image-next, avdlz-rotation). deploy.sh passes the pool\'s current values so a deployment keeps them; nothing else sets them.')
+@description('The host pool tags the rotation script owns (avdlz-image, avdlz-generation, avdlz-image-next, avdlz-image-previous, avdlz-rotation). deploy.sh passes the pool\'s current values so a deployment keeps them; nothing else sets them.')
 param hostPoolStateTags object = {}
 
 @description('Maximum sessions per host (breadth-first). Size to your workload.')
@@ -315,6 +315,7 @@ var rotationTagNames = [
   'avdlz-image'
   'avdlz-generation'
   'avdlz-image-next'
+  'avdlz-image-previous'
   'avdlz-rotation'
 ]
 var keptHostPoolStateTags = toObject(filter(items(hostPoolStateTags), t => contains(rotationTagNames, t.key) && !empty(t.value)), t => t.key, t => string(t.value))

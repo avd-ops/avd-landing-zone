@@ -456,6 +456,58 @@ Describe 'Auto shutdown runbook' {
   }
 }
 
+Describe 'Blue/green host rotation (image pipeline spec section 6.5)' {
+  # scripts/ops/Invoke-AvdHostRotation.ps1: two hosts on version 2026.1004.1 (001 with a session) move to 2026.1101.1
+  # as generation a, one run at a time; then a rotation rolled back before Remove.
+  BeforeAll {
+    $script:out = Invoke-OfflineScenario 'Rotation'
+    function Get-RotationLine([string] $Step, [string] $Kind = 'state') { [regex]::Match($out, "RESULT $Step-$Kind (.*)").Groups[1].Value }
+    $script:states = @(Get-PortalState $out | Where-Object stage -eq 'rotation')
+  }
+
+  It 'refuses the version the pool already runs, and too little quota for both generations, changing nothing' {
+    Get-StepExit $out 'same-image' | Should -Be 1
+    $states[0].status | Should -Be 'refused'
+    @($states[0].failures.id) | Should -Contain 'rotation-image'
+    Get-StepExit $out 'no-quota' | Should -Be 1
+    @($states[1].failures.id) | Should -Be @('rotation-quota')
+    $states[1].failures[0].data.needed | Should -Be 8
+    Get-RotationLine 'no-quota' | Should -Match '^phase= image=2026\.1004\.1 gen= next= previous= hosts=avdlzdsh-001:open,avdlzdsh-002:open vmsGone= '
+  }
+  It 'deploys generation a beside the old hosts with the target image, through deploy.sh --rotation, keeping the pool tags' {
+    Get-RotationLine 'deploy' | Should -Match '^phase=Deploy image=2026\.1004\.1 gen= next=2026\.1101\.1 previous=2026\.1004\.1 hosts=avdlzdsh-001:open,avdlzdsh-002:open'
+    Get-RotationLine 'deploy' 'deploy' | Should -Match '^create;deploy-env image=2026\.1101\.1 gen=a tags=\{"avdlz-image":"2026\.1004\.1","avdlz-image-next":"2026\.1101\.1","avdlz-image-previous":"2026\.1004\.1","avdlz-rotation":'
+    $out | Should -Match 'Hosts: image .*/versions/2026\.1101\.1, generation a'
+  }
+  It 'waits for every new host to be Available and healthy, without deploying again' {
+    Get-RotationLine 'hosts-wait' 'deploy' | Should -BeNullOrEmpty
+    $states[3].warnings[0].detail | Should -Match '0 of 2 new host'
+  }
+  It 'records the new image on the pool only once the new hosts are ready, then drains the old ones with a message' {
+    Get-RotationLine 'drain' | Should -Match '^phase=Wait image=2026\.1101\.1 gen=a .* hosts=avdlzdsh-001:drain,avdlzdsh-002:drain,avdlzdsha-001:open,avdlzdsha-002:open vmsGone= messages=1 signedOut=0 gallery=Merge 2026\.1101\.1$'
+  }
+  It 'signs nobody out after the deadline unless asked, then gives 15 minutes'' notice first' {
+    Get-RotationLine 'deadline' | Should -Match 'messages=1 signedOut=0'
+    $out | Should -Match 'left after the deadline\. Run again with -LogOffAtDeadline'
+    Get-RotationLine 'notice' | Should -Match 'messages=2 signedOut=0'
+    Get-RotationLine 'logoff' | Should -Match 'messages=2 signedOut=1'
+  }
+  It 'removes the old hosts and VMs, clears the rotation, frees the old version and lists the device objects' {
+    Get-RotationLine 'remove' | Should -Match '^phase= image=2026\.1101\.1 gen=a next= previous=2026\.1004\.1 hosts=avdlzdsha-001:open,avdlzdsha-002:open vmsGone=avdlzdsh-001,avdlzdsh-002 .* gallery=Merge 2026\.1101\.1,Delete 2026\.1004\.1$'
+    $done = $states | Where-Object status -eq 'done' | Select-Object -First 1
+    @($done.warnings | Where-Object id -eq 'devices-left')[0].data.devices | Should -Be @('avdlzdsh-001', 'avdlzdsh-002')
+  }
+  It 'rolls back before Remove: the original hosts take sessions again and the new ones are removed' {
+    Get-RotationLine 'rb-drain' | Should -Match 'hosts=avdlzdsh-001:drain,avdlzdsh-002:drain,avdlzdsha-001:open,avdlzdsha-002:open'
+    Get-RotationLine 'rollback' | Should -Match '^phase= image=2026\.1004\.1 gen= next= previous=2026\.1004\.1 hosts=avdlzdsh-001:open,avdlzdsh-002:open vmsGone=avdlzdsha-001,avdlzdsha-002 .*Delete 2026\.1101\.1$'
+    $states[-1].status | Should -Be 'done'
+    $states[-1].context.rollback | Should -BeTrue
+  }
+  It 'prints a portal state line for every run' {
+    ($states | ForEach-Object status) -join ' ' | Should -Be 'refused refused waiting waiting waiting waiting waiting waiting done waiting waiting done'
+  }
+}
+
 Describe 'Golden image build' {
   # build/specs/image-pipeline-spec.md section 5; red-team M1, M2, M3, M5, M7.
   BeforeAll {

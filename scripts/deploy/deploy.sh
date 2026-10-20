@@ -252,12 +252,12 @@ if [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(az group exists -n "$HOSTS
   # rotation tags back so they survive the deployment.
   POOL_STATE=$(az resource show -g "rg-$NAME_PREFIX-$ENV_NAME-avd" -n "vdpool-$NAME_PREFIX-$ENV_NAME" \
     --resource-type Microsoft.DesktopVirtualization/hostPools \
-    --query '{"avdlz-image": tags."avdlz-image", "avdlz-generation": tags."avdlz-generation", "avdlz-image-next": tags."avdlz-image-next", "avdlz-rotation": tags."avdlz-rotation"}' \
+    --query '{"avdlz-image": tags."avdlz-image", "avdlz-generation": tags."avdlz-generation", "avdlz-image-next": tags."avdlz-image-next", "avdlz-image-previous": tags."avdlz-image-previous", "avdlz-rotation": tags."avdlz-rotation"}' \
     -o json 2>/dev/null || true)
   if [[ -n "$POOL_STATE" ]]; then
     # Keep the tags that are set, as a JSON object (absent tags come back null and are left out).
     POOL_STATE=$(tr -d '\n' <<<"$POOL_STATE"); kept=()
-    for tag in avdlz-image avdlz-generation avdlz-image-next avdlz-rotation; do
+    for tag in avdlz-image avdlz-generation avdlz-image-next avdlz-image-previous avdlz-rotation; do
       [[ $POOL_STATE =~ \"$tag\":\ *(\"([^\"\\]|\\.)*\") ]] && kept+=("\"$tag\":${BASH_REMATCH[1]}")
     done
     AVD_HOST_POOL_STATE_TAGS="{$(IFS=,; echo "${kept[*]}")}"

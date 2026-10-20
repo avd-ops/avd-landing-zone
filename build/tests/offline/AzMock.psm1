@@ -42,6 +42,54 @@ function Get-AzStorageAccount { param($ResourceGroupName,$ErrorAction)
 function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
   Log "ARM $Method $Path"
   $ok = { param($o) [pscustomobject]@{StatusCode=200;Content=($o|ConvertTo-Json -Depth 20)} }
+  # ---- Host rotation (Invoke-AvdHostRotation.ps1; image pipeline spec section 6.5). Only when $global:St.rotation is
+  # set: tags (the host pool's), hosts (VM name -> @{ status; sessions; allowNew; healthy; deleted }), vmsGone (VMs
+  # deleted), galleryTags (what was tagged on gallery versions), deployment (the last succeeded record's parameters).
+  # ARM leaves out what it doesn't have (lesson 0021): a pool with no tags has no tags property.
+  $ro = $global:St.rotation
+  if ($ro) {
+    $hpRe = [regex]::Escape($hpId); $vmBase = "$S/resourceGroups/rg-avdlz-dev-hosts/providers/Microsoft.Compute/virtualMachines"
+    if ($Method -eq 'GET' -and $Path -match "^$hpRe\?") { $o = @{ name='vdpool-avdlz-dev'; id=$hpId }; if ($ro.tags.Count) { $o.tags = $ro.tags }; return & $ok $o }
+    if ($Method -eq 'PATCH' -and $Path -match "^$hpRe/providers/Microsoft.Resources/tags/default\?") {
+      $b = $Payload | ConvertFrom-Json
+      foreach ($t in $b.properties.tags.PSObject.Properties) {
+        if ($b.operation -eq 'Merge') { $ro.tags[$t.Name] = "$($t.Value)" }
+        elseif ($ro.tags[$t.Name] -eq "$($t.Value)") { $ro.tags.Remove($t.Name) }   # Delete matches name and value
+      }
+      # deploy.sh reads the same tags through the fake az (deploybin/az, FAKE_POOL_TAGS).
+      $env:FAKE_POOL_TAGS = ([ordered]@{ 'avdlz-generation' = $ro.tags['avdlz-generation']; 'avdlz-image' = $ro.tags['avdlz-image']; 'avdlz-image-next' = $ro.tags['avdlz-image-next']
+          'avdlz-image-previous' = $ro.tags['avdlz-image-previous']; 'avdlz-rotation' = $ro.tags['avdlz-rotation'] } | ConvertTo-Json)
+      return & $ok @{}
+    }
+    if ($Method -eq 'PATCH' -and $Path -match '/versions/([^/]+)/providers/Microsoft.Resources/tags/default\?') {
+      $ro.galleryTags += "$(($Payload | ConvertFrom-Json).operation) $($Matches[1])"
+      return & $ok @{}
+    }
+    if ($Method -eq 'GET' -and $Path -match "^$hpRe/sessionHosts\?") {
+      return & $ok @{ value=@($ro.hosts.Keys | Sort-Object | Where-Object { -not $ro.hosts[$_].deleted } | ForEach-Object {
+            $h = $ro.hosts[$_]
+            @{ name="vdpool-avdlz-dev/$_.contoso.com"; id="$hpId/sessionHosts/$_.contoso.com"
+              properties=@{ resourceId="$vmBase/$_"; status=$h.status; sessions=$h.sessions; allowNewSession=$h.allowNew
+                sessionHostHealthCheckResults=@(@{ healthCheckName='DomainJoinedCheck'; healthCheckResult=$(if ($h.healthy -eq $false) { 'HealthCheckFailed' } else { 'HealthCheckSucceeded' }) }) } } }) }
+    }
+    if ($Path -match "^$hpRe/sessionHosts/([^./]+)\.contoso\.com(/userSessions)?") {
+      $name = $Matches[1]; $h = $ro.hosts[$name]; $us = [bool]$Matches[2]
+      if ($Path -match '/sendMessage\?') { $ro.messages++; return & $ok @{} }
+      if ($us -and $Method -eq 'GET') { return & $ok @{ value=@(1..([Math]::Max(1, [int]$h.sessions)) | Where-Object { $h.sessions } | ForEach-Object { @{ name="vdpool-avdlz-dev/$name.contoso.com/$_" } }) } }
+      if ($us -and $Method -eq 'DELETE') { $h.sessions = [Math]::Max(0, $h.sessions - 1); $ro.signedOut++; return & $ok @{} }
+      if ($Method -eq 'PATCH') { $h.allowNew = ($Payload | ConvertFrom-Json).properties.allowNewSession; return & $ok @{} }
+      if ($Method -eq 'DELETE') { $h.deleted = $true; return & $ok @{} }
+    }
+    if ($Path -match "^$([regex]::Escape($vmBase))/([^/?]+)\?") {
+      $vm = $Matches[1]
+      if ($Method -eq 'DELETE') { $ro.vmsGone += $vm; return [pscustomobject]@{ StatusCode=202; Content='' } }
+      if ($ro.vmsGone -contains $vm -or -not $ro.hosts.ContainsKey($vm)) { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"ResourceNotFound"}}' } }
+      return & $ok @{ name=$vm }
+    }
+    if ($Method -eq 'GET' -and $Path -match '^/subscriptions/[^/]+/providers/Microsoft\.Resources/deployments\?') {
+      return & $ok @{ value=@(@{ name='avdlz-dev-20261020-120000'; properties=@{ provisioningState='Succeeded'; timestamp='2026-10-20T12:00:00Z'; parameters=$ro.deployment } }) }
+    }
+  }
   # ---- Recovery (Get-AvdRecoveryStatus, Export-AvdConfiguration, Start-AvdRecoveryTest, Test-AvdRecoveryCopies;
   # build/specs/recovery-spec.md). Only when $global:St.recovery is set: vaulted (bool), points (recovery point
   # times), restoreStatus (the restore job's end state), gallery (hosts on a gallery image), replicaRegions.

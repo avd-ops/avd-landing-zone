@@ -804,3 +804,37 @@ test('commands: recovery status passes the tier and region only when they are va
   assert.equal(last(P.commands.recoveryStatus(cfg, { tier: 'R1', recoveryLocation: 'southcentralus' })), './scripts/ops/Get-AvdRecoveryStatus.ps1 -NamePrefix avdlz -Environment prod -RecoveryTier R1 -RecoveryLocation southcentralus');
   assert.equal(last(P.commands.recoveryStatus(cfg, { tier: 'R9; rm', recoveryLocation: 'x y' })), './scripts/ops/Get-AvdRecoveryStatus.ps1 -NamePrefix avdlz -Environment prod');
 });
+
+// Blue/green host rotation (build/specs/image-pipeline-spec.md section 6.5): every run continues where the last
+// stopped; a rollback is offered until the old hosts are removed.
+test('state: rotation refused -> what to fix, nothing changed, no command', () => {
+  const r = analyze('state-rotation-refused.txt');
+  assert.equal(r.stage, 'rotation');
+  assert.equal(r.status, 'refused');
+  assert.match(r.headline, /^Host rotation: Refused/);
+  assert.match(r.actions[0].why, /already runs .* Nothing was changed/);
+  assert.equal(r.actions[0].command, '');
+});
+
+test('state: rotation waiting for sessions -> run it again, or roll back', () => {
+  const r = analyze('state-rotation-waiting.txt');
+  assert.equal(r.status, 'waiting');
+  assert.equal(last(r.actions[0].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev');
+  assert.equal(last(r.actions[1].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -Rollback');
+  assertSelfContained(r);
+});
+
+test('state: rotation past the deadline -> sign-out only when asked, with -LogOffAtDeadline', () => {
+  const r = analyze('state-rotation-after-deadline.txt');
+  assert.equal(last(r.actions[0].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -LogOffAtDeadline');
+});
+
+test('state: rotation done -> delete the old devices by hand; roll back means rotating to the previous version', () => {
+  const r = analyze('state-rotation-done.txt');
+  assert.equal(r.status, 'done');
+  assert.match(r.actions[0].title, /device objects/);
+  assert.match(r.actions[0].why, /avdlzdsha-001/);
+  assert.equal(r.actions[0].command, '');
+  assert.match(r.actions[1].title, /rotation is complete/);
+  assert.match(last(r.actions[1].command), / -Rollback$/);
+});

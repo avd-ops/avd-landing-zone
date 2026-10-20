@@ -1,0 +1,4 @@
+Host rotation - avdlz-dev in 'Fake subscription'
+  [Wait] 2 session(s) left on the old hosts; deadline 2026-10-23 18:00 UTC.
+Deployment portal: paste this output into https://nickprignano.github.io/avd-landing-zone/portal/ for the next step.
+<<<AVDLZ-STATE {"v":1,"stage":"rotation","status":"waiting","fix":false,"context":{"namePrefix":"avdlz","environment":"dev","from":"a","to":"b","version":"win11-avd 2026.1101.1","rollback":false,"phase":"Wait","sessionsLeft":2},"counts":{"pass":2,"fail":0,"warn":1,"fixed":0,"skip":0},"failures":[],"warnings":[{"id":"rotation-waiting","area":"Rotation","check":"Sessions left on the old hosts","detail":"2 session(s) left on the old hosts; deadline 2026-10-23 18:00 UTC.","remediation":"Run this again later; it continues from here.","data":{"sessions":2,"deadline":"2026-10-23T18:00Z"}}]} AVDLZ-STATE>>>

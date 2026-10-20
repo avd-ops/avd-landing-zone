@@ -360,7 +360,7 @@ Describe 'Image and generation for host rotation (build/specs/image-pipeline-spe
     }
   }
   It 'keeps only the rotation tags on the host pool, and only when set' {
-    $t.variables['rotationTagNames'] | Should -Be @('avdlz-image', 'avdlz-generation', 'avdlz-image-next', 'avdlz-rotation')
+    $t.variables['rotationTagNames'] | Should -Be @('avdlz-image', 'avdlz-generation', 'avdlz-image-next', 'avdlz-image-previous', 'avdlz-rotation')
     $t.variables['keptHostPoolStateTags'] | Should -Match "contains\(variables\('rotationTagNames'\)"
     $t.variables['keptHostPoolStateTags'] | Should -Match 'not\(empty\('
     $cp = Find-Deployment $t 'avdlz-control-plane'
