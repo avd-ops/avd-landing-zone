@@ -1,0 +1,105 @@
+/* avd-ops design system v1.0.0 (https://avd-ops.dev/, nickprignano/avd-ops site/assets/avd-ops.css). MIT.
+   Personal project, not for production, as is; not affiliated with the author's employer, Liquidware or Microsoft.
+   One file for every public AVD page: tokens (light, dark, and a data-theme override), base type, and the shared
+   pieces (top bar with the logo slot, notice, buttons, chips, status pills, tables, code, footer). Pages add only
+   their own layout. Other repos vendor this file with fonts/ and brand/ at a tagged version; see docs/design-system.md.
+   Fonts are served from fonts/ next to this file, so a page that uses it makes no requests to other sites. */
+
+@font-face{font-family:"Schibsted Grotesk";font-weight:600;font-display:swap;src:url("fonts/schibsted-grotesk-latin-600-normal.woff2") format("woff2")}
+@font-face{font-family:"Schibsted Grotesk";font-weight:700;font-display:swap;src:url("fonts/schibsted-grotesk-latin-700-normal.woff2") format("woff2")}
+@font-face{font-family:"Source Sans 3";font-weight:400;font-display:swap;src:url("fonts/source-sans-3-latin-400-normal.woff2") format("woff2")}
+@font-face{font-family:"Source Sans 3";font-weight:600 700;font-display:swap;src:url("fonts/source-sans-3-latin-600-normal.woff2") format("woff2")}
+@font-face{font-family:"JetBrains Mono";font-weight:400 500;font-display:swap;src:url("fonts/jetbrains-mono-latin-500-normal.woff2") format("woff2")}
+@font-face{font-family:"JetBrains Mono";font-weight:600 700;font-display:swap;src:url("fonts/jetbrains-mono-latin-600-normal.woff2") format("woff2")}
+
+/* Tokens. Neutrals are a cool slate; one blue accent; amber marks the optional Liquidware tier; good, caution and
+   bad are for results only, never decoration. */
+:root{
+  --bg:#f4f6f9; --surface:#ffffff; --sunken:#eef2f6; --fg:#152232; --muted:#566578; --line:#d7dee8; --line-strong:#bfc9d6;
+  --accent:#0f5fa8; --accent-hover:#0b4d8a; --on-accent:#ffffff; --accent-soft:#e3eef9; --focus:#0f5fa8;
+  --tier:#9a5b12; --tier-soft:#f7ecdc;
+  --good:#18794e; --good-soft:#e1f3e9; --caution:#8a5a00; --caution-soft:#fbf0d9; --bad:#b42323; --bad-soft:#fbe7e7;
+  --warn-bg:#fff6e0; --warn-line:#e2b74a; --warn-fg:#4d3a07;
+  --term-bg:#0f1822; --term-head:#18232f; --term-text:#dbe5ef; --term-muted:#8796a8; --term-border:#263342; --prompt:#5fcf86;
+  --s-built-bg:#d9f2e3; --s-built-fg:#14532d; --s-design-bg:#eee6fb; --s-design-fg:#4c1d95; --s-slice-bg:#fdecc8; --s-slice-fg:#713f12;
+  --shadow:0 1px 2px rgba(21,34,50,.05),0 4px 16px rgba(21,34,50,.05);
+  --display:"Schibsted Grotesk","Segoe UI",system-ui,sans-serif;
+  --body:"Source Sans 3","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",SFMono-Regular,Menlo,Consolas,monospace;
+  --radius:8px; --radius-sm:6px; --pill:999px;
+  --space-1:.25rem; --space-2:.5rem; --space-3:.75rem; --space-4:1rem; --space-5:1.5rem; --space-6:2.5rem;
+  --measure:46rem; --gutter:16px;
+  --ease:cubic-bezier(.2,.7,.2,1); --fast:120ms; --slow:220ms;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1620; --surface:#16202c; --sunken:#121b25; --fg:#e4ebf3; --muted:#9aa9ba; --line:#2a3646; --line-strong:#3a4859;
+  --accent:#6cb0f0; --accent-hover:#93c5f5; --on-accent:#0b1520; --accent-soft:#16304a; --focus:#93c5f5;
+  --tier:#e5a95a; --tier-soft:#3a2a14;
+  --good:#4cc286; --good-soft:#10291c; --caution:#e0b04a; --caution-soft:#2c2311; --bad:#ff8a80; --bad-soft:#301818;
+  --warn-bg:#2e2610; --warn-line:#8a6d1e; --warn-fg:#f3e3b0;
+  --term-bg:#0a1018; --term-head:#121a24; --term-text:#dbe5ef; --term-muted:#7d8c9e; --term-border:#222e3c; --prompt:#5fcf86;
+  --s-built-bg:#123824; --s-built-fg:#a7e8c0; --s-design-bg:#2c1f4a; --s-design-fg:#d4c4fb; --s-slice-bg:#3d2e0e; --s-slice-fg:#f5d58a;
+  --shadow:0 1px 2px rgba(0,0,0,.35); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1620; --surface:#16202c; --sunken:#121b25; --fg:#e4ebf3; --muted:#9aa9ba; --line:#2a3646; --line-strong:#3a4859;
+  --accent:#6cb0f0; --accent-hover:#93c5f5; --on-accent:#0b1520; --accent-soft:#16304a; --focus:#93c5f5;
+  --tier:#e5a95a; --tier-soft:#3a2a14;
+  --good:#4cc286; --good-soft:#10291c; --caution:#e0b04a; --caution-soft:#2c2311; --bad:#ff8a80; --bad-soft:#301818;
+  --warn-bg:#2e2610; --warn-line:#8a6d1e; --warn-fg:#f3e3b0;
+  --term-bg:#0a1018; --term-head:#121a24; --term-text:#dbe5ef; --term-muted:#7d8c9e; --term-border:#222e3c; --prompt:#5fcf86;
+  --s-built-bg:#123824; --s-built-fg:#a7e8c0; --s-design-bg:#2c1f4a; --s-design-fg:#d4c4fb; --s-slice-bg:#3d2e0e; --s-slice-fg:#f5d58a;
+  --shadow:0 1px 2px rgba(0,0,0,.35); color-scheme:dark}
+
+/* Base */
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:17px/1.6 var(--body);margin:0;-webkit-text-size-adjust:100%}
+a{color:var(--accent)} a:hover{color:var(--accent-hover)}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+h1,h2,h3{font-family:var(--display);line-height:1.2;text-wrap:balance}
+h1{font-size:clamp(2rem,5vw,2.9rem);margin:var(--space-6) 0 var(--space-3);letter-spacing:-.01em}
+h2{font-size:1.45rem;margin:2.75rem 0 var(--space-3)} h3{font-size:1.1rem;margin:0 0 .35rem}
+code,.mono{font-family:var(--mono);font-size:.85em}
+pre{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);padding:.9rem 1rem;overflow-x:auto;font:.82rem/1.55 var(--mono)}
+.lede{font-size:1.2rem;color:var(--muted)}
+.wrap{max-width:var(--measure);margin:0 auto;padding-block:0 4rem;
+  padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
+
+/* Top bar. The brand is the logo slot: brand/mark.svg (square) beside the word "avd-ops". A page may follow it with
+   a crumb (.sep, then its own title) and its own links. */
+header.top{display:flex;flex-wrap:wrap;gap:var(--space-2) 1.25rem;align-items:center;padding-block:1.1rem;border-bottom:1px solid var(--line)}
+header.top .brand{display:inline-flex;align-items:center;gap:var(--space-2);font:700 1.05rem var(--display);color:var(--fg);text-decoration:none;letter-spacing:.01em}
+header.top .brand .mark{width:26px;height:26px;flex:none;border-radius:5px;display:block;box-shadow:0 0 0 1px var(--line)}
+header.top .sep{color:var(--line-strong)}
+header.top nav{display:flex;flex-wrap:wrap;gap:var(--space-1) var(--space-4);font-size:.95rem}
+header.top nav a{text-decoration:none;color:var(--muted)} header.top nav a:hover{color:var(--fg)} header.top nav a[aria-current]{color:var(--fg);font-weight:600}
+
+/* Notice: the research-only warning every page carries before its first section. */
+.warn{background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--warn-fg);border-radius:var(--radius-sm);padding:.9rem 1.1rem;margin:var(--space-5) 0;font-size:.95rem}
+.warn strong:first-child{display:block;margin-bottom:var(--space-1)}
+.warn ul{margin:var(--space-1) 0 0;padding-left:1.2rem}
+.warn a{color:inherit}
+
+/* Labels, chips, status pills. Chips sit in a .chips row and pills carry an s-* class, so pages that use
+   .chip or .status for their own thing (the portal) keep theirs. */
+.eyebrow{font:600 .75rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:var(--space-1)}
+.chips .chip{font:500 .72rem var(--mono);border:1px solid var(--line);border-radius:var(--pill);padding:.1rem var(--space-2);color:var(--muted);background:var(--bg)}
+.status:is(.s-built,.s-design,.s-slice){font:600 .72rem var(--mono);text-transform:uppercase;letter-spacing:.06em;padding:.15rem var(--space-2);border-radius:4px;align-self:flex-start}
+.s-built{background:var(--s-built-bg);color:var(--s-built-fg)} .s-design{background:var(--s-design-bg);color:var(--s-design-fg)} .s-slice{background:var(--s-slice-bg);color:var(--s-slice-fg)}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:var(--space-4);min-width:0}
+
+/* Buttons. .cta is a link styled as the primary action; .ghost is the secondary one. */
+.cta{display:inline-block;margin:var(--space-2) var(--space-2) 0 0;padding:var(--space-2) .95rem;border-radius:var(--radius-sm);background:var(--accent);color:var(--on-accent);border:1px solid var(--accent);text-decoration:none;font-weight:600;transition:background var(--fast) var(--ease)}
+.cta:hover{background:var(--accent-hover);border-color:var(--accent-hover);color:var(--on-accent)}
+.cta.ghost{background:transparent;color:var(--accent)} .cta.ghost:hover{background:var(--accent-soft);color:var(--accent)}
+
+/* Tables */
+.tbl{overflow-x:auto;margin:var(--space-4) 0} table{border-collapse:collapse;width:100%;font-size:.95rem}
+th,td{text-align:left;vertical-align:top;padding:.55rem .7rem;border-bottom:1px solid var(--line)} th{font-family:var(--display);font-size:.85rem;color:var(--muted)}
+
+/* Footer */
+footer.site{margin-top:3.5rem;padding-top:1.25rem;border-top:1px solid var(--line);font-size:.85rem;color:var(--muted)}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

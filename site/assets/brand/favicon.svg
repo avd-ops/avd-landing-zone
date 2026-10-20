@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="avd-ops">
+  <!-- Placeholder mark, replaced by the real logo (docs/design-system.md, "Logo slot"). -->
+  <rect width="32" height="32" rx="6" fill="#152232"/>
+  <path d="M9 11l6 5-6 5" fill="none" stroke="#6cb0f0" stroke-width="2.6" stroke-linecap="square" stroke-linejoin="miter"/>
+  <rect x="17" y="19.5" width="7" height="2.6" fill="#e5a95a"/>
+</svg>
