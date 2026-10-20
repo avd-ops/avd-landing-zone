@@ -191,7 +191,7 @@ If the Microsoft Graph sign-in times out, the script keeps the deployment record
 
 It supports `-WhatIf`.
 
-With `-IncludeLandingZone`, you must type the landing zone name to confirm (`-Force` skips this). It then removes:
+With `-IncludeLandingZone`, the landing zone holds the only copy of its FSLogix profiles, their backups and its Log Analytics workspace (AVD diagnostics, host logs and the activity log export). The script refuses unless you also pass `-DiscardLastCopy`, which `-Force` never implies: copy what you want to keep outside the landing zone first and check the copy ([never delete the last copy](https://github.com/nickprignano/avd-second-brain/blob/main/docs/knowledge/decisions/0016-never-delete-the-last-copy.md)). Then you type the landing zone name to confirm (`-Force` skips this). It then removes:
 1. **Profile backup.** It disables vault immutability and soft delete, which would otherwise block the delete. It stops protection, deletes the recovery points, and unregisters the storage account, which releases the backup delete lock.
 2. **The five landing zone resource groups**, in dependency order. First it deletes the Log Analytics workspace permanently. Deleting its resource group would only soft-delete it for 14 days, and the next deployment under the same name would recover it and fail on the AVD Insights data collection rule ([lesson 0023](../build/lessons/0023-log-analytics-soft-delete.md)).
 3. **Subscription-level resources:** `avdlz-*` policy assignments with their role assignments, the budget, the activity-log diagnostic setting, and deployment records.

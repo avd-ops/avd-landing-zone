@@ -88,4 +88,4 @@ Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 ./scripts/ops/Remove-AvdDemo.ps1 -NamePrefix avdlz -Environment test -IncludeLandingZone -WhatIf
 ```
 
-Read the `-WhatIf` output, then run it again without `-WhatIf`. With dev still there, the cleanup keeps what dev uses: the policy assignments, the activity log export to dev's workspace and dev's deployment records. It removes test's resource groups, budget and deployment records. Test's Key Vault stays soft-deleted for 90 days. The next test deployment's preflight with `-Fix` recovers it.
+Read the `-WhatIf` output, then run it again without `-WhatIf` and with `-DiscardLastCopy`: test's profiles, their backups and its Log Analytics workspace have no other copy, so the script refuses without it. Copy anything you want to keep first. With dev still there, the cleanup keeps what dev uses: the policy assignments, the activity log export to dev's workspace and dev's deployment records. It removes test's resource groups, budget and deployment records. Test's Key Vault stays soft-deleted for 90 days. The next test deployment's preflight with `-Fix` recovers it.

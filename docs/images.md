@@ -120,7 +120,7 @@ cd ~; if (Test-Path avd-landing-zone) { git -C avd-landing-zone pull --ff-only }
 ./scripts/ops/Start-AvdImageBuild.ps1 -NamePrefix avdlz
 ```
 
-Cloud Shell sessions time out on idle; the GitHub workflow is the reliable path for a multi-hour build. A build interrupted after deploying leaves a template behind, and the next build removes it after 24 hours.
+Cloud Shell sessions time out on idle; the GitHub workflow is the reliable path for a multi-hour build. A build interrupted after deploying leaves a template behind, and the next build removes it after 24 hours, once it has saved the template's customization log. Deleting a template also deletes its staging account, the only copy of that log, so when the log can't be saved the template stays and the run says so; `-DiscardLastCopy` removes it anyway ([never delete the last copy](https://github.com/nickprignano/avd-second-brain/blob/main/docs/knowledge/decisions/0016-never-delete-the-last-copy.md)). The 90-day artifact doesn't count as a durable copy, since it expires.
 
 ## When a build fails
 

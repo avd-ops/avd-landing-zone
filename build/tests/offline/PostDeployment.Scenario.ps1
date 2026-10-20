@@ -64,8 +64,13 @@ $global:Calls.Clear()
 Invoke-ScenarioStep 'remove-lz-whatif' { & ./scripts/ops/Remove-AvdDemo.ps1 @lz -IncludeLandingZone -WhatIf }
 Write-Host "RESULT remove-lz-whatif changes=$(@($global:Calls | Where-Object { $_ -match 'del |unlock|backup|rsv|DELETE|RBAC -|PUT' }).Count)"
 
+# Never delete the last copy (decision 0016): -Force alone refuses, before anything changes.
 $global:Calls.Clear()
-Invoke-ScenarioStep 'remove-lz' { & ./scripts/ops/Remove-AvdDemo.ps1 @lz -IncludeLandingZone -ResetDefender -Force }
+$refused = try { & ./scripts/ops/Remove-AvdDemo.ps1 @lz -IncludeLandingZone -Force 6>&1 | Out-Null; 'no' } catch { $_.Exception.Message }
+Write-Host "RESULT remove-lz-refused named=$($refused -match '-DiscardLastCopy') changes=$(@($global:Calls | Where-Object { $_ -match 'del |unlock|backup|rsv|DELETE|RBAC -|PUT' }).Count)"
+
+$global:Calls.Clear()
+Invoke-ScenarioStep 'remove-lz' { & ./scripts/ops/Remove-AvdDemo.ps1 @lz -IncludeLandingZone -ResetDefender -Force -DiscardLastCopy }
 $lawDelete = @($global:Calls | Where-Object { $_ -match '^ARM DELETE .*/workspaces/log-avdlz-dev\?api-version=[0-9-]+&force=true$' }).Count
 $lawBeforeRg = @($global:Calls).IndexOf(@($global:Calls | Where-Object { $_ -match '^ARM DELETE .*/workspaces/log-avdlz-dev' })[0]) -lt @($global:Calls).IndexOf(@($global:Calls | Where-Object { $_ -match '^del rg rg-avdlz-dev-management' })[0])
 Write-Host "RESULT remove-lz-workspace forceDeletes=$lawDelete beforeResourceGroup=$lawBeforeRg"
@@ -83,7 +88,7 @@ $test = 'network', 'management', 'storage', 'avd', 'hosts' | ForEach-Object { "r
 $global:St.rgs = @($dev) + @($test)
 $global:St.deployments = @('avdlz-dev-20260929-101500', 'avdlz-governance-avdlz-dev-northcentralus', 'avdlz-test-20260930-091500', 'avdlz-governance-avdlz-test-northcentralus')
 $global:Calls.Clear()
-Invoke-ScenarioStep 'remove-test-beside-dev' { & ./scripts/ops/Remove-AvdDemo.ps1 -NamePrefix avdlz -Environment test -IncludeLandingZone -Force }
+Invoke-ScenarioStep 'remove-test-beside-dev' { & ./scripts/ops/Remove-AvdDemo.ps1 -NamePrefix avdlz -Environment test -IncludeLandingZone -Force -DiscardLastCopy }
 Write-Host ("RESULT remove-test-beside-dev devRgs={0} testRgs={1} policyDeletes={2} activityLogDeleted={3} records={4}" -f `
     @($global:St.rgs | Where-Object { $_ -like 'rg-avdlz-dev-*' }).Count, @($global:St.rgs | Where-Object { $_ -like 'rg-avdlz-test-*' }).Count,
     @($global:Calls | Where-Object { $_ -match 'DELETE .*policyAssignments' }).Count, [bool]@($global:Calls | Where-Object { $_ -match 'DELETE .*avdlz-activity-log' }).Count,

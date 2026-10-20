@@ -19,3 +19,4 @@ Builds one golden image version with Azure Image Builder (build/specs/image-pipe
 | `-SummaryPath` | string | no |  |  |
 | `-LogDirectory` | string | no | `(Join-Path ([IO.Path]::GetTempPath()) 'avdlz-image-build')` |  |
 | `-PollSeconds` | int | no | `60` |  |
+| `-DiscardLastCopy` | switch | no |  | Remove a template even when its customization log couldn't be saved: the staging account holds the only copy of that log (avd-second-brain decision 0016). -Force never implies it. |
