@@ -27,6 +27,33 @@ $channel = & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @lz 6>&1 | Out-Strin
 $global:St.smbChannel = $null
 Write-Host "RESULT smb-channel failed=$($channel -match '\[FAIL \] Profile share allows AES-128-GCM') notReady=$($channel -match '"status":"notready"')"
 
+# Recovery section (build/specs/recovery-spec.md): warnings only. No recovery region by default; one the landing
+# zone's own guardrail leaves out says to deploy again with AVD_RECOVERY_LOCATION; one a management group's
+# assignment leaves out says to ask its owner; too little quota there warns. Not in the state-line list.
+$global:St.backup = @{ status = 'Healthy'; ageHours = 3 }
+$noRegion = & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @lz -SkipTenant -SkipNtfs 6>&1 | Out-String
+$own = & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @lz -SkipTenant -SkipNtfs -RecoveryLocation southcentralus 6>&1 | Out-String
+$global:St.allowedLocations = @('eastus2', 'southcentralus'); $global:St.foreignAllowed = @('eastus2'); $global:St.quotaLimit = 5
+$foreign = & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @lz -SkipTenant -SkipNtfs -RecoveryLocation southcentralus 6>&1 | Out-String
+$global:St.foreignAllowed = $null; $global:St.quotaLimit = $null
+$allowed = & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @lz -SkipTenant -SkipNtfs -RecoveryLocation southcentralus 6>&1 | Out-String
+$global:St.allowedLocations = $null
+Write-Host ("RESULT recovery-region skipped={0} ownWarned={1} ownSaysRedeploy={2} foreignNamed={3} quotaWarned={4} allowedPassed={5} stillReady={6}" -f
+  ($noRegion -match '\[SKIP \] Recovery region'), ($own -match '\[WARN \] Recovery region southcentralus allowed by Azure Policy'), ($own -match 'export AVD_RECOVERY_LOCATION=southcentralus'),
+  ($foreign -match 'Blocked by: Corp allowed RG locations \(allows eastus2\)'), ($foreign -match '"id":"recovery-quota"'), ($allowed -match '\[PASS \] Recovery region southcentralus allowed by Azure Policy'), ($foreign -match '"status":"ready"'))
+
+# Profile backup: healthy and recent passes; a failed last backup on an account without key access names the
+# key-based error; none yet and stale warn. Not in the state-line list.
+$healthy = $noRegion
+$global:St.backup = @{ status = 'Unhealthy'; ageHours = 30 }
+$failed = & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @lz -SkipTenant -SkipNtfs 6>&1 | Out-String
+$global:St.backup = @{ state = 'IRPending' }
+$never = & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @lz -SkipTenant -SkipNtfs 6>&1 | Out-String
+$global:St.backup = $null
+Write-Host ("RESULT profile-backup healthy={0} access={1} failedWarned={2} keyHint={3} stale={4} never={5} stillReady={6}" -f
+  ($healthy -match '\[PASS \] Profile share backup'), ($healthy -match '\[PASS \] Azure Backup can reach the profile storage account'), ($failed -match '\[WARN \] Profile share backup'),
+  ($failed -match 'UserErrorStorageKeyBasedAuthenticationNotPermitted'), ($failed -match 'last backup 30 hours ago'), ($never -match 'protection state IRPending; profiles has no backup yet'), ($failed -match '"status":"ready"'))
+
 # A user-registered app with the storage app's display name (red team LZ-2). Beside the real one, the
 # real one (no owners) is used; alone, after a teardown and before the account is redeployed, nothing
 # is consented or excluded from Conditional Access. Not in the state-line list.

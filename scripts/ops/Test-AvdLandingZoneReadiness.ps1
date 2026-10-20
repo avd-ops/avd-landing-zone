@@ -32,6 +32,10 @@
                    budget parameters
     Network        hub VNet, firewall IP and central DNS zones (HubPeered)
     Landing zone   whether it already exists (deploy updates it in place)
+    Recovery       the recovery region (-RecoveryLocation or AVD_RECOVERY_LOCATION):
+                   allowed by every allowed-locations policy, or added by this
+                   deployment to the landing zone's own guardrail, and vCPU
+                   quota there (warnings only; build/specs/recovery-spec.md)
     Tenant         Intune licensing when enrollInIntune = true, your Entra
                    roles for the post-deployment steps, which Conditional
                    Access policies will need the storage app excluded
@@ -49,6 +53,9 @@
     Step 2         the storage app excluded from MFA Conditional Access policies
     Step 3         NTFS permissions on the profile share root (checked from a
                    running session host)
+    Recovery       the profile share's backup (Azure Backup can reach the account,
+                   last backup healthy and under 26 hours old), and the recovery
+                   region as before deployment (warnings only)
     -Fix           registers providers/feature, grants admin consent, tags the
                    app, excludes the app from the affected CA policies (you
                    confirm each), sets the FSLogix-recommended root ACL
@@ -117,6 +124,8 @@ param(
   [Parameter(ParameterSetName = 'PostDeployment')][switch] $SkipPSRule,
 
   # ---- Both ----
+  # Recovery region to check (build/specs/recovery-spec.md). Empty: AVD_RECOVERY_LOCATION, which deploy.sh and the parameter files read.
+  [ValidatePattern('^([a-z0-9]+)?$')][string] $RecoveryLocation = $env:AVD_RECOVERY_LOCATION,
   [string] $SubscriptionId,
   # Remediate instead of only reporting.
   [switch] $Fix,
@@ -142,7 +151,7 @@ if ($PreDeployment) {
       @('AutoShutdownTime', 'autoShutdownTime'), @('StartVmOnConnect', 'startVmOnConnect'))) {
     if ($PSBoundParameters.ContainsKey($p[0])) { $sizing[$p[1]] = $PSBoundParameters[$p[0]] }
   }
-  $pre = @{ ParameterFile = $ParameterFile; UsersGroup = $UsersGroup; AdminsGroup = $AdminsGroup; Location = $Location; Fix = $Fix; AddMeToGroups = $AddMeToGroups; SkipTenant = $SkipTenant; WhatIf = $WhatIfPreference; Sizing = $sizing; ActiveHoursPerWeek = $ActiveHoursPerWeek }
+  $pre = @{ ParameterFile = $ParameterFile; UsersGroup = $UsersGroup; AdminsGroup = $AdminsGroup; Location = $Location; Fix = $Fix; AddMeToGroups = $AddMeToGroups; SkipTenant = $SkipTenant; WhatIf = $WhatIfPreference; Sizing = $sizing; ActiveHoursPerWeek = $ActiveHoursPerWeek; RecoveryLocation = $RecoveryLocation }
   if ($Force) { $pre.Confirm = $false }
   $outcome = Test-AvdPreDeployment @pre
 }
@@ -158,6 +167,7 @@ else {
     SkipNtfs       = $SkipNtfs
     NtfsHostName   = $NtfsHostName
     AllowHostStart = $AllowHostStart
+    RecoveryLocation = $RecoveryLocation
     WhatIf         = $WhatIfPreference
   }
   if ($Force) { $checkParams.Confirm = $false }

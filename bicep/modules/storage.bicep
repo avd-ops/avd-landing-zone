@@ -3,7 +3,8 @@
 //   - kind FileStorage: Premium file shares only exist on FileStorage accounts.
 //   - Entra Kerberos (AADKERB): Entra-joined session hosts get Kerberos tickets
 //     for the share from Entra ID. No domain controllers, no storage keys.
-//   - Shared key access disabled, SMB hardened to 3.1.1 + Kerberos + AES-256
+//   - Shared key access disabled unless the vaulted backup tier needs it
+//     (allowSharedKeyAccess), SMB hardened to 3.1.1 + Kerberos + AES-256
 //     tickets, GCM channel encryption.
 //   - Share-level access via RBAC on the account; reachable only over its
 //     private endpoint.
@@ -28,6 +29,9 @@ param logAnalyticsWorkspaceResourceId string
 param usersGroupObjectId string
 param adminsGroupObjectId string
 
+@description('Allow storage account key access. Only the vaulted profile backup tier needs it; SMB stays Kerberos-only, so a key cannot mount the share.')
+param allowSharedKeyAccess bool = false
+
 var roles = {
   smbShareContributor: '0c867c2a-1d8c-454a-a3db-ab2ea1bdc8bb'
   smbShareElevatedContributor: 'a7264617-510b-434b-a828-9731dc254ea7'
@@ -41,7 +45,7 @@ module account 'br/public:avm/res/storage/storage-account:0.33.1' = {
     tags: tags
     kind: 'FileStorage'
     skuName: skuName
-    allowSharedKeyAccess: false
+    allowSharedKeyAccess: allowSharedKeyAccess
     publicNetworkAccess: 'Disabled'
     networkAcls: {
       bypass: 'AzureServices'

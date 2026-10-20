@@ -62,3 +62,11 @@ Invoke-ScenarioStep 'owned-group' { & ./scripts/ops/Test-AvdLandingZoneReadiness
 $global:St.groupOwners = @(@{ id = 'admin-1'; userPrincipalName = 'admin@contoso.com' }, @{ id = 'me-1'; userPrincipalName = 'nick@contoso.com' })
 Invoke-ScenarioStep 'admin-owned-group' { & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @pre }
 $global:St.groupOwners = $null
+
+# Recovery region before deployment: the landing zone's own guardrail leaves it out, but this deployment adds
+# it (recoveryLocation joins allowedLocations); a management group's assignment that leaves it out warns.
+# Last, so the portal state indexes above stay put.
+Invoke-ScenarioStep 'recovery-planned' { & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @pre -RecoveryLocation southcentralus }
+$global:St.foreignAllowed = @('northcentralus')
+Invoke-ScenarioStep 'recovery-foreign' { & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @pre -RecoveryLocation southcentralus }
+$global:St.foreignAllowed = $null

@@ -164,6 +164,13 @@ param enableProfileBackup bool = true
 @description('Daily backup retention for the profile share, in days.')
 param profileBackupRetentionDays int = 30
 
+@description('Profile backup tier (build/specs/recovery-spec.md). Snapshot: snapshots kept in the share, lost with it. Vaulted: copies kept in the Recovery Services vault, the offsite copy; Azure Backup then needs storage account key access, so the profile storage account allows it (SMB stays Kerberos-only).')
+@allowed([
+  'Snapshot'
+  'Vaulted'
+])
+param profileBackupTier string = 'Snapshot'
+
 // ---------- Scaling ----------
 @description('Start a deallocated session host when a user connects (Start VM on Connect). Off: users can only connect while the scaling plan keeps hosts running, and hosts run longer (cost).')
 param startVmOnConnect bool = true
@@ -237,10 +244,11 @@ param deploySubscriptionSettings bool = true
 @description('Assign the landing zone\'s Azure Policy guardrails (allowed locations, tag inheritance) to the subscription.')
 param enablePolicyGuardrails bool = true
 
-@description('Allowed regions for resources and resource groups when policy guardrails are on.')
-param allowedLocations string[] = [
-  location
-]
+@description('Recovery region (build/specs/recovery-spec.md): a second region the guardrails also allow, for restores and recovery tests. Empty: none, and the guardrails allow only location.')
+param recoveryLocation string = ''
+
+@description('Allowed regions for resources and resource groups when policy guardrails are on. The default is location plus recoveryLocation when set.')
+param allowedLocations string[] = union([location], empty(recoveryLocation) ? [] : [recoveryLocation])
 
 // =====================================================================
 // Derived values
@@ -437,6 +445,8 @@ module storage 'modules/storage.bicep' = {
     logAnalyticsWorkspaceResourceId: monitoring.outputs.logAnalyticsWorkspaceResourceId
     usersGroupObjectId: avdUsersGroupObjectId
     adminsGroupObjectId: avdAdminsGroupObjectId
+    // Microsoft's Azure Files backup support matrix: the vaulted tier needs key access on the source account.
+    allowSharedKeyAccess: enableProfileBackup && profileBackupTier == 'Vaulted'
   }
 }
 

@@ -626,3 +626,61 @@ Describe 'Run journal' {
     Clear-AvdCheckResult
   }
 }
+
+Describe 'Get-AvdLocationPolicyVerdict (recovery spec section 4.1)' {
+  BeforeAll {
+    $def = '/providers/Microsoft.Authorization/policyDefinitions/'
+    function New-Assignment($Name, $Definition, $Allowed, $Mode) {
+      $p = [pscustomobject]@{ policyDefinitionId = "$def$Definition" }
+      if ($Allowed) { $p | Add-Member parameters ([pscustomobject]@{ listOfAllowedLocations = [pscustomobject]@{ value = @($Allowed) } }) }
+      if ($Mode) { $p | Add-Member enforcementMode $Mode }
+      [pscustomobject]@{ name = $Name; properties = $p }
+    }
+  }
+  It 'returns the allowed-locations assignments that leave the region out, own and foreign' {
+    $a = @(
+      New-Assignment 'avdlz-allowed-locations' 'e56962a6-4747-49cd-b67b-bf8b01975c4c' @('northcentralus')
+      New-Assignment 'corp-rg-locations' 'e765b5de-1225-4ba3-bd56-1ac6695af988' @('NorthCentralUS', 'SouthCentralUS')
+      New-Assignment 'corp-audit' 'e765b5de-1225-4ba3-bd56-1ac6695af988' @('northcentralus') 'DoNotEnforce'
+      New-Assignment 'other-policy' '0a914e76-4921-4c19-b460-a2d36003525a' @('northcentralus')
+      [pscustomobject]@{ name = 'no-properties' }   # ARM leaves out what an assignment doesn't have
+    )
+    $v = @(Get-AvdLocationPolicyVerdict -Assignment $a -Location 'southcentralus')
+    $v.Name | Should -Be @('avdlz-allowed-locations', 'corp-audit')
+    $v[0].Managed | Should -BeTrue
+    $v[0].Enforced | Should -BeTrue
+    $v[1].Managed | Should -BeFalse
+    $v[1].Enforced | Should -BeFalse
+  }
+  It 'returns nothing for no assignments, or an assignment without a list' {
+    @(Get-AvdLocationPolicyVerdict -Assignment @() -Location 'eastus2').Count | Should -Be 0
+    @(Get-AvdLocationPolicyVerdict -Assignment @(New-Assignment 'x' 'e56962a6-4747-49cd-b67b-bf8b01975c4c') -Location 'eastus2').Count | Should -Be 0
+  }
+}
+
+Describe 'Get-AvdProfileBackupVerdict' {
+  BeforeAll {
+    $now = [datetime]'2026-10-20T12:00:00Z'
+    $sa = [pscustomobject]@{ properties = [pscustomobject]@{ allowSharedKeyAccess = $false; publicNetworkAccess = 'Disabled' } }
+    function New-ProtectedItem($Props) { [pscustomobject]@{ name = 'AzureFileShare;profiles'; properties = [pscustomobject]$Props } }
+  }
+  It 'passes a protected, healthy item backed up within a day' {
+    $v = Get-AvdProfileBackupVerdict -StorageAccount $sa -ProtectedItem @(New-ProtectedItem @{ friendlyName = 'profiles'; protectionState = 'Protected'; healthStatus = 'Passed'; lastBackupStatus = 'Healthy'; lastBackupTime = $now.AddHours(-5) }) -Now $now
+    ($v | Where-Object Id -eq 'profile-backup-access').Status | Should -Be 'Pass'
+    ($v | Where-Object Id -eq 'profile-backup').Status | Should -Be 'Pass'
+  }
+  It 'warns on a failed, stale backup and names the key-based error when key access is off' {
+    $b = Get-AvdProfileBackupVerdict -StorageAccount $sa -ProtectedItem @(New-ProtectedItem @{ friendlyName = 'profiles'; protectionState = 'Protected'; lastBackupStatus = 'Unhealthy'; lastBackupTime = $now.AddHours(-50) }) -Now $now | Where-Object Id -eq 'profile-backup'
+    $b.Status | Should -Be 'Warn'
+    $b.Detail | Should -Be 'profiles last backup Unhealthy; profiles last backup 50 hours ago'
+    $b.Remediation | Should -Match 'UserErrorStorageKeyBasedAuthenticationNotPermitted'
+  }
+  It 'warns when nothing is protected, or nothing has run yet' {
+    (Get-AvdProfileBackupVerdict -StorageAccount $sa -ProtectedItem @() -Now $now | Where-Object Id -eq 'profile-backup').Status | Should -Be 'Warn'
+    (Get-AvdProfileBackupVerdict -ProtectedItem @(New-ProtectedItem @{ protectionState = 'IRPending' }) -Now $now).Detail | Should -Be 'AzureFileShare;profiles protection state IRPending; AzureFileShare;profiles has no backup yet'
+  }
+  It 'warns when Azure Backup has neither key access nor a private-only account' {
+    $open = [pscustomobject]@{ properties = [pscustomobject]@{ allowSharedKeyAccess = $false; publicNetworkAccess = 'Enabled' } }
+    (Get-AvdProfileBackupVerdict -StorageAccount $open -ProtectedItem @() -Now $now | Where-Object Id -eq 'profile-backup-access').Status | Should -Be 'Warn'
+  }
+}
