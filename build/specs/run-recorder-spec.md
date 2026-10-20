@@ -133,8 +133,8 @@ One JSON object per line (JSONL), schema `build/specs/run-journal.schema.json` (
 | **Local** `~/avdlz-runs/<runId>/` | `on`, ephemeral session | No: the resume point still works from Azure (§4) | none |
 | **Azure** `runs/<runId>/` in a recorder storage account | `AVDLZ_RECORD=azure` | Yes, and readable from any device | cents (§9) |
 
-The Azure store is created by `Start-AvdRunRecorder.ps1` (Bicep module `bicep/recorder/main.bicep`, its own template, not part of `main.bicep`):
-- Its own resource group, `<prefix>-runs-rg`. It is a **standing store**: it outlives the landing zone's cleanup, holds the teardown evidence and the history of every recorded run, and is removed only on request (§9.2).
+The Azure store is **durable log storage for the sandbox**, set up once per subscription by `Initialize-AvdRunStore.ps1` (Bicep `bicep/recorder/main.bicep`, its own template, not part of `main.bicep`) and reused by every run. `Start-AvdRunRecorder.ps1` only opens a run folder in it:
+- Its own resource group, `avdlz-runs-rg`, independent of any landing zone's name prefix. It outlives every landing zone's cleanup, holds the teardown evidence and the history of every recorded run, and is removed only on request (§9.2).
 - One StorageV2 account, LRS, hot tier; shared key access off, minimum TLS 1.2, no public blob access; the operator gets Storage Blob Data Contributor on the account only. Entra auth from Cloud Shell, no keys or SAS anywhere (R2).
 - Append blobs for the journal; block blobs for redacted transcripts and the report.
 - A lifecycle rule deletes run folders after 90 days, so the store stays small without anyone pruning it.
@@ -157,7 +157,7 @@ The recorder reads what Azure already keeps instead of exporting it by default:
 | **Activity Log**, for the run's window, the operator as caller, the landing zone's resource groups | ARM REST, at `Stop-AvdRunRecorder` time | On | Retained 90 days at no charge (§12, F1). Shows every control-plane write the run made, including ones a script didn't report |
 | **Deployment operations** of each deployment in the run | ARM REST | On | The exact failed operation and its status message |
 | **Entra audit log** entries for the groups and app registrations the scripts touch | Graph, with the operator's existing sign-in | On if the Graph sign-in is already there | App and group changes; access to audit logs through Graph may need a premium license (§12, U4), so a refusal is reported, not fatal |
-| **Diagnostic setting** exporting the Activity Log to the recorder account | `-ExportActivityLog` | Off | Only for runs that need more than 90 days; removed by teardown |
+| **Diagnostic setting** exporting the subscription's Activity Log to the run store | created by `Initialize-AvdRunStore.ps1` | On for the sandbox store; `-NoActivityLogExport` turns it off | Durable control-plane history past Azure's 90 days, including changes made outside the scripts (portal clicks); costs only the blobs it writes. Removed with the store |
 | **Entra and Graph activity log export** | not built | Off | Tenant-wide, needs Security Administrator; Graph activity logs need Entra ID P1 or P2 (§12, F3). Out of the landing zone's footprint |
 
 Everything read is redacted at the private level before it is stored and at the public level before it is shared.
@@ -214,7 +214,7 @@ The sandbox run is the landing zone's normal cost plus the recorder's. The recor
 | Blob storage, LRS hot | under 50 MB per run, kept up to 90 days | under $0.01 per run per month |
 | Write and list operations | about 2,000 per run (append blocks, transcripts, listing) | under $0.02 |
 | Activity Log, deployment operations, Resource Graph reads | ARM and Resource Graph reads | $0 |
-| Diagnostic setting export (`-ExportActivityLog`) | off by default | $0 |
+| Activity Log export to the store | a sandbox's control-plane writes, a few MB a month | storage only, cents a month |
 | **Defender for Storage**, if the subscription has the plan on | billed per storage account per month, prorated | **must be checked first**: it could exceed everything else; the preflight reports the plan's state and the recorder refuses `azure` mode without `-AcceptDefenderCharge` while it is on |
 | **Recorder total per run** | | **under $0.05**, excluding Defender |
 
@@ -224,7 +224,7 @@ Prices above are from Microsoft's sample price tables (§12, F5). The real estim
 
 1. The landing zone is torn down after every sandbox run, as today. The recorder keeps recording through the cleanup.
 2. `Stop-AvdRunRecorder.ps1 -RunId <id>` writes the teardown evidence (§8.1, item 5) and the report to the recorder store and prints the public report link. The store stays: the cost line is filled in when Cost Management has it (a day or more), and the next run's resume and history read from it.
-3. The recorder itself is removed only on request: `Stop-AvdRunRecorder.ps1 -Remove` first downloads every run folder to the current directory (`clouddrive` if mounted), confirms the download, then deletes `<prefix>-runs-rg` and confirms it is gone as its last line. Inputs are deleted last (lesson 0029): if the download fails, nothing is deleted.
+3. The recorder itself is removed only on request: `Stop-AvdRunRecorder.ps1 -Remove` first downloads every run folder to the current directory (`clouddrive` if mounted), confirms the download, then removes the Activity Log diagnostic setting, deletes `avdlz-runs-rg` and confirms it is gone as its last line. Inputs are deleted last (lesson 0029): if the download fails, nothing is deleted.
 4. Idle cost is a few MB of blobs, cents a month, plus Defender for Storage if the plan is on (§9.1). The monthly spend reconciliation lists the recorder as a standing item, so it is never a leftover.
 
 ## 10. Free and open source vs a possible paid, hosted feature
@@ -289,5 +289,5 @@ Unverified, to confirm in phase 1 (offline) or the first real run:
 ## 14. Open questions for the owner
 
 1. Should `AVDLZ_RECORD=on` (local) become the portal's default for everyone, or stay opt-in? Local recording costs nothing and nothing leaves the shell, but it writes files in the operator's `clouddrive`. The spec says opt-in.
-2. *Changed 2026-10-20 after the owner asked why it was removed the same day:* the recorder is now a standing store, not removed with each run (§9.2). Confirm or revert.
+2. *Decided 2026-10-20 by the owner:* the sandbox keeps durable log storage. The run store is set up once per subscription and is not removed with each run (§6.3, §9.2).
 3. Should the verified runs table live here or on avd-ops.dev, which already holds the family's user-facing docs?
