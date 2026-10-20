@@ -15,6 +15,10 @@
         "adminusername-should-not-be-literal": { "level": "error" },
         "use-stable-resource-identifiers": { "level": "error" },
         "use-resource-id-functions": { "level": "error" },
+        "no-hardcoded-location": { "level": "error" },
+        "no-loc-expr-outside-parameters": { "level": "error" },
+        "no-hardcoded-outputs": { "level": "error" },
+        "secure-parameters-in-parameters-file": { "level": "error" },
         "use-recent-api-versions": { "level": "off" },
         "use-recent-module-versions": { "level": "off" },
         "explicit-values-for-loc-params": { "level": "off" }

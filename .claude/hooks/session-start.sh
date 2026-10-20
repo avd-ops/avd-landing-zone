@@ -32,9 +32,9 @@ if [ ! -x "$tools/pwsh/pwsh" ] && ! command -v pwsh >/dev/null 2>&1; then
 fi
 [ -x "$tools/pwsh/pwsh" ] && ln -sf "$tools/pwsh/pwsh" "$tools/bin/pwsh"
 
-# Bicep CLI
+# Bicep CLI, same version as CI (validate.yml BICEP_VERSION)
 if [ ! -x "$tools/bin/bicep" ] && ! command -v bicep >/dev/null 2>&1; then
-  fetch https://github.com/Azure/bicep/releases/latest/download/bicep-linux-x64 "$tools/bin/bicep" && chmod +x "$tools/bin/bicep"
+  fetch https://github.com/Azure/bicep/releases/download/v0.48.1/bicep-linux-x64 "$tools/bin/bicep" && chmod +x "$tools/bin/bicep"
 fi
 
 # ShellCheck (lints deploy.sh)
@@ -59,10 +59,10 @@ fi
 export PATH="$tools/bin:$PATH"
 export PSModulePath="$tools/modules${PSModulePath:+:$PSModulePath}"
 
-# Pester (Gallery only; skipped quietly when the Gallery is unreachable)
+# Pester, same version as CI (Gallery only; skipped quietly when the Gallery is unreachable)
 if command -v pwsh >/dev/null 2>&1 && [ ! -d "$tools/modules/Pester" ]; then
   timeout 120 pwsh -NoProfile -NonInteractive -Command \
-    "Save-Module Pester -MinimumVersion 5.5.0 -Path '$tools/modules' -Repository PSGallery -Force -ErrorAction Stop" >>"$log" 2>&1 || true
+    "Save-Module Pester -RequiredVersion 6.2.0 -Path '$tools/modules' -Repository PSGallery -Force -ErrorAction Stop" >>"$log" 2>&1 || true
 fi
 
 if [ -n "${CLAUDE_ENV_FILE:-}" ]; then

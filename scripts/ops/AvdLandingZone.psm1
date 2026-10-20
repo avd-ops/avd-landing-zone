@@ -1579,6 +1579,10 @@ function Add-AvdWafResult {
   Add-AvdCheckResult $area $Check 'Warn' -Detail $Detail -Remediation $Remediation -Id "waf-$Key" -Data @{ pillar = $Pillar; accepted = [bool]$accepted }
 }
 
+# The PSRule for Azure version CI checks the templates with (validate.yml PSRULE_AZURE_VERSION;
+# Template.Tests.ps1 keeps them equal), so a finding here means the same as one in CI.
+$script:PSRuleAzureVersion = '1.47.0'
+
 function Get-AvdPSRuleFinding {
   <#
     PSRule for Azure (the rules CI applies to the templates) against the deployed resources,
@@ -1586,11 +1590,12 @@ function Get-AvdPSRuleFinding {
   #>
   param([Parameter(Mandatory)][string[]] $ResourceGroupName)
   if (-not (Get-Command Export-AzRuleData -ErrorAction SilentlyContinue) -or -not (Get-Command Invoke-PSRule -ErrorAction SilentlyContinue)) {
-    if (-not (Get-Module -ListAvailable -Name PSRule.Rules.Azure)) {
-      Write-Host '          Installing PSRule.Rules.Azure from the PowerShell Gallery (first run only) ...' -ForegroundColor DarkGray
-      Install-Module -Name PSRule.Rules.Azure -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+    $version = $script:PSRuleAzureVersion
+    if (-not (Get-Module -ListAvailable -Name PSRule.Rules.Azure | Where-Object { $_.Version -eq [version]$version })) {
+      Write-Host "          Installing PSRule.Rules.Azure $version from the PowerShell Gallery, the version CI uses (first run only) ..." -ForegroundColor DarkGray
+      Install-Module -Name PSRule.Rules.Azure -RequiredVersion $version -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
     }
-    Import-Module PSRule.Rules.Azure -ErrorAction Stop
+    Import-Module PSRule.Rules.Azure -RequiredVersion $version -ErrorAction Stop
   }
   $out = Join-Path ([IO.Path]::GetTempPath()) "avdlz-psrule-$([guid]::NewGuid().ToString('n'))"
   $suppressions = Join-Path $PSScriptRoot '../../.ps-rule'
