@@ -48,6 +48,12 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
   if ($rs -and $Path -match '/providers/Microsoft.Security/pricings/StorageAccounts\?') {
     if (-not $rs.defender) { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"NotFound","message":"Not found"}}' } }
     return & $ok @{ name='StorageAccounts'; properties=@{ pricingTier=$rs.defender } } }
+  # Cost Management query (Stop-AvdRunRecorder.ps1): $rs.costRows as [cost, meter, currency], or $rs.costForbidden.
+  if ($rs -and $Method -eq 'POST' -and $Path -match '/providers/Microsoft.CostManagement/query\?') {
+    $q = $Payload | ConvertFrom-Json
+    Log "COSTQUERY $($q.timePeriod.from) $(@($q.dataset.filter.dimensions.values) -join ',')"
+    if ($rs.costForbidden) { return [pscustomobject]@{ StatusCode=403; Content='{"error":{"code":"RBACAccessDenied","message":"The client does not have authorization to perform action."}}' } }
+    return & $ok @{ properties=@{ columns=@(@{ name='Cost'; type='Number' }, @{ name='Meter'; type='String' }, @{ name='Currency'; type='String' }); rows=@($rs.costRows) } } }
   if ($rs -and $Path -match '/resourceGroups/avdlz-runs-rg/providers/Microsoft.Storage/storageAccounts/(avdlzruns[0-9a-f]+)\?') {
     if (-not $rs.deployed) { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"ResourceNotFound","message":"The Resource was not found."}}' } }
     return & $ok @{ name=$Matches[1]; properties=@{ allowSharedKeyAccess=$false; minimumTlsVersion='TLS1_2' } } }

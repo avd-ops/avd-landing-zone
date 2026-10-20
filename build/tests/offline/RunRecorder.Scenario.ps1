@@ -53,4 +53,41 @@ Invoke-ScenarioStep 'start-unpriced' {
 $c2 = Get-Content (Join-Path (Join-Path (Join-Path $root 'avdlz-runs') 'run-20261020-1805-t3st') 'cost.json') -Raw | ConvertFrom-Json
 $line = $c2.expected.lines | Where-Object { $null -eq $_.cost } | Select-Object -First 1
 Write-Host "RESULT start-unpriced gate=$($c2.gate.passed) unpriced=$($c2.expected.unpriced) match=$($line.match) noGuess=$($null -eq $line.cost) localOnly=$(-not $global:St.blobs.ContainsKey('runs/run-20261020-1805-t3st/cost.json'))"
+
+# Closing the run (Stop-AvdRunRecorder.ps1): export the landing zone's AVD logs before cleanup, then the
+# first actual cost reading, then a later reading Cost Management refuses, then a copy to a public repo.
+$lzArgs = @{ NamePrefix = 'avdlz'; Environment = 'dev'; RunId = $runId; LocalRoot = $root }
+$row = @{ CorrelationId = 'c0ffee00-0000-4000-8000-000000000001'; StartedAt = '2026-10-20T18:20:00Z'; ConnectedAt = '2026-10-20T18:20:12Z' }
+Invoke-ScenarioStep 'stop-before-cleanup' {
+  $global:St.logPolls = @(, @($row, $row)); $global:St.logQueries = 0; $global:Calls.Clear()
+  & ./scripts/ops/Stop-AvdRunRecorder.ps1 @lzArgs -BeforeCleanup
+}
+$logs = @(Get-ChildItem (Join-Path $folder 'logs') -Filter '*.json')
+$rows = @(Get-Content (Join-Path $folder 'logs/WVDConnections.json') -Raw | ConvertFrom-Json).Count
+Write-Host "RESULT before-cleanup tables=$($logs.Count) queries=$($global:St.logQueries) rows=$rows uploaded=$(@($global:St.blobs.Keys | Where-Object { $_ -like "runs/$runId/logs/*" }).Count)"
+
+Invoke-ScenarioStep 'stop-end' {
+  $global:St.runStore.costRows = @(, @(3.1, 'E4as v5', 'USD')) + @(, @(0.4, 'Standard Static IP', 'USD')); $global:Calls.Clear()
+  & ./scripts/ops/Stop-AvdRunRecorder.ps1 @lzArgs -Status torn-down
+}
+$cost = Get-Content (Join-Path $folder 'cost.json') -Raw | ConvertFrom-Json
+$run = Get-Content (Join-Path $folder 'run.json') -Raw | ConvertFrom-Json
+$valid = (Test-Json -Path (Join-Path $folder 'run.json') -SchemaFile (Join-Path $schemas 'run-record.schema.json')) -and
+  (Test-Json -Path (Join-Path $folder 'cost.json') -SchemaFile (Join-Path $schemas 'run-cost.schema.json'))
+$scope = @($global:Calls | Where-Object { $_ -like 'COSTQUERY *' })[0]
+Write-Host "RESULT stop-end valid=$valid status=$($run.status) files=$(@($run.files).Count) readings=$(@($cost.actuals).Count) total=$($cost.actuals[0].total) settled=$($cost.actuals[0].settled) unexpected=$(@($cost.comparison.unexpectedMeters) -join ',') afterTeardown=$($cost.comparison.billingAfterTeardown) runStoreInScope=$($scope -match 'avdlz-runs-rg') lzInScope=$($scope -match 'rg-avdlz-dev-hosts')"
+
+Invoke-ScenarioStep 'stop-update-forbidden' {
+  $global:St.runStore.costForbidden = $true
+  & ./scripts/ops/Stop-AvdRunRecorder.ps1 @lzArgs -UpdateCost
+}
+$cost = Get-Content (Join-Path $folder 'cost.json') -Raw | ConvertFrom-Json
+Write-Host "RESULT update-forbidden readings=$(@($cost.actuals).Count) kept=$($cost.actuals[0].total) why=$($cost.actuals[1].unavailable -match 'no access')"
+
+Invoke-ScenarioStep 'copy-public' {
+  $env:AVDLZ_FAKE_GH = 'public'
+  & ./scripts/ops/Stop-AvdRunRecorder.ps1 @lzArgs -CopyTo github -PrivateRepo 'contoso/run-records'
+}
+$run = Get-Content (Join-Path $folder 'run.json') -Raw | ConvertFrom-Json
+Write-Host "RESULT copy-public copies=$(@($run.files | Where-Object { @($_.copies).Count }).Count)"
 Remove-Item -Recurse -Force $root

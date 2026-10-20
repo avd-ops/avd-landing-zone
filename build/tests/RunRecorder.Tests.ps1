@@ -153,3 +153,51 @@ Describe 'The private companion repo name' {
     Test-AvdPrivateRepoName '' | Should -BeFalse
   }
 }
+
+Describe 'Closing a run' {
+  It 'asks Cost Management for the run''s resource groups, by meter, over whole days' {
+    $b = Get-AvdCostQueryBody -From ([datetime]'2026-10-20T16:52:00Z') -To ([datetime]'2026-10-21T08:00:00Z') -ResourceGroup 'avdlz-runs-rg', 'rg-AVDLZ-dev-hosts'
+    $b.timePeriod.from | Should -Be '2026-10-20T00:00:00Z'
+    $b.timePeriod.to | Should -Be '2026-10-21T23:59:59Z'
+    $b.dataset.grouping[0].name | Should -Be 'Meter'
+    $b.dataset.filter.dimensions['values'] | Should -Be @('avdlz-runs-rg', 'rg-avdlz-dev-hosts')
+  }
+  It 'adds up a query response by meter' {
+    $resp = '{"properties":{"columns":[{"name":"Cost","type":"Number"},{"name":"Meter","type":"String"},{"name":"Currency","type":"String"}],"rows":[[1.004,"E4as v5","USD"],[0.5,"E4as v5","USD"],[0.2,"P10 LRS Disk","USD"]]}}' | ConvertFrom-Json
+    $r = Get-AvdCostQueryReading -Response $resp
+    $r.Total | Should -Be 1.7
+    ($r.ByMeter | Where-Object meter -eq 'E4as v5').cost | Should -Be 1.5
+    $r.Currency | Should -Be 'USD'
+  }
+  It 'reads a response with no rows as zero' {
+    (Get-AvdCostQueryReading -Response ('{"properties":{"columns":[{"name":"PreTaxCost"},{"name":"Meter"}],"rows":[]}}' | ConvertFrom-Json)).Total | Should -Be 0
+  }
+  It 'refuses a response without a cost column instead of reading zero' {
+    { Get-AvdCostQueryReading -Response ('{"properties":{"columns":[{"name":"Meter"}],"rows":[["x"]]}}' | ConvertFrom-Json) } | Should -Throw '*no cost column*'
+  }
+  It 'exports one table for the run''s window' {
+    Get-AvdRunLogQuery -Table WVDErrors -From ([datetime]'2026-10-20T16:52:00Z') -To ([datetime]'2026-10-20T19:00:00Z') | Should -Match '^WVDErrors \| where TimeGenerated between \(datetime\(2026-10-20T16:52:00'
+  }
+  It 'computes the hash Git gives a file' {
+    Get-AvdGitBlobSha -Bytes ([byte[]]@()) | Should -Be 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391'
+    Get-AvdGitBlobSha -Bytes ([Text.Encoding]::ASCII.GetBytes("hello`n")) | Should -Be 'ce013625030ba8dba906f756967f9e9ca394464a'
+  }
+  It 'lists the run folder and keeps a verified copy only while the bytes are unchanged' {
+    $d = Join-Path $TestDrive 'run'
+    $null = New-Item -ItemType Directory -Path (Join-Path $d 'logs') -Force
+    Set-Content -LiteralPath (Join-Path $d 'run.json') -Value '{}'
+    Set-Content -LiteralPath (Join-Path $d 'journal.jsonl') -Value 'a' -NoNewline
+    Set-Content -LiteralPath (Join-Path $d 'cost.json') -Value 'b' -NoNewline
+    Set-Content -LiteralPath (Join-Path $d 'logs/WVDErrors.json') -Value '[]' -NoNewline
+    $sha = { param($t) (Get-FileHash -InputStream ([IO.MemoryStream]::new([Text.Encoding]::UTF8.GetBytes($t))) -Algorithm SHA256).Hash.ToLowerInvariant() }
+    $prev = @(
+      [pscustomobject]@{ path = 'journal.jsonl'; sha256 = (& $sha 'a'); copies = @(@{ target = 'github'; sha256 = ('1' * 64) }) }
+      [pscustomobject]@{ path = 'cost.json'; sha256 = (& $sha 'old'); copies = @(@{ target = 'github'; sha256 = ('2' * 64) }) }
+    )
+    $m = @(Get-AvdRunManifest -Folder $d -Previous $prev)
+    $m.path | Should -Be @('cost.json', 'journal.jsonl', 'logs/WVDErrors.json')
+    ($m | Where-Object path -eq 'logs/WVDErrors.json').kind | Should -Be 'log-export'
+    @(($m | Where-Object path -eq 'journal.jsonl').copies).Count | Should -Be 1
+    ($m | Where-Object path -eq 'cost.json').copies | Should -BeNullOrEmpty
+  }
+}

@@ -205,5 +205,94 @@ function Test-AvdPrivateRepoName {
   [bool]($Name -match '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$')
 }
 
+function Get-AvdCostQueryBody {
+  <#
+    Cost Management query for a run (POST <scope>/providers/Microsoft.CostManagement/query): actual cost
+    by meter for the run's resource groups over its days. Dates are whole days in UTC.
+  #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][datetime] $From, [Parameter(Mandatory)][datetime] $To, [Parameter(Mandatory)][string[]] $ResourceGroup)
+  [ordered]@{
+    type       = 'ActualCost'
+    timeframe  = 'Custom'
+    timePeriod = [ordered]@{ from = $From.ToUniversalTime().ToString('yyyy-MM-ddT00:00:00Z'); to = $To.ToUniversalTime().ToString('yyyy-MM-ddT23:59:59Z') }
+    dataset    = [ordered]@{
+      granularity = 'None'
+      aggregation = [ordered]@{ totalCost = [ordered]@{ name = 'Cost'; function = 'Sum' } }
+      grouping    = @([ordered]@{ type = 'Dimension'; name = 'Meter' })
+      filter      = [ordered]@{ dimensions = [ordered]@{ name = 'ResourceGroupName'; operator = 'In'; values = @($ResourceGroup | ForEach-Object { $_.ToLowerInvariant() }) } }
+    }
+  }
+}
+
+function Get-AvdCostQueryReading {
+  <# Total and per-meter cost from a Cost Management query response (properties.columns and rows). #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)] $Response)
+  $cols = @($Response.properties.columns | ForEach-Object { $_.name })
+  $ci = [array]::IndexOf($cols, $(if ($cols -contains 'Cost') { 'Cost' } else { 'PreTaxCost' }))
+  $mi = [array]::IndexOf($cols, 'Meter')
+  $ui = [array]::IndexOf($cols, 'Currency')
+  if ($ci -lt 0) { throw "Cost Management returned no cost column (columns: $($cols -join ', '))." }
+  $byMeter = @{}; $currency = $null
+  foreach ($row in @($Response.properties.rows | Where-Object { $null -ne $_ })) {
+    $m = if ($mi -ge 0 -and $row[$mi]) { [string]$row[$mi] } else { '(no meter)' }
+    $byMeter[$m] = [double]($byMeter[$m]) + [double]$row[$ci]
+    if ($ui -ge 0 -and $row[$ui]) { $currency = [string]$row[$ui] }
+  }
+  [pscustomobject]@{
+    Total    = [math]::Round((@($byMeter.Values) | Measure-Object -Sum).Sum, 2)
+    ByMeter  = @($byMeter.Keys | Sort-Object | ForEach-Object { [pscustomobject]@{ meter = $_; cost = [math]::Round($byMeter[$_], 2) } })
+    Currency = $currency
+  }
+}
+
+function Get-AvdRunLogQuery {
+  <# KQL that exports one AVD diagnostics table for the run's window, before cleanup deletes the workspace (spec section 8.1 item 6). #>
+  [CmdletBinding()]
+  [OutputType([string])]
+  param(
+    [Parameter(Mandatory)][ValidateSet('WVDConnections', 'WVDErrors', 'WVDCheckpoints', 'WVDAgentHealthStatus')][string] $Table,
+    [Parameter(Mandatory)][datetime] $From,
+    [Parameter(Mandatory)][datetime] $To
+  )
+  "$Table | where TimeGenerated between (datetime($($From.ToUniversalTime().ToString('o'))) .. datetime($($To.ToUniversalTime().ToString('o')))) | order by TimeGenerated asc"
+}
+
+function Get-AvdGitBlobSha {
+  <# The SHA-1 Git gives a file's bytes ("blob <length>\0<bytes>"), to check a committed copy against the tree GitHub returns. #>
+  [CmdletBinding()]
+  [OutputType([string])]
+  param([Parameter(Mandatory)][AllowEmptyCollection()][byte[]] $Bytes)
+  $head = [Text.Encoding]::ASCII.GetBytes("blob $($Bytes.Length)`0")
+  -join ([Security.Cryptography.SHA1]::HashData([byte[]]($head + $Bytes)) | ForEach-Object { $_.ToString('x2') })
+}
+
+function Get-AvdRunManifest {
+  <#
+    The files of a local run folder for run.json: path, kind, size and SHA-256, keeping the verified
+    copies an earlier run.json already recorded for the same bytes.
+  #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)][string] $Folder, [object[]] $Previous = @())
+  $root = (Resolve-Path -LiteralPath $Folder).Path
+  foreach ($f in Get-ChildItem -LiteralPath $root -File -Recurse | Sort-Object FullName) {
+    $rel = [IO.Path]::GetRelativePath($root, $f.FullName).Replace('\', '/')
+    if ($rel -eq 'run.json' -or $rel -like '*.gz') { continue }
+    $sha = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    $kind = switch -Regex ($rel) {
+      '^journal\.jsonl$' { 'journal' } '^cost\.json$' { 'cost' } '^transcripts/' { 'transcript' } '^logs/' { 'log-export' }
+      '^teardown' { 'teardown' } '^report' { 'report' } default { 'other' }
+    }
+    $e = [ordered]@{ path = $rel; kind = $kind; level = $(if ($rel -like '*.public.*') { 'public' } else { 'private' }); bytes = $f.Length; sha256 = $sha }
+    $old = @($Previous | Where-Object { $_.path -eq $rel -and $_.sha256 -eq $sha }) | Select-Object -First 1
+    if ($old -and $old.gzSha256) { $e.gzSha256 = $old.gzSha256 }
+    if ($old -and @($old.copies).Count) { $e.copies = @($old.copies) }
+    if ($old -and $old.keptOnlyIn) { $e.keptOnlyIn = $old.keptOnlyIn }
+    [pscustomobject]$e
+  }
+}
+
 Export-ModuleMember -Function Get-AvdRunId, Get-AvdRunStoreName, Get-AvdRunRecord, Get-AvdRunCostExpected, Add-AvdRunCostReading,
-Get-AvdRunFileRoute, Test-AvdCopyReceipt, Get-AvdTeardownLogPlan, Test-AvdPrivateRepoName
+Get-AvdRunFileRoute, Test-AvdCopyReceipt, Get-AvdTeardownLogPlan, Test-AvdPrivateRepoName, Get-AvdCostQueryBody, Get-AvdCostQueryReading,
+Get-AvdRunLogQuery, Get-AvdGitBlobSha, Get-AvdRunManifest

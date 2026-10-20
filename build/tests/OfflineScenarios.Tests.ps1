@@ -556,6 +556,22 @@ Describe 'Run recorder: run store and the cost gate' {
     Get-StepExit $out 'start' | Should -Be 0
     $out | Should -Match 'RESULT start-files valid=True gate=True limit=5 unpriced=0 totalUnderLimit=True useCase=landing-zone teardown=not-started uploaded=runs/run-20261020-1800-t3st/cost.json,runs/run-20261020-1800-t3st/run.json'
   }
+  It 'exports the four AVD tables before cleanup and stores them with the run' {
+    Get-StepExit $out 'stop-before-cleanup' | Should -Be 0
+    $out | Should -Match 'RESULT before-cleanup tables=4 queries=4 rows=2 uploaded=4'
+  }
+  It 'closes the run with the first actual cost reading, not settled, naming a meter the estimate missed' {
+    Get-StepExit $out 'stop-end' | Should -Be 0
+    $out | Should -Match 'RESULT stop-end valid=True status=torn-down files=5 readings=1 total=3.5 settled=False unexpected=Standard Static IP afterTeardown=True runStoreInScope=True lzInScope=True'
+  }
+  It 'keeps earlier readings and records why there is no figure when Cost Management refuses' {
+    Get-StepExit $out 'stop-update-forbidden' | Should -Be 0
+    $out | Should -Match 'RESULT update-forbidden readings=2 kept=3.5 why=True'
+  }
+  It 'copies nothing to a public repo' {
+    Get-StepExit $out 'copy-public' | Should -Be 1
+    $out | Should -Match 'RESULT copy-public copies=0'
+  }
   It 'fails the gate when a line cannot be priced, without guessing a price' {
     Get-StepExit $out 'start-unpriced' | Should -Be 1
     $out | Should -Match 'RESULT start-unpriced gate=False unpriced=1 match=none noGuess=True localOnly=True'
