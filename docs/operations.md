@@ -12,6 +12,8 @@ PowerShell scripts in [`scripts/ops/`](../scripts/ops) that run against a **depl
 | `Initialize-AvdGraphApp.ps1` | One-time, by an administrator: creates the avd-opsbot app, so operators sign in with no consent prompts. |
 | `Test-AvdUserConnection.ps1` | After you open the desktop: confirms from Azure telemetry that your sign-in reached it (Verified, Failed or Not verified). The deployment portal's Verify access step ([decision 0014](../build/decisions/0014-verify-access.md)). |
 | `Get-AvdRunStatus.ps1` | Where did I leave off? After Cloud Shell resets or on another device: reads where the run stands from Azure (deployment records, resource groups) and tells the portal the next step. Read-only ([run recorder spec](../build/specs/run-recorder-spec.md) section 4). |
+| `Initialize-AvdRunStore.ps1` | Optional, once per subscription: durable storage for recorded runs (`avdlz-runs-rg`), outside every landing zone so cleanup never removes it. Checks Defender for Storage and your private companion repo first; supports `-WhatIf` ([run recorder spec](../build/specs/run-recorder-spec.md) sections 6.3 and 9.3). |
+| `Start-AvdRunRecorder.ps1` | Optional, before a recorded run: prices the run, refuses it when the expected cost is over half the cap or a line can't be priced, and writes `run.json` and `cost.json` to the run folder (spec sections 9.3a and 13a). |
 
 They share `AvdLandingZone.psm1`. The landing zone's resources, Entra groups and AVD service principal are discovered from its naming convention and the role assignments it created, so the only required inputs are `-NamePrefix` and `-Environment`.
 

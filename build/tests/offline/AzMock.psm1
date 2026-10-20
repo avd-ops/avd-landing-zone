@@ -42,6 +42,15 @@ function Get-AzStorageAccount { param($ResourceGroupName,$ErrorAction)
 function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
   Log "ARM $Method $Path"
   $ok = { param($o) [pscustomobject]@{StatusCode=200;Content=($o|ConvertTo-Json -Depth 20)} }
+  # ---- Run store (Initialize-AvdRunStore.ps1, Start-AvdRunRecorder.ps1). $global:St.runStore: defender
+  # ('Standard'/'Free'), deployed (bool). The single-plan pricing read returns 404 when it was never set.
+  $rs = $global:St.runStore
+  if ($rs -and $Path -match '/providers/Microsoft.Security/pricings/StorageAccounts\?') {
+    if (-not $rs.defender) { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"NotFound","message":"Not found"}}' } }
+    return & $ok @{ name='StorageAccounts'; properties=@{ pricingTier=$rs.defender } } }
+  if ($rs -and $Path -match '/resourceGroups/avdlz-runs-rg/providers/Microsoft.Storage/storageAccounts/(avdlzruns[0-9a-f]+)\?') {
+    if (-not $rs.deployed) { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"ResourceNotFound","message":"The Resource was not found."}}' } }
+    return & $ok @{ name=$Matches[1]; properties=@{ allowSharedKeyAccess=$false; minimumTlsVersion='TLS1_2' } } }
   # ---- Golden image pipeline (scripts/ops/Start-AvdImageBuild.ps1): rg-avdlz-images, its gallery,
   # per-build image templates, and the marketplace versions. $global:St.images holds the state.
   $im = $global:St.images
@@ -298,6 +307,12 @@ function Get-AzVMUsage { param($Location) $l = $global:St.quotaLimit; @(
     [pscustomobject]@{Name=[pscustomobject]@{Value='standardDSv5Family'};Limit=$(if ($null -ne $global:St.dsLimit) { $global:St.dsLimit } else { 10 });CurrentValue=0},
     [pscustomobject]@{Name=[pscustomobject]@{Value='cores'};Limit=$(if ($l) { $l } else { 20 });CurrentValue=4}) }
 # Az.Storage, as Start-AvdImageBuild.ps1 reads AIB's customization log with the signed-in identity.
+# Run store uploads: $global:St.blobs holds container/blob -> the uploaded file's text.
+function Set-AzStorageBlobContent { param($File,$Container,$Blob,$Context,[switch]$Force,$ErrorAction)
+  Log "blob put $($Context.StorageAccountName)/$Container/$Blob"
+  if ($null -eq $global:St.blobs) { $global:St.blobs = @{} }
+  $global:St.blobs["$Container/$Blob"] = Get-Content -LiteralPath $File -Raw
+  [pscustomobject]@{ Name=$Blob } }
 function New-AzStorageContext { param($StorageAccountName,[switch]$UseConnectedAccount) [pscustomobject]@{ StorageAccountName=$StorageAccountName } }
 function Get-AzStorageBlob { param($Container,$Context,$ErrorAction)
   if ($global:St.images.logUnreadable) { throw 'This request is not authorized to perform this operation using this permission. (403)' }
@@ -322,6 +337,12 @@ function Invoke-AzVMRunCommand { param($ResourceGroupName,$VMName,$CommandId,$Sc
   [pscustomobject]@{ Value=@([pscustomobject]@{Code='ComponentStatus/StdOut/succeeded';Message=('<<<AVDJSON'+($o|ConvertTo-Json -Compress)+'AVDJSON>>>')},[pscustomobject]@{Code='ComponentStatus/StdErr/succeeded';Message=''}) }
 }
 function New-AzSubscriptionDeployment { param($Name,$Location,$TemplateFile,$TemplateParameterObject,$ErrorAction)
+  if ($TemplateFile -like '*recorder*main.bicep') {
+    Log "deploy $Name runstore=$($TemplateParameterObject.storageAccountName) teardownLogs=$($TemplateParameterObject.teardownLogs) repo=$($TemplateParameterObject.privateRepo) activityLog=$($TemplateParameterObject.exportActivityLog)"
+    foreach ($k in 'location','storageAccountName','operatorPrincipalId') { if (-not $TemplateParameterObject[$k]) { throw "missing $k" } }
+    $global:St.runStore.deployed = $true
+    return [pscustomobject]@{ ProvisioningState='Succeeded'; Outputs=@{} }
+  }
   Log "deploy $Name pwType=$($TemplateParameterObject.localAdminPassword.GetType().Name) dns=$($TemplateParameterObject.avdPrivateDnsZoneResourceId -split '/' | select -last 1)"
   foreach ($k in 'sessionHostSubnetResourceId','usersGroupObjectId','avdServicePrincipalObjectId','profileShareUncPath') { if (-not $TemplateParameterObject[$k]) { throw "missing $k" } }
   $global:St.rgs += 'rg-avdlz-dev-demo'

@@ -531,3 +531,33 @@ Describe 'One Microsoft Graph sign-in per session (decision 0016)' {
   }
   It 'names a client ID that is not a GUID and how to clear it' { $out | Should -Match 'RESULT bad-client-id exit=1 named=True wayOut=True' }
 }
+
+Describe 'Run recorder: run store and the cost gate' {
+  BeforeAll { $script:out = Invoke-OfflineScenario 'RunRecorder' }
+
+  It 'refuses to open a run in Azure without a run store' { Get-StepExit $out 'start-no-store' | Should -Be 1 }
+  It 'refuses the run store while Defender for Storage would bill it, and deploys nothing' {
+    Get-StepExit $out 'store-defender-on' | Should -Be 1
+    $out | Should -Match 'RESULT defender-on deploys=0'
+  }
+  It 'refuses a public companion repo' {
+    Get-StepExit $out 'store-public-repo' | Should -Be 1
+    $out | Should -Match 'RESULT public-repo deploys=0'
+  }
+  It 'deploys nothing with -WhatIf' {
+    Get-StepExit $out 'store-whatif' | Should -Be 0
+    $out | Should -Match 'RESULT whatif deploys=0'
+  }
+  It 'deploys the run store with the teardown preference and the private repo' {
+    Get-StepExit $out 'store' | Should -Be 0
+    $out | Should -Match 'RESULT store deploys=1 runstore=avdlzruns[0-9a-f]{12} teardownLogs=Ask repo=contoso/run-records activityLog=True'
+  }
+  It 'writes run.json and cost.json that match contract C17, and uploads them to the run folder' {
+    Get-StepExit $out 'start' | Should -Be 0
+    $out | Should -Match 'RESULT start-files valid=True gate=True limit=5 unpriced=0 totalUnderLimit=True useCase=landing-zone teardown=not-started uploaded=runs/run-20261020-1800-t3st/cost.json,runs/run-20261020-1800-t3st/run.json'
+  }
+  It 'fails the gate when a line cannot be priced, without guessing a price' {
+    Get-StepExit $out 'start-unpriced' | Should -Be 1
+    $out | Should -Match 'RESULT start-unpriced gate=False unpriced=1 match=none noGuess=True localOnly=True'
+  }
+}
