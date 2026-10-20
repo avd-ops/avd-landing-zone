@@ -22,7 +22,7 @@ These belong to a sibling project; refer the work there and read its knowledge b
 - **Terraform, Packer, OpenTofu or any other HCL**: [nerdio-hcl](https://github.com/nickprignano/nerdio-hcl). This repo is Bicep and PowerShell only, and CI fails on an HCL file (`.github/workflows/lanes.yml`).
 - **Nerdio Manager** and its scripted actions: [nerdio-hcl](https://github.com/nickprignano/nerdio-hcl). Nothing here depends on Nerdio.
 - **Liquidware products**: the tier is built in [avd-liquidware](https://github.com/nickprignano/avd-liquidware), never in this repo.
-- **General Claude API and model research**: [ai-brain](https://github.com/nickprignano/ai-brain).
+- **General Claude API and model research**: outside this project and the AVD family; not researched here.
 
 ## Next layers to build
 
