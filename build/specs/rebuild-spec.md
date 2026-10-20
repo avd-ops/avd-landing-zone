@@ -33,7 +33,7 @@ Every message you type counts, including pasted command output, "continue" and a
 
 Stop when a member of the users group signs in to a desktop through the Windows App, **and** the post-deployment preflight reports Ready.
 
-Record separately whether the FSLogix profile was created on the share. As of 2026-09-30 this repo itself fails that for cloud-only users; see "Known open issue" below.
+Record separately whether the FSLogix profile was created on the share. Until 2026-10-18 this repo itself failed that for cloud-only users; see "FSLogix access denied (solved)" below.
 
 **What to record**
 
@@ -192,12 +192,12 @@ Build these in from the start. Each one cost at least one failed run last time.
 2. `deploy.sh` succeeds on the first attempt.
 3. The post-deployment preflight with `-Fix` reaches Ready.
 4. A member of the users group signs in to a desktop through the Windows App.
-5. FSLogix creates the profile on the share. Record the result either way; see "Known open issue".
+5. FSLogix creates the profile on the share. Record the result either way; see "FSLogix access denied (solved)".
 6. Cleanup removes everything, and a second deployment with the same name prefix succeeds.
 
 ---
 
-## Known open issue
+## FSLogix access denied (solved)
 
 On 2026-09-30 in this repo, a cloud-only user's Kerberos sign-in to the profile share was rejected at SMB `SESSION_SETUP` with `STATUS_ACCESS_DENIED`. The server's metrics counted it as `SessionSetup / Kerberos / ClientOtherError`.
 
@@ -209,6 +209,6 @@ The following didn't change the result:
 - re-keying Entra Kerberos;
 - rebooting the host and signing in again.
 
-It is with Microsoft support; see the root cause, when known, in `build/lessons`. Until then, acceptance criterion 5 may fail in a rebuild for the same reason. The desktop still works with a local profile. Record the result rather than treating it as a failure of the prompt.
+The cause was the storage account's SMB channel encryption: with AES-256-GCM as the only allowed value, Azure Files denied Entra Kerberos sessions. Allowing AES-128-GCM too fixed it (PR #45, [lesson 0028](../lessons/0028-smb-channel-encryption-entra-kerberos.md)). A rebuild that hardens channel encryption the same way fails acceptance criterion 5 for the same reason, which is a lesson the prompt failed to prevent.
 
 Rule 26 is included as good practice for private endpoints. It is **not** proven to be required for sign-in.
