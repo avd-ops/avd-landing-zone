@@ -89,5 +89,5 @@ Invoke-ScenarioStep 'copy-public' {
   & ./scripts/ops/Stop-AvdRunRecorder.ps1 @lzArgs -CopyTo github -PrivateRepo 'contoso/run-records'
 }
 $run = Get-Content (Join-Path $folder 'run.json') -Raw | ConvertFrom-Json
-Write-Host "RESULT copy-public copies=$(@($run.files | Where-Object { @($_.copies).Count }).Count)"
+Write-Host "RESULT copy-public copies=$(@($run.files | Where-Object { @($_.copies | Where-Object { $_ }).Count }).Count)"
 Remove-Item -Recurse -Force $root
