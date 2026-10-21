@@ -1,0 +1,7 @@
+AVD host rotation - avdlz-dev in 'Fake subscription'
+== Check
+  [FAIL ] Target differs from the current image
+          The pool already runs win11-avd 2026.1004.1.
+          -> Nothing to rotate.
+Deployment portal: paste this output into https://nickprignano.github.io/avd-landing-zone/portal/ for the next step.
+<<<AVDLZ-STATE {"v":1,"stage":"rotation","status":"refused","fix":false,"context":{"namePrefix":"avdlz","environment":"dev","from":"","to":""},"counts":{"pass":0,"fail":1,"warn":0,"fixed":0,"skip":0},"failures":[{"id":"rotation-image","area":"Rotation","check":"Target differs from the current image","detail":"The pool already runs win11-avd 2026.1004.1.","remediation":"Nothing to rotate."}],"warnings":[]} AVDLZ-STATE>>>

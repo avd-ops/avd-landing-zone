@@ -4,13 +4,22 @@
 #   FAKE_HOSTS_RG_EXISTS  true|false   whether rg-<prefix>-<env>-hosts exists (false = first deployment)
 #   FAKE_NOT_RUNNING      VM resource IDs whose power state isn't 'VM running', one per line
 #   FAKE_POWER_LOCK       the host pool's avdlz-power-lock tag (empty = not locked)
+#   FAKE_POOL_TAGS        the host pool's rotation tags as az prints them (JSON; empty = no host pool)
+#   FAKE_POOL_READ_ERROR  set: reading the host pool fails with this error (not a missing pool)
+#   FAKE_AZ_SUB           the subscription ID az has selected (default: the mock's)
+#   FAKE_AZ_SET_FAIL      set: 'az account set' fails
 #   FAKE_DEPLOY_EXIT      exit code of 'az deployment sub create'
 #   FAKE_GROUP_OWNERS     owner object IDs of a group found by name, one per line (empty = no owners)
 #   FAKE_ADMIN_IDS        members of the Global Administrator role, one per line
 echo "az $*" >> "$FAKE_AZ_LOG"
 case "$1 $2" in
   "bicep version"|"provider register"|"feature register") exit 0 ;;
-  "account show") [[ "$*" == *"--query name"* ]] && echo "Fake subscription" || echo '{}' ;;
+  "account show") case "$*" in
+      *"--query name"*) echo "Fake subscription" ;;
+      *"--query id"*) echo "${FAKE_AZ_SUB:-00000000-aaaa-bbbb-cccc-000000000001}" ;;
+      *) echo '{}' ;;
+    esac ;;
+  "account set") [[ -n "${FAKE_AZ_SET_FAIL:-}" ]] && { echo "ERROR: The subscription could not be found." >&2; exit 1; } ;;
   "provider show"|"feature show") echo Registered ;;
   "ad group") case "$3" in
       owner) [[ -n "${FAKE_GROUP_OWNERS:-}" ]] && printf '%s\n' "$FAKE_GROUP_OWNERS" ;;
@@ -24,13 +33,21 @@ case "$1 $2" in
       *) : ;;
     esac ;;
   "group exists") echo "${FAKE_HOSTS_RG_EXISTS:-false}" ;;
-  "resource show") [[ -n "${FAKE_POWER_LOCK:-}" ]] && printf '%s\n' "$FAKE_POWER_LOCK" ;;
+  "resource show") case "$*" in
+      *avdlz-power-lock*) [[ -n "${FAKE_POWER_LOCK:-}" ]] && printf '%s\n' "$FAKE_POWER_LOCK" ;;
+      *avdlz-rotation*)
+        [[ -n "${FAKE_POOL_READ_ERROR:-}" ]] && { echo "ERROR: $FAKE_POOL_READ_ERROR" >&2; exit 1; }
+        # Azure CLI fails on a missing resource (exit 3), it doesn't print nothing.
+        [[ -z "${FAKE_POOL_TAGS:-}" ]] && { echo "ERROR: (ResourceNotFound) The Resource 'Microsoft.DesktopVirtualization/hostPools/vdpool-avdlz-dev' was not found." >&2; exit 3; }
+        printf '%s\n' "$FAKE_POOL_TAGS" ;;
+    esac ;;
   "vm list") [[ -n "${FAKE_NOT_RUNNING:-}" ]] && printf '%s\n' "$FAKE_NOT_RUNNING" ;;
   "vm start"|"vm deallocate") exit 0 ;;
   "deployment sub")
     case "$3" in
       what-if) echo "(what-if output)" ;;
-      create) echo '{}'; exit "${FAKE_DEPLOY_EXIT:-0}" ;;
+      create) echo "deploy-env image=${AVD_SESSION_HOST_IMAGE_ID:-} gen=${AVD_SESSION_HOST_GENERATION:-} tags=${AVD_HOST_POOL_STATE_TAGS:-}" >> "$FAKE_AZ_LOG"
+        echo '{}'; exit "${FAKE_DEPLOY_EXIT:-0}" ;;
       show) [[ "$*" == *controlPlane* ]] && echo rg-avdlz-dev-avd || echo stavdlzdevfake ;;
     esac ;;
   *) echo "fake az: unmocked call: az $*" >&2; exit 2 ;;

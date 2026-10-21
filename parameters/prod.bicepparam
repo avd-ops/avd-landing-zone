@@ -44,6 +44,13 @@ param sessionHostVmSize = empty(readEnvironmentVariable('AVD_SESSION_HOST_VM_SIZ
 // centralus) with availabilityZones = [1, 2, 3] and profileStorageSku = 'Premium_ZRS'.
 param availabilityZones = []
 param maxSessionLimit = empty(readEnvironmentVariable('AVD_MAX_SESSION_LIMIT', '')) ? 8 : int(readEnvironmentVariable('AVD_MAX_SESSION_LIMIT', ''))
+// Image and generation (build/specs/image-pipeline-spec.md section 6.1): deploy.sh --image-id and
+// --generation, or the host pool's avdlz-image and avdlz-generation tags when the flags are absent, so a
+// deployment never changes the image or the host names by itself. Empty: the marketplace image, original names.
+param sessionHostImageId = readEnvironmentVariable('AVD_SESSION_HOST_IMAGE_ID', '')
+param sessionHostGeneration = readEnvironmentVariable('AVD_SESSION_HOST_GENERATION', '')
+// The rotation tags the host pool already carries, kept across deployments (deploy.sh reads them).
+param hostPoolStateTags = json(empty(readEnvironmentVariable('AVD_HOST_POOL_STATE_TAGS', '')) ? '{}' : readEnvironmentVariable('AVD_HOST_POOL_STATE_TAGS', ''))
 
 // ---- Profiles ----
 param profileStorageSku = 'Premium_LRS'

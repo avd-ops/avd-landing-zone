@@ -804,3 +804,71 @@ test('commands: recovery status passes the tier and region only when they are va
   assert.equal(last(P.commands.recoveryStatus(cfg, { tier: 'R1', recoveryLocation: 'southcentralus' })), './scripts/ops/Get-AvdRecoveryStatus.ps1 -NamePrefix avdlz -Environment prod -RecoveryTier R1 -RecoveryLocation southcentralus');
   assert.equal(last(P.commands.recoveryStatus(cfg, { tier: 'R9; rm', recoveryLocation: 'x y' })), './scripts/ops/Get-AvdRecoveryStatus.ps1 -NamePrefix avdlz -Environment prod');
 });
+
+// Blue/green host rotation (build/specs/image-pipeline-spec.md section 6.5): every run continues where the last
+// stopped; a rollback is offered until the old hosts are removed.
+test('state: rotation refused -> what to fix, nothing changed, no command', () => {
+  const r = analyze('state-rotation-refused.txt');
+  assert.equal(r.stage, 'rotation');
+  assert.equal(r.status, 'refused');
+  assert.match(r.headline, /^Host rotation: Refused/);
+  assert.match(r.actions[0].why, /already runs .* Nothing was changed/);
+  assert.equal(r.actions[0].command, '');
+});
+
+test('state: rotation -> its actions show on a slide that has a command slot', () => {
+  for (const f of ['state-rotation-refused.txt', 'state-rotation-waiting.txt', 'state-rotation-done.txt']) {
+    const r = analyze(f);
+    assert.equal(r.step, 'postdeploy', f);
+    assert.ok(P.STEPS.some((s) => s.id === r.step), f);
+  }
+});
+
+test('state: rotation with its own parameter file -> every command keeps it', () => {
+  const text = fixture('state-rotation-waiting.txt').replace('"environment":"dev",', '"environment":"dev","parameterFile":"parameters/dev-eu.bicepparam",');
+  const r = P.analyze(text, {}, {});
+  assert.equal(last(r.actions[0].command), "./scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -ParameterFile 'parameters/dev-eu.bicepparam'");
+  assert.match(last(r.actions[1].command), /-ParameterFile 'parameters\/dev-eu\.bicepparam' -Rollback$/);
+});
+
+test('state: rotation waiting for sessions -> run it again, or roll back', () => {
+  const r = analyze('state-rotation-waiting.txt');
+  assert.equal(r.status, 'waiting');
+  assert.equal(last(r.actions[0].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev');
+  assert.equal(last(r.actions[1].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -Rollback');
+  assertSelfContained(r);
+});
+
+test('state: rotation stopped by an Azure error -> what Azure said, run it again, or roll back', () => {
+  const text = fixture('state-rotation-waiting.txt').replace('"status":"waiting"', '"status":"failed"')
+    .replace('"failures":[]', '"failures":[{"id":"rotation-error","area":"Rotation","check":"Phase Wait","detail":"ARM PATCH failed: 429 TooManyRequests","remediation":"Fix what Azure reported and run this again; it continues from the same phase."}]');
+  const r = P.analyze(text, {}, {});
+  assert.equal(r.status, 'failed');
+  assert.match(r.actions[0].title, /stopped in phase Wait/);
+  assert.match(r.actions[0].why, /429 TooManyRequests .* continues from the same phase/);
+  assert.equal(last(r.actions[0].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev');
+  assert.match(last(r.actions[1].command), / -Rollback$/);
+});
+
+test('state: rollback waiting for the deployment -> the next command is the rollback again', () => {
+  const text = fixture('state-rotation-waiting.txt').replace('"phase":"Wait"', '"phase":"Deploy","rollbackPending":true');
+  const r = P.analyze(text, {}, {});
+  assert.equal(r.actions.length, 1);
+  assert.match(r.actions[0].title, /Roll back once the deployment ends/);
+  assert.equal(last(r.actions[0].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -Rollback');
+});
+
+test('state: rotation past the deadline -> sign-out only when asked, with -LogOffAtDeadline', () => {
+  const r = analyze('state-rotation-after-deadline.txt');
+  assert.equal(last(r.actions[0].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -LogOffAtDeadline');
+});
+
+test('state: rotation done -> delete the old devices by hand; roll back means rotating to the previous version', () => {
+  const r = analyze('state-rotation-done.txt');
+  assert.equal(r.status, 'done');
+  assert.match(r.actions[0].title, /device objects/);
+  assert.match(r.actions[0].why, /avdlzdsha-001/);
+  assert.equal(r.actions[0].command, '');
+  assert.match(r.actions[1].title, /rotation is complete/);
+  assert.match(last(r.actions[1].command), / -Rollback$/);
+});

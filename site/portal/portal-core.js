@@ -274,6 +274,14 @@
     exportConfig: function (cfg, identity) {
       return block(cfg, (identity ? [signIn(cfg)] : []).concat(['./scripts/ops/Export-AvdConfiguration.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment + (identity ? ' -IncludeIdentity' : '')]));
     },
+    // Blue/green host rotation (build/specs/image-pipeline-spec.md section 6.5): each run continues where the last stopped.
+    rotation: function (cfg, opts) {
+      opts = opts || {};
+      // The parameter file the rotation deploys with travels in the state line; the default one is left out.
+      var pf = cfg.parameterFile && cfg.parameterFile !== 'parameters/' + cfg.environment + '.bicepparam' ? ' -ParameterFile ' + psQuote(cfg.parameterFile) : '';
+      return block(cfg, ['./scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment + pf +
+        (opts.logOff ? ' -LogOffAtDeadline' : '') + (opts.rollback ? ' -Rollback' : '')]);
+    },
     recoveryTest: function (cfg) {
       return block(cfg, ['./scripts/ops/Start-AvdRecoveryTest.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment]);
     },
@@ -615,6 +623,40 @@
       note(NEXT[rc.nextStage] || 'Continue', 'This is where the run left off.' + basis, rerunForStep(rc.nextStage, cfg, rc.nextStage === 'postdeploy' ? true : undefined));
       return { step: rc.nextStage, actions: a };
     }
+    if (S === 'rotation') {
+      // Invoke-AvdHostRotation.ps1: refused before anything changed, waiting (run it again), done or failed.
+      // Rotation runs on a deployed landing zone, so its actions show on the post-deployment slide.
+      var ro = state.context || {}, wait = byId(warnings, 'rotation-waiting')[0];
+      if (state.status === 'refused') {
+        note('The rotation did not start', ((failures[0] || {}).detail || '') + ' ' + ((failures[0] || {}).remediation || '') + ' Nothing was changed.', '');
+        return { step: 'postdeploy', actions: a };
+      }
+      if (state.status === 'failed') {
+        var f0 = failures[0] || {};
+        if (f0.id === 'rotation-deploy') note('The new hosts did not deploy', (f0.detail || '') + ' Fix what deploy.sh reported and run the rotation again (it continues), or roll back.', cmd.rotation(cfg));
+        else note('The rotation stopped in phase ' + (ro.phase || 'Deploy'), (f0.detail || '') + ' ' + (f0.remediation || '') + ' Nothing after that was changed.', cmd.rotation(cfg));
+        if (!ro.rollback && ro.phase !== 'Remove') note('Or roll back', 'The original hosts take sessions again and the new ones are removed.', cmd.rotation(cfg, { rollback: true }));
+        return { step: 'postdeploy', actions: a };
+      }
+      if (state.status === 'waiting') {
+        var afterDeadline = wait && /-LogOffAtDeadline/.test((wait.detail || '') + ' ' + (wait.remediation || ''));
+        // A rollback that waited for the deployment to end is run again as a rollback.
+        if (ro.rollbackPending) {
+          note('Roll back once the deployment ends', ((wait || {}).detail || '') + ' Run the rollback again then.', cmd.rotation(cfg, { rollback: true }));
+          return { step: 'postdeploy', actions: a };
+        }
+        note(ro.phase === 'Wait' ? 'Users are moving to the new hosts' : 'Run the rotation again', ((wait || {}).detail || '') + ' It continues from phase ' + (ro.phase || 'Deploy') + '.', cmd.rotation(cfg, { logOff: afterDeadline }));
+        if (!ro.rollback && ro.phase !== 'Remove') note('Or roll back', 'Before the old hosts are removed, a rollback puts users back on them and removes the new ones.', cmd.rotation(cfg, { rollback: true }));
+        return { step: 'postdeploy', actions: a };
+      }
+      var left = byId(warnings, 'devices-left');
+      if (left.length) {
+        var dn = [].concat.apply([], left.map(function (w) { return (w.data && w.data.devices) || []; }));
+        note('Delete the old device objects', 'Entra ID and Intune still hold ' + (dn.join(', ') || 'the removed hosts') + '. Delete them there by hand once you have checked they are these hosts.', '');
+      }
+      note(ro.rollback ? 'The rollback is complete' : 'The rotation is complete', ro.rollback ? 'The original hosts take every session; the new ones are removed.' : 'Every session host runs ' + (ro.version || 'the new version') + '. To go back, rotate to the previous version.', ro.rollback ? '' : cmd.rotation(cfg, { rollback: true }));
+      return { step: 'postdeploy', actions: a };
+    }
     if (S === 'recovery') {
       // Get-AvdRecoveryStatus.ps1 and Start-AvdRecoveryTest.ps1: one action for the first thing that isn't met.
       var rv = state.context || {}, open = failures.concat(warnings);
@@ -654,8 +696,8 @@
     return { step: null, actions: a };
   }
 
-  var STAGE_LABEL = { predeploy: 'Pre-deployment preflight', deploy: 'Deployment', postdeploy: 'Post-deployment setup', demo: 'Demo validation', cleanup: 'Cleanup', power: 'Auto shutdown', verify: 'Access check', resume: 'Where you left off', recovery: 'Recovery' };
-  var STATUS_LABEL = { done: 'Done', ready: 'Ready', notready: 'Not ready', succeeded: 'Succeeded', failed: 'Failed', started: 'Still running (or disconnected)', whatif: 'What-if only', locked: 'Locked', resumed: 'Resumed', stopped: 'Stopped', verified: 'Verified', notverified: 'Not verified', unknown: 'Unknown', met: 'Met', notmet: 'Not met', passed: 'Passed' };
+  var STAGE_LABEL = { predeploy: 'Pre-deployment preflight', deploy: 'Deployment', postdeploy: 'Post-deployment setup', demo: 'Demo validation', cleanup: 'Cleanup', power: 'Auto shutdown', verify: 'Access check', resume: 'Where you left off', recovery: 'Recovery', rotation: 'Host rotation' };
+  var STATUS_LABEL = { done: 'Done', ready: 'Ready', notready: 'Not ready', succeeded: 'Succeeded', failed: 'Failed', started: 'Still running (or disconnected)', whatif: 'What-if only', locked: 'Locked', resumed: 'Resumed', stopped: 'Stopped', verified: 'Verified', notverified: 'Not verified', unknown: 'Unknown', met: 'Met', notmet: 'Not met', passed: 'Passed', refused: 'Refused', waiting: 'Waiting' };
 
   /*
    * analyze(text, config, options) -> {

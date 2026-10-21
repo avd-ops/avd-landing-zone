@@ -42,6 +42,86 @@ function Get-AzStorageAccount { param($ResourceGroupName,$ErrorAction)
 function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
   Log "ARM $Method $Path"
   $ok = { param($o) [pscustomobject]@{StatusCode=200;Content=($o|ConvertTo-Json -Depth 20)} }
+  # ---- Host rotation (Invoke-AvdHostRotation.ps1; image pipeline spec section 6.5). Only when $global:St.rotation is
+  # set: tags (the host pool's), hosts (VM name -> @{ status; sessions; allowNew; healthy; deleted }), vmsGone (VMs
+  # deleted), vmsSlow (VMs whose first delete doesn't finish), excluded (VMs tagged out of the scaling plan), galleryTags (what was tagged on gallery versions),
+  # deployment (the last succeeded record's parameters), runs (the rotation's own deployments by name: @{ name; state; timestamp }).
+  # ARM leaves out what it doesn't have (lesson 0021): a pool with no tags has no tags property.
+  $ro = $global:St.rotation
+  if ($ro) {
+    $hpRe = [regex]::Escape($hpId); $vmBase = "$S/resourceGroups/rg-avdlz-dev-hosts/providers/Microsoft.Compute/virtualMachines"
+    if ($Method -eq 'GET' -and $Path -match "^$hpRe\?") { $o = @{ name='vdpool-avdlz-dev'; id=$hpId }; if ($ro.tags.Count) { $o.tags = $ro.tags }; return & $ok $o }
+    if ($Method -eq 'PATCH' -and $Path -match "^$hpRe/providers/Microsoft.Resources/tags/default\?") {
+      $b = $Payload | ConvertFrom-Json
+      foreach ($t in $b.properties.tags.PSObject.Properties) {
+        if ($b.operation -eq 'Merge') { $ro.tags[$t.Name] = "$($t.Value)" }
+        elseif ($ro.tags[$t.Name] -eq "$($t.Value)") { $ro.tags.Remove($t.Name) }   # Delete matches name and value
+      }
+      # deploy.sh reads the same tags through the fake az (deploybin/az, FAKE_POOL_TAGS).
+      $env:FAKE_POOL_TAGS = ([ordered]@{ 'avdlz-generation' = $ro.tags['avdlz-generation']; 'avdlz-image' = $ro.tags['avdlz-image']; 'avdlz-image-next' = $ro.tags['avdlz-image-next']
+          'avdlz-image-previous' = $ro.tags['avdlz-image-previous']; 'avdlz-rotation' = $ro.tags['avdlz-rotation'] } | ConvertTo-Json)
+      return & $ok @{}
+    }
+    if ($Method -eq 'PATCH' -and $Path -match '/versions/([^/]+)/providers/Microsoft.Resources/tags/default\?') {
+      $ro.galleryTags += "$(($Payload | ConvertFrom-Json).operation) $($Matches[1])"
+      $ro.galleryKey = @(($Payload | ConvertFrom-Json).properties.tags.PSObject.Properties.Name)[0]
+      return & $ok @{}
+    }
+    if ($Method -eq 'GET' -and $Path -match "^$hpRe/sessionHosts\?") {
+      return & $ok @{ value=@($ro.hosts.Keys | Sort-Object | Where-Object { -not $ro.hosts[$_].deleted } | ForEach-Object {
+            $h = $ro.hosts[$_]
+            $props = @{ resourceId="$vmBase/$_"; status=$h.status; sessions=$h.sessions; allowNewSession=$h.allowNew }
+            # A host that hasn't reported its health checks yet: ARM leaves the property out.
+            if (-not $h.noChecks) { $props.sessionHostHealthCheckResults = @(@{ healthCheckName='DomainJoinedCheck'; healthCheckResult=$(if ($h.healthy -eq $false) { 'HealthCheckFailed' } else { 'HealthCheckSucceeded' }) }) }
+            @{ name="vdpool-avdlz-dev/$_.contoso.com"; id="$hpId/sessionHosts/$_.contoso.com"; properties=$props } }) }
+    }
+    if ($Path -match "^$hpRe/sessionHosts/([^./]+)\.contoso\.com(/userSessions)?") {
+      $name = $Matches[1]; $h = $ro.hosts[$name]; $us = [bool]$Matches[2]
+      if ($Path -match '/sendMessage\?') { $ro.messages++; return & $ok @{} }
+      if ($us -and $Method -eq 'GET') { return & $ok @{ value=@(1..([Math]::Max(1, [int]$h.sessions)) | Where-Object { $h.sessions } | ForEach-Object { @{ name="vdpool-avdlz-dev/$name.contoso.com/$_" } }) } }
+      if ($us -and $Method -eq 'DELETE') { $h.sessions = [Math]::Max(0, $h.sessions - 1); $ro.signedOut++; return & $ok @{} }
+      if ($Method -eq 'PATCH') {
+        $h.allowNew = ($Payload | ConvertFrom-Json).properties.allowNewSession
+        # A user who connected while the host was open shows up once it drains.
+        if (-not $h.allowNew -and $h.connectOnDrain) { $h.sessions++; $h.connectOnDrain = $false }
+        return & $ok @{}
+      }
+      if ($Method -eq 'DELETE') { $h.deleted = $true; return & $ok @{} }
+    }
+    if ($Method -eq 'GET' -and $Path -match "^$([regex]::Escape($vmBase))\?") {
+      return & $ok @{ value=@($ro.hosts.Keys | Sort-Object | Where-Object { $ro.vmsGone -notcontains $_ } | ForEach-Object { @{ name=$_; id="$vmBase/$_" } }) }
+    }
+    if ($Method -eq 'PATCH' -and $Path -match "^$([regex]::Escape($vmBase))/([^/?]+)/providers/Microsoft.Resources/tags/default\?") {
+      # The scaling plan's exclusion tag on a drained host (excluded: VM names that carry it).
+      $vm = $Matches[1]; $b = $Payload | ConvertFrom-Json
+      $ro.excluded = @(@($ro.excluded | Where-Object { $_ -and $_ -ne $vm }) + @(if ($b.operation -eq 'Merge') { $vm }))
+      return & $ok @{}
+    }
+    if ($Path -match "^$([regex]::Escape($vmBase))/([^/?]+)\?") {
+      $vm = $Matches[1]
+      if ($Method -eq 'DELETE') {
+        if ($ro.vmsSlow -contains $vm) { $ro.vmsSlow = @($ro.vmsSlow | Where-Object { $_ -ne $vm }) } else { $ro.vmsGone += $vm }
+        return [pscustomobject]@{ StatusCode=202; Content='' }
+      }
+      if ($ro.vmsGone -contains $vm -or -not $ro.hosts.ContainsKey($vm)) { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"ResourceNotFound"}}' } }
+      return & $ok @{ name=$vm }
+    }
+    if ($Method -eq 'GET' -and $Path -match '^/subscriptions/[^/]+/providers/Microsoft\.Resources/deployments\?') {
+      # The demo's record has no host pool output; another landing zone's record names another pool.
+      $other = $hpId -replace 'vdpool-avdlz-dev', 'vdpool-other-dev'
+      return & $ok @{ value=@(
+          @{ name='avdlz-dev-20261020-120000'; properties=@{ provisioningState='Succeeded'; timestamp='2026-10-20T12:00:00Z'; parameters=$ro.deployment; outputs=@{ hostPoolResourceId=@{ type='String'; value=$hpId } } } },
+          @{ name='avdlz-dev-20261020-130000'; properties=@{ provisioningState='Succeeded'; timestamp='2026-10-20T13:00:00Z'; parameters=@{ sessionHostNamePrefix=@{ value='otherdsh' } }; outputs=@{ hostPoolResourceId=@{ type='String'; value=$other } } } },
+          @{ name='avdlz-demo-20261020-140000'; properties=@{ provisioningState='Succeeded'; timestamp='2026-10-20T14:00:00Z' } }
+        ) }
+    }
+    # The rotation's own deployment, read by the name it gave deploy.sh.
+    if ($Method -eq 'GET' -and $Path -match '^/subscriptions/[^/]+/providers/Microsoft\.Resources/deployments/(avdlz-[^/?]+-rot[ab]-[^/?]+)\?') {
+      $run = @($ro.runs | Where-Object { $_ -and $_.name -eq $Matches[1] })[0]
+      if (-not $run) { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"DeploymentNotFound"}}' } }
+      return & $ok @{ name=$run.name; properties=@{ provisioningState=$run.state; timestamp=$run.timestamp } }
+    }
+  }
   # ---- Recovery (Get-AvdRecoveryStatus, Export-AvdConfiguration, Start-AvdRecoveryTest, Test-AvdRecoveryCopies;
   # build/specs/recovery-spec.md). Only when $global:St.recovery is set: vaulted (bool), points (recovery point
   # times), restoreStatus (the restore job's end state), gallery (hosts on a gallery image), replicaRegions.
