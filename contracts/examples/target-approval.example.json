@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/target-approval.schema.json",
   "schema": "avd-target-approval/v1",
-  "manifestSha256": "468c4759df2103e92bf69a49a0d6caf2738635512a0699b928033f99fdc80cb5",
+  "manifestSha256": "6f76c725a6b5e5a2b7baf95908032009d37081af537fe977a224a72488744914",
   "approvedUtc": "2026-12-02T16:00:00Z",
   "acceptLowConfidence": []
 }

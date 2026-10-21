@@ -154,7 +154,7 @@ The Azure store is **durable log storage for the sandbox**, set up once per subs
 
 ### 6.5 One schema for every kind of run (contract C17)
 
-*Added 2026-10-20 at the owner's request, before rollout.* The run folder's files follow avd-second-brain's contract C17, `avd-run-record/v1`, so the same record works for the landing zone today and for other use cases later (image builds, the Liquidware tier, the Stratusphere instrument, avd-swarm plans) without a new format each time. The brain's `contracts/schemas/` is the authority; this repo keeps byte-identical copies in `contracts/`, pinned in `contracts/PINS.json`.
+*Added 2026-10-20 at the owner's request, before rollout.* The run folder's files follow avd-second-brain's contract C17, `avd-run-record/v1`, so the same record works for the landing zone today and for other use cases later (image builds, the Liquidware tier, the Stratusphere instrument, avd-swarm plans) without a new format each time. avd-assess's `contracts/` is the authority since avd-second-brain decision 0021 moved C15 and C17 there (the bytes didn't change); this repo keeps byte-identical copies in `contracts/`, pinned in `contracts/PINS.json`.
 
 - `run.json`: the run ID, its use case (`landing-zone` here), the producing repo and commit, steps, region, status, the manifest of every file with its hashes and verified copies (§9.2), and how teardown ended.
 - `journal.jsonl`: the events in §6.2.
