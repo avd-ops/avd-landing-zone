@@ -16,6 +16,11 @@ test('site/assets holds a versioned copy of the avd-ops design system', () => {
   for (const [, src] of css.matchAll(/url\("([^"]+)"\)/g)) assert.ok(existsSync(join(root, 'site/assets', src)), src);
   assert.ok(existsSync(join(root, 'site/assets/fonts/LICENSE')), 'font licenses');
   for (const f of ['mark.svg', 'favicon.svg']) assert.ok(existsSync(join(root, 'site/assets/brand', f)), `brand/${f}`);
+  // The portal components (avd-ops-portal.css) ship with the same version, so the deployment portal can move
+  // onto the shared copy the assessment portal in avd-current-state also vendors.
+  const portal = read('site/assets/avd-ops-portal.css');
+  const v = (t, re) => (t.match(re) || [])[1];
+  assert.equal(v(portal, /^\/\* avd-ops portal components (v\d+\.\d+\.\d+) /), v(css, /^\/\* avd-ops design system (v\d+\.\d+\.\d+) /), 'one version for both files');
 });
 
 test('the portal and the region latency page use it', () => {
