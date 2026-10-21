@@ -262,6 +262,9 @@ DEPLOY_NAME="${DEPLOY_NAME:-avdlz-$(basename "$PARAM_FILE" .bicepparam)-$(date +
 PORTAL_URL="https://nickprignano.github.io/avd-landing-zone/portal/"
 if [[ "${AVD_PORTAL_URL:-}" =~ ^https://[A-Za-z0-9.-]+(/[^[:space:]\"\'\<\>]*)?$ ]]; then PORTAL_URL="${AVD_PORTAL_URL%/}/"; fi
 json_str() { local s=${1//\\/\\\\}; s=${s//\"/\\\"}; printf '"%s"' "$s"; }
+# The commit these scripts run from, so the portal can tell when it is older than them (red team PH-8).
+PORTAL_COMMIT=$(git -C "$(cd "$(dirname "$0")" && pwd)" rev-parse --short HEAD 2>/dev/null || true)
+[[ "$PORTAL_COMMIT" =~ ^[0-9a-f]{7,40}$ ]] || PORTAL_COMMIT=""
 portal_state() {
   # $1 = status (started | succeeded | failed | whatif); $2 = extra context JSON members (optional)
   printf '\nDeployment portal: paste this output into %s for the next step.\n' "$PORTAL_URL"
@@ -275,8 +278,10 @@ portal_state() {
   if [[ -n "$AUTO_SHUTDOWN$START_ON_CONNECT" ]]; then
     sizing="$sizing,\"power\":{\"autoShutdownTime\":$( [[ -n "$AUTO_SHUTDOWN" ]] && json_str "$AUTO_SHUTDOWN" || printf null ),\"startVmOnConnect\":${START_ON_CONNECT:-null}}"
   fi
-  printf '<<<AVDLZ-STATE {"v":1,"stage":"deploy","status":"%s","context":{"parameterFile":%s,"location":%s,"usersGroup":%s,"adminsGroup":%s,"deploymentName":%s%s%s}} AVDLZ-STATE>>>\n' \
-    "$1" "$(json_str "$PARAM_FILE")" "$(json_str "$LOCATION")" "$(json_str "$USERS_GROUP")" "$(json_str "$ADMINS_GROUP")" "$(json_str "$DEPLOY_NAME")" "$sizing" "${2:-}"
+  local commit=""
+  [[ -n "$PORTAL_COMMIT" ]] && commit=",\"commit\":$(json_str "$PORTAL_COMMIT")"
+  printf '<<<AVDLZ-STATE {"v":1,"stage":"deploy","status":"%s","context":{"parameterFile":%s,"location":%s,"usersGroup":%s,"adminsGroup":%s,"deploymentName":%s%s%s%s}} AVDLZ-STATE>>>\n' \
+    "$1" "$(json_str "$PARAM_FILE")" "$(json_str "$LOCATION")" "$(json_str "$USERS_GROUP")" "$(json_str "$ADMINS_GROUP")" "$(json_str "$DEPLOY_NAME")" "$sizing" "$commit" "${2:-}"
 }
 
 # --- Session hosts that aren't running (lesson 0026) ---

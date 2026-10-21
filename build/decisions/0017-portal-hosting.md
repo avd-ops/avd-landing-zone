@@ -56,9 +56,16 @@ Two modes, one build:
   zone's default deployment changes.
 - A published copy is a snapshot pinned to a ref: republish to move it. A state-line field the copy
   doesn't know yet shows as unrecognized, never as a wrong command.
-- Not done here (red team follow-ups): a custom domain and a CSP meta tag for the Pages portal
-  (PH-9), SHA-pinned Actions and branch rules (PH-3), validating every settings field (PH-4),
-  comparing the commit in the state line with the portal's (PH-8), and Report a problem naming the
-  repo it files into (PH-10).
+- Red team follow-ups done after the first PR: the page's script moved to `portal-page.js` and
+  `index.html` carries a CSP meta tag that allows no inline or third-party script (PH-9; a meta tag
+  can't carry `frame-ancestors`, so only a published copy sends that); every workflow pins its
+  Actions to a commit SHA with the version beside it (PH-3); every setting that enters a command,
+  typed, saved or read from a pasted state line, has a pattern in `portal-core.js` and anything
+  else is dropped and named (PH-4); the scripts and `deploy.sh` write their commit into the state
+  line, the Pages workflow and `Publish-AvdPortal.ps1` write the portal's into `portal-config.js`,
+  and the page says when they differ (PH-8); Report a problem names the repo it files into and
+  that the issue is public (PH-10).
+- Still the owner's to do, outside the code: a custom domain for the Pages portal (its own
+  origin, PH-9) and branch protection plus the `github-pages` environment's branch rule (PH-3).
 - The first real run of Mode B gets a lesson (decision 0006), including whether a Static Web Apps
   resource in an allowed region works under a landing zone whose resource group region differs.

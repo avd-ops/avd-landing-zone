@@ -99,6 +99,15 @@ if (-not $RepoUrl) {
 }
 if (-not $Ref) { $Ref = "$(git -C $repoRoot rev-parse HEAD 2>$null)".Trim() }
 if (-not $RepoUrl -or -not $Ref) { throw 'Could not read the repo URL or commit from this checkout. Pass -RepoUrl and -Ref.' }
+# The commit the ref resolves to in this checkout, for the portal's version check (red team PH-8); a
+# ref this checkout doesn't have leaves it out.
+$Commit = ''
+if (Get-Command git -ErrorAction SilentlyContinue) {
+  $resolved = "$(git -C $repoRoot rev-parse --verify --quiet "$Ref^{commit}" 2>$null)".Trim()
+  if (-not $LASTEXITCODE -and $resolved -match '^[0-9a-f]{40}$') { $Commit = $resolved }
+  # A ref this checkout doesn't have is not a failure of this script: don't leave git's exit code behind.
+  $global:LASTEXITCODE = 0
+}
 # Validates both (throws with the reason); the portal checks them again before using them.
 $null = Get-AvdPortalConfigScript -RepoUrl $RepoUrl -Ref $Ref -PortalUrl 'https://example.com/' -Hosting $Hosting
 Add-AvdCheckResult 'Portal' 'Commands clone and check out' 'Pass' -Detail "$RepoUrl at $Ref"
@@ -146,7 +155,7 @@ $stage = Join-Path ([IO.Path]::GetTempPath()) "avdlz-portal-$([guid]::NewGuid().
 try {
   New-Item -ItemType Directory -Path $stage | Out-Null
   foreach ($d in 'portal', 'assets') { Copy-Item -Recurse -Path (Join-Path $repoRoot "site/$d") -Destination (Join-Path $stage $d) }
-  Set-Content -Path (Join-Path $stage 'portal/portal-config.js') -Value (Get-AvdPortalConfigScript -RepoUrl $RepoUrl -Ref $Ref -PortalUrl "$($portalRoot)portal/" -Hosting $Hosting) -NoNewline
+  Set-Content -Path (Join-Path $stage 'portal/portal-config.js') -Value (Get-AvdPortalConfigScript -RepoUrl $RepoUrl -Ref $Ref -PortalUrl "$($portalRoot)portal/" -Hosting $Hosting -Commit $Commit) -NoNewline
   # The site root opens the portal (on GitHub Pages it is the avd-ops redirect).
   Set-Content -Path (Join-Path $stage 'index.html') -Value '<!doctype html><meta charset="utf-8"><title>AVD deployment portal</title><meta http-equiv="refresh" content="0; url=portal/"><p><a href="portal/">AVD deployment portal</a></p>'
   if ($Hosting -eq 'StaticWebApp') {
