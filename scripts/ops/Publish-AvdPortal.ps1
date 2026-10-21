@@ -101,8 +101,13 @@ if (-not $Ref) { $Ref = "$(git -C $repoRoot rev-parse HEAD 2>$null)".Trim() }
 if (-not $RepoUrl -or -not $Ref) { throw 'Could not read the repo URL or commit from this checkout. Pass -RepoUrl and -Ref.' }
 # The commit the ref resolves to in this checkout, for the portal's version check (red team PH-8); a
 # ref this checkout doesn't have leaves it out.
-$Commit = "$(git -C $repoRoot rev-parse --verify --quiet "$Ref^{commit}" 2>$null)".Trim()
-if ($Commit -notmatch '^[0-9a-f]{40}$') { $Commit = '' }
+$Commit = ''
+if (Get-Command git -ErrorAction SilentlyContinue) {
+  $resolved = "$(git -C $repoRoot rev-parse --verify --quiet "$Ref^{commit}" 2>$null)".Trim()
+  if (-not $LASTEXITCODE -and $resolved -match '^[0-9a-f]{40}$') { $Commit = $resolved }
+  # A ref this checkout doesn't have is not a failure of this script: don't leave git's exit code behind.
+  $global:LASTEXITCODE = 0
+}
 # Validates both (throws with the reason); the portal checks them again before using them.
 $null = Get-AvdPortalConfigScript -RepoUrl $RepoUrl -Ref $Ref -PortalUrl 'https://example.com/' -Hosting $Hosting
 Add-AvdCheckResult 'Portal' 'Commands clone and check out' 'Pass' -Detail "$RepoUrl at $Ref"

@@ -71,6 +71,7 @@ function Get-AvdRepoCommit {
   if (Get-Command git -ErrorAction SilentlyContinue) {
     $c = git -C $PSScriptRoot rev-parse --short HEAD 2>$null
     if (-not $LASTEXITCODE -and "$c" -match '^[0-9a-f]{7,40}$') { $script:RepoCommit = "$c" }
+    $global:LASTEXITCODE = 0
   }
   $script:RepoCommit
 }
