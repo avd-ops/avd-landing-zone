@@ -282,17 +282,23 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
   }
   It 'refuses a different image or generation, and any deployment during a rotation, except from the rotation script' {
     Get-StepExit $out 'pool-tags-new-generation' | Should -Be 1
-    Get-Result 'pool-tags-new-generation-calls' | Should -Be 'group-exists'
+    Get-Result 'pool-tags-new-generation-calls' | Should -Be ''
     $out | Should -Match "Not deploying a different one"
     Get-StepExit $out 'pool-rotating' | Should -Be 1
-    Get-Result 'pool-rotating-calls' | Should -Be 'group-exists'
+    Get-Result 'pool-rotating-calls' | Should -Be ''
     $out | Should -Match 'A host rotation is in progress on vdpool-avdlz-dev'
     Get-StepExit $out 'pool-rotation-deploy' | Should -Be 0
     Get-Result 'pool-rotation-deploy-env' | Should -Match 'image=\S+/versions/2026\.1101\.1 gen=b tags=.*"avdlz-rotation":"\{\\"phase\\":\\"Deploy\\"\}"'
   }
+  It 'reads the host pool even when its hosts resource group is gone' {
+    Get-StepExit $out 'pool-no-hosts-rg' | Should -Be 1
+    Get-Result 'pool-no-hosts-rg-calls' | Should -Be ''
+    Get-StepExit $out 'pool-no-hosts-rg-keeps' | Should -Be 0
+    Get-Result 'pool-no-hosts-rg-keeps-env' | Should -Match 'image=\S+/versions/2026\.1004\.1 gen=a tags=\{"avdlz-image":"\S+/versions/2026\.1004\.1","avdlz-generation":"a"\}$'
+  }
   It 'stops when the host pool cannot be read, rather than treating it as missing' {
     Get-StepExit $out 'pool-unreadable' | Should -Be 1
-    Get-Result 'pool-unreadable-calls' | Should -Be 'group-exists'
+    Get-Result 'pool-unreadable-calls' | Should -Be ''
     $out | Should -Match 'Could not read the host pool vdpool-avdlz-dev .* Not deploying\.'
     $out | Should -Match 'AuthorizationFailed'
   }
@@ -495,7 +501,7 @@ Describe 'Blue/green host rotation (image pipeline spec section 6.5)' {
   }
   It 'deploys generation a beside the old hosts with the target image, through deploy.sh --rotation, keeping the pool tags' {
     Get-RotationLine 'deploy' | Should -Match '^phase=Deploy image=2026\.1004\.1 gen= next=2026\.1101\.1 previous=2026\.1004\.1 hosts=avdlzdsh-001:open,avdlzdsh-002:open'
-    Get-RotationLine 'deploy' 'deploy' | Should -Match 'tags=\{"avdlz-image":"2026\.1004\.1","avdlz-image-next":"2026\.1101\.1","avdlz-image-previous":"2026\.1004\.1","avdlz-rotation":.*deployAt'
+    Get-RotationLine 'deploy' 'deploy' | Should -Match 'tags=\{"avdlz-image":"2026\.1004\.1","avdlz-image-next":"2026\.1101\.1","avdlz-image-previous":"2026\.1004\.1","avdlz-rotation":.*avdlz-dev-rota-\d{8}-\d{6}'
     $out | Should -Match 'Hosts: image .*/versions/2026\.1101\.1, generation a'
   }
   It 'waits for a deployment still running after a disconnect, and deploys again after a failed one' {
@@ -510,6 +516,8 @@ Describe 'Blue/green host rotation (image pipeline spec section 6.5)' {
   }
   It 'records the new image on the pool only once the new hosts are ready, then drains the old ones with a message' {
     Get-RotationLine 'drain' | Should -Match '^phase=Wait image=2026\.1101\.1 gen=a .* hosts=avdlzdsh-001:drain,avdlzdsh-002:drain,avdlzdsha-001:open,avdlzdsha-002:open vmsGone= messages=1 signedOut=0 gallery=Merge 2026\.1101\.1$'
+    # Out of the scaling plan too, or its ramp-up would reopen them.
+    Get-RotationLine 'drain' 'excluded' | Should -Be 'avdlzdsh-001,avdlzdsh-002'
   }
   It 'signs nobody out after the deadline unless asked, then gives 15 minutes'' notice first' {
     Get-RotationLine 'deadline' | Should -Match 'messages=1 signedOut=0'
@@ -529,13 +537,23 @@ Describe 'Blue/green host rotation (image pipeline spec section 6.5)' {
   }
   It 'rolls back before Remove: the original hosts take sessions again and the new ones are removed; a preview writes nothing' {
     Get-RotationLine 'rb-drain' | Should -Match 'hosts=avdlzdsh-001:drain,avdlzdsh-002:drain,avdlzdsha-001:open,avdlzdsha-002:open'
+    Get-RotationLine 'rb-drain' 'excluded' | Should -Be 'avdlzdsh-001,avdlzdsh-002'
+    Get-RotationLine 'rollback' 'excluded' | Should -Be 'avdlzdsha-001,avdlzdsha-002'
     $out | Should -Match 'RESULT rollback-whatif-writes 0'
     Get-RotationLine 'rollback' | Should -Match '^phase= image=2026\.1004\.1 gen= next= previous=2026\.1004\.1 hosts=avdlzdsh-001:open,avdlzdsh-002:open vmsGone=avdlzdsha-001,avdlzdsha-002 .*Delete 2026\.1101\.1$'
-    $states[-1].status | Should -Be 'done'
-    $states[-1].context.version | Should -Be 'rollback'
+    $states[-2].status | Should -Be 'done'
+    $states[-2].context.version | Should -Be 'rollback'
+  }
+  It 'does not roll back while the deployment still runs, nor to the version the pool runs again' {
+    $states[17].status | Should -Be 'waiting'
+    $states[17].warnings[0].detail | Should -Match 'avdlz-dev-rota-\d{8}-\d{6} of generation a is still running'
+    Get-RotationLine 'rb-running' | Should -Match '^phase=Deploy image=2026\.1004\.1 gen= next=2026\.1101\.1 '
+    $states[-1].status | Should -Be 'refused'
+    @($states[-1].failures.id) | Should -Be @('rotation-image')
+    $states[-1].failures[0].remediation | Should -Match 'Nothing to roll back to'
   }
   It 'prints a portal state line for every run, with the parameter file' {
-    ($states | ForEach-Object status) -join ' ' | Should -Be 'refused refused refused refused waiting waiting waiting waiting waiting waiting waiting waiting waiting done waiting done waiting waiting waiting done'
+    ($states | ForEach-Object status) -join ' ' | Should -Be 'refused refused refused refused waiting waiting waiting waiting waiting waiting waiting waiting waiting done waiting done waiting waiting waiting waiting done refused'
     @($states | Where-Object { $_.context.parameterFile -ne 'parameters/dev.bicepparam' }).context.parameterFile | Should -Be 'parameters/test.bicepparam'
   }
 }

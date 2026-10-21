@@ -15,7 +15,7 @@ function Reset-Rotation {
   $global:St.rotation = @{
     tags = @{ 'avdlz-image' = $v1 }
     hosts = @{ 'avdlzdsh-001' = @{ status = 'Available'; sessions = 1; allowNew = $true }; 'avdlzdsh-002' = @{ status = 'Available'; sessions = 0; allowNew = $true } }
-    vmsGone = @(); vmsSlow = @(); galleryTags = @(); runs = @(); messages = 0; signedOut = 0
+    vmsGone = @(); vmsSlow = @(); excluded = @(); galleryTags = @(); runs = @(); messages = 0; signedOut = 0
     deployment = @{
       sessionHostNamePrefix = @{ value = 'avdlzdsh' }; sessionHostCount = @{ value = 2 }; sessionHostVmSize = @{ value = 'Standard_D4as_v5' }
       maxSessionLimit = @{ value = 4 }; avdUsersGroupObjectId = @{ value = '11111111-1111-1111-1111-111111111111' }
@@ -26,9 +26,11 @@ function Reset-Rotation {
 function Add-Generation([string] $Status, [string[]] $Names = @('avdlzdsha-001', 'avdlzdsha-002')) {
   foreach ($n in $Names) { $global:St.rotation.hosts[$n] = @{ status = $Status; sessions = 0; allowNew = $true } }
 }
-# The rotation's own deployment record, as Azure keeps it after Cloud Shell disconnects.
+# The rotation's own deployment record, as Azure keeps it after Cloud Shell disconnects, under the name the
+# rotation recorded. A routine deployment just before it never counts as the rotation's.
 function Set-RotationRun([string] $State) {
-  $global:St.rotation.runs = @(@{ name = 'avdlz-dev-20261021-000000'; state = $State; timestamp = [datetime]::UtcNow.ToString('o') })
+  $name = ($global:St.rotation.tags['avdlz-rotation'] | ConvertFrom-Json).deploy
+  $global:St.rotation.runs = @(@{ name = 'avdlz-dev-20261021-000000'; state = 'Succeeded'; timestamp = [datetime]::UtcNow.ToString('o') }, @{ name = $name; state = $State; timestamp = [datetime]::UtcNow.ToString('o') })
 }
 # Moves the recorded deadline or notice into the past, as if the operator came back later.
 function Set-RotationTime([string] $Key) {
@@ -43,6 +45,7 @@ function Show-Rotation([string] $Step) {
   Write-Host ("RESULT $Step-state phase={0} image={1} gen={2} next={3} previous={4} hosts={5} vmsGone={6} messages={7} signedOut={8} gallery={9}" -f `
       $phase, ($t['avdlz-image'] -replace '^.*/versions/', ''), $t['avdlz-generation'], ($t['avdlz-image-next'] -replace '^.*/versions/', ''), ($t['avdlz-image-previous'] -replace '^.*/versions/', ''),
       ($hosts -join ','), ($ro.vmsGone -join ','), $ro.messages, $ro.signedOut, (@($ro.galleryTags | ForEach-Object { $_ -replace '^(\w+) .*/versions/', '$1 ' }) -join ','))
+  Write-Host "RESULT $Step-excluded $(@($ro.excluded | Where-Object { $_ } | Sort-Object) -join ',')"
   Write-Host "RESULT $Step-deploy $(@(Get-Content $env:FAKE_AZ_LOG -ErrorAction SilentlyContinue | Where-Object { $_ -like 'deploy-env *' -or $_ -like 'az deployment sub create*' } | ForEach-Object { $_ -replace '^az deployment sub create .*', 'create' -replace '/subscriptions/[^"\s]*/versions/', '' }) -join ';')"
   Remove-Item $env:FAKE_AZ_LOG -ErrorAction SilentlyContinue
 }
@@ -110,6 +113,11 @@ Show-Rotation 'back-finish'
 Reset-Rotation
 Invoke-ScenarioStep 'rb-deploy' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -ImageId $v2 }
 Show-Rotation 'rb-deploy'
+# Not while Azure is still deploying the hosts the rollback would remove.
+Set-RotationRun 'Running'
+Invoke-ScenarioStep 'rb-running' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -Rollback }
+Show-Rotation 'rb-running'
+Set-RotationRun 'Succeeded'
 Add-Generation 'Available'
 Invoke-ScenarioStep 'rb-drain' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
 Show-Rotation 'rb-drain'
@@ -119,5 +127,8 @@ Invoke-ScenarioStep 'rollback-whatif' { & ./scripts/ops/Invoke-AvdHostRotation.p
 Write-Host "RESULT rollback-whatif-writes $(@($global:Calls | Where-Object { $_ -match '^ARM (PATCH|PUT|POST|DELETE)' }).Count)"
 Invoke-ScenarioStep 'rollback' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -Rollback }
 Show-Rotation 'rollback'
+# The pool runs the previous version again, so there is nothing left to roll back to.
+Invoke-ScenarioStep 'rollback-again' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -Rollback }
+Show-Rotation 'rollback-again'
 $global:St.rotation = $null
 Remove-Item $env:FAKE_AZ_LOG -ErrorAction SilentlyContinue

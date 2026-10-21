@@ -69,6 +69,8 @@ Describe 'The Check phase' {
     Get-Ids (Get-AvdRotationCheck -PoolTags @{ 'avdlz-power-lock' = 'budget 2026-10-19T03:00:00Z' } -TargetImageId $v2 -BasePrefix 'avdlzdsh') | Should -Be 'rotation-locked'
     Get-Ids (Get-AvdRotationCheck -PoolTags @{} -TargetImageId ($v2 -replace '/versions/.*$') -BasePrefix 'avdlzdsh') | Should -Be 'rotation-image'
     Get-Ids (Get-AvdRotationCheck -PoolTags @{ 'avdlz-image' = $v2 } -TargetImageId $v2 -BasePrefix 'avdlzdsh') | Should -Be 'rotation-image'
+    # After a rollback before Remove, the previous version is the one the pool runs: nothing to roll back to.
+    Get-Ids (Get-AvdRotationCheck -PoolTags @{ 'avdlz-image' = $v1; 'avdlz-image-previous' = $v1 } -TargetImageId $v1 -BasePrefix 'avdlzdsh' -Rollback) | Should -Be 'rotation-image'
     Get-Ids (Get-AvdRotationCheck -PoolTags @{} -TargetImageId '' -BasePrefix 'avdlzdsh') | Should -Be 'rotation-image'
     Get-Ids (Get-AvdRotationCheck -PoolTags @{} -TargetImageId $v2 -BasePrefix 'contosoprsb') | Should -Be 'rotation-names'
     $q = Get-AvdRotationCheck -PoolTags @{} -TargetImageId $v2 -BasePrefix 'avdlzdsh' -HostCount 3 -VcpuPerHost 4 -QuotaFree 8
@@ -91,13 +93,16 @@ Describe 'deploy.sh flags for the rotation''s deployment' {
       enableAutoShutdown = [pscustomobject]@{ value = $true }; autoShutdownTime = [pscustomobject]@{ value = '20:00' }
       startVmOnConnect = [pscustomobject]@{ value = $true }
     }
-    $a = Get-AvdRotationDeployArgument -Parameters $p -ParameterFile 'parameters/dev.bicepparam' -Location 'northcentralus' -ImageId $v2 -Generation 'b' -HostCount 2
-    ($a -join ' ') | Should -Be "-p parameters/dev.bicepparam -l northcentralus --users-group 11111111-1111-1111-1111-111111111111 --admins-group 22222222-2222-2222-2222-222222222222 --hosts 2 --vm-size Standard_E4as_v5 --max-sessions 8 --profile-quota 100 --auto-shutdown 20:00 --start-vm-on-connect true --image-id $v2 --generation b --rotation"
+    $a = Get-AvdRotationDeployArgument -Parameters $p -ParameterFile 'parameters/dev.bicepparam' -Location 'northcentralus' -ImageId $v2 -Generation 'b' -HostCount 2 -DeploymentName 'avdlz-dev-rotb-20261021-000000'
+    ($a -join ' ') | Should -Be "-p parameters/dev.bicepparam -l northcentralus --users-group 11111111-1111-1111-1111-111111111111 --admins-group 22222222-2222-2222-2222-222222222222 --hosts 2 --vm-size Standard_E4as_v5 --max-sessions 8 --profile-quota 100 --auto-shutdown 20:00 --start-vm-on-connect true --image-id $v2 --generation b --rotation --deployment-name avdlz-dev-rotb-20261021-000000"
   }
   It 'turns auto shutdown off when the deployment had it off, and leaves out what the record lacks' {
     $p = [pscustomobject]@{ enableAutoShutdown = [pscustomobject]@{ value = $false } }
     $a = Get-AvdRotationDeployArgument -Parameters $p -ParameterFile 'parameters/dev.bicepparam' -Location 'northcentralus' -ImageId '' -Generation 'a'
     ($a -join ' ') | Should -Be '-p parameters/dev.bicepparam -l northcentralus --auto-shutdown none --generation a --rotation'
+    # Deployed with --auto-shutdown none: the record has auto shutdown on and an empty time.
+    $p = [pscustomobject]@{ enableAutoShutdown = [pscustomobject]@{ value = $true }; autoShutdownTime = [pscustomobject]@{ value = '' } }
+    (Get-AvdRotationDeployArgument -Parameters $p -ParameterFile 'parameters/dev.bicepparam' -Location 'northcentralus' -ImageId '' -Generation 'a') -join ' ' | Should -Be '-p parameters/dev.bicepparam -l northcentralus --auto-shutdown none --generation a --rotation'
   }
 }
 
@@ -119,6 +124,10 @@ Describe 'Each phase''s next step' {
     $one = $old + @(New-SessionHost 'avdlzdshb-001' 'b')
     (Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $one -ExpectedCount 2 -Now $now -DeploymentState failed).Action | Should -Be 'deploy'
     (Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $one -ExpectedCount 2 -Now $now -DeploymentState succeeded).Action | Should -Be 'wait-hosts'
+    # Never cut over to a failed deployment, even when every new host it left is ready.
+    $all = $old + @((New-SessionHost 'avdlzdshb-001' 'b'), (New-SessionHost 'avdlzdshb-002' 'b'))
+    (Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $all -ExpectedCount 2 -Now $now -DeploymentState failed).Action | Should -Be 'deploy'
+    (Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $all -ExpectedCount 2 -Now $now -DeploymentState succeeded).Action | Should -Be 'drain'
   }
   It 'removes once no session is left on the old hosts, and otherwise waits for the deadline' {
     $h = @((New-SessionHost 'avdlzdsha-001' 'a' -Sessions 2 -Allow $false), (New-SessionHost 'avdlzdshb-001' 'b' -Sessions 5))

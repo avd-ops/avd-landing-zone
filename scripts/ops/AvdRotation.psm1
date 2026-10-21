@@ -64,7 +64,7 @@ function ConvertTo-AvdRotationTag {
   [CmdletBinding()]
   param([Parameter(Mandatory)] $State)
   $o = [ordered]@{}
-  foreach ($k in 'phase', 'from', 'to', 'version', 'deadline', 'notice', 'deployAt', 'rollback', 'by') {
+  foreach ($k in 'phase', 'from', 'to', 'version', 'deadline', 'notice', 'deploy', 'rollback', 'by') {
     $v = if ($State -is [System.Collections.IDictionary]) { $State[$k] } else { $State.$k }
     if ($null -ne $v -and "$v" -ne '') { $o[$k] = if ($v -is [bool]) { $v } else { "$v" } }
   }
@@ -98,7 +98,9 @@ function Get-AvdRotationDeployArgument {
     [Parameter(Mandatory)][string] $Location,
     [AllowEmptyString()][string] $ImageId,
     [Parameter(Mandatory)][ValidateSet('a', 'b')][string] $Generation,
-    [int] $HostCount
+    [int] $HostCount,
+    # The deployment's name, so the rotation can find exactly this deployment again.
+    [string] $DeploymentName
   )
   $values = @{}
   foreach ($x in $Parameters.PSObject.Properties) { if ($null -ne $x.Value -and $x.Value.PSObject.Properties['value']) { $values[$x.Name] = $x.Value.value } }
@@ -113,12 +115,14 @@ function Get-AvdRotationDeployArgument {
     $x = & $v $pair[0]; if ($null -ne $x -and "$x" -ne '') { $a.AddRange([string[]]@($pair[1], "$x")) }
   }
   $auto = & $v 'enableAutoShutdown'; $time = & $v 'autoShutdownTime'
-  if ($auto -eq $false) { $a.AddRange([string[]]@('--auto-shutdown', 'none')) }
+  # A deployment made with --auto-shutdown none records an empty time, not enableAutoShutdown false.
+  if ($auto -eq $false -or ($values.ContainsKey('autoShutdownTime') -and -not "$time")) { $a.AddRange([string[]]@('--auto-shutdown', 'none')) }
   elseif ($time) { $a.AddRange([string[]]@('--auto-shutdown', "$time")) }
   $svc = & $v 'startVmOnConnect'
   if ($null -ne $svc) { $a.AddRange([string[]]@('--start-vm-on-connect', "$svc".ToLower())) }
   if ($ImageId) { $a.AddRange([string[]]@('--image-id', $ImageId)) }
   $a.AddRange([string[]]@('--generation', $Generation, '--rotation'))
+  if ($DeploymentName) { $a.AddRange([string[]]@('--deployment-name', $DeploymentName)) }
   , $a.ToArray()
 }
 
@@ -150,8 +154,9 @@ function Get-AvdRotationCheck {
   elseif (-not $TargetImageId -and -not $Rollback) {
     & $add 'rotation-image' 'Fail' 'A target image' 'No -ImageId and no avdlz-image-next on the host pool.' 'Promote a validated version (image-promote.yml) or pass -ImageId.' $null
   }
-  elseif ($TargetImageId -eq $current -and -not $Rollback) {
-    & $add 'rotation-image' 'Fail' 'Target differs from the current image' "The pool already runs $(Get-AvdImageLabel $current)." 'Nothing to rotate.' $null
+  elseif ($TargetImageId -eq $current) {
+    # After a rollback before Remove, avdlz-image-previous is the version the pool runs again.
+    & $add 'rotation-image' 'Fail' 'Target differs from the current image' "The pool already runs $(Get-AvdImageLabel $current)." $(if ($Rollback) { 'Nothing to roll back to; rotate to a validated version with -ImageId.' } else { 'Nothing to rotate.' }) $null
   }
   else { & $add 'rotation-image' 'Pass' 'Target image' "$(Get-AvdImageLabel $current) -> $(Get-AvdImageLabel $TargetImageId)" '' $null }
   if (Test-AvdGenerationNameClash -BasePrefix $BasePrefix) {
@@ -193,15 +198,14 @@ function Get-AvdRotationStep {
     'Check' { return & $out 'deploy' 'Deploy' 'Checks passed; deploying the new hosts.' }
     'Deploy' {
       if ($DeploymentState -eq 'running') { return & $out 'wait-hosts' 'Deploy' "The deployment of generation $($State.to) is still running in Azure." }
+      # A failed deployment is never cut over to, however many hosts it left ready: deploy again.
+      if ($DeploymentState -eq 'failed') { return & $out 'deploy' 'Deploy' "$($new.Count)$(if ($ExpectedCount -gt 0) { " of $ExpectedCount" }) new host(s) registered and the deployment failed; deploying again." }
       if ($new.Count -eq 0) {
         if ($DeploymentState -eq 'succeeded') { return & $out 'wait-hosts' 'Deploy' "The deployment succeeded; no generation $($State.to) host registered yet." }
-        return & $out 'deploy' 'Deploy' "No generation $($State.to) host registered yet$(if ($DeploymentState -eq 'failed') { '; the last deployment failed, deploying again' })."
+        return & $out 'deploy' 'Deploy' "No generation $($State.to) host registered yet."
       }
       $ready = @($new | Where-Object { $_.Available -and $_.Healthy })
       if ($ExpectedCount -gt 0 -and $ready.Count -lt $ExpectedCount) {
-        if ($DeploymentState -eq 'failed' -and $new.Count -lt $ExpectedCount) {
-          return & $out 'deploy' 'Deploy' "$($new.Count) of $ExpectedCount new host(s) registered and the deployment failed; deploying again."
-        }
         return & $out 'wait-hosts' 'Deploy' "$($ready.Count) of $ExpectedCount new host(s) Available with every health check passing."
       }
       if ($ready.Count -lt $new.Count) { return & $out 'wait-hosts' 'Deploy' "$($ready.Count) of $($new.Count) new host(s) ready." }

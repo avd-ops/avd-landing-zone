@@ -44,8 +44,8 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
   $ok = { param($o) [pscustomobject]@{StatusCode=200;Content=($o|ConvertTo-Json -Depth 20)} }
   # ---- Host rotation (Invoke-AvdHostRotation.ps1; image pipeline spec section 6.5). Only when $global:St.rotation is
   # set: tags (the host pool's), hosts (VM name -> @{ status; sessions; allowNew; healthy; deleted }), vmsGone (VMs
-  # deleted), vmsSlow (VMs whose first delete doesn't finish), galleryTags (what was tagged on gallery versions),
-  # deployment (the last succeeded record's parameters), runs (the rotation's own deployments: @{ name; state; timestamp }).
+  # deleted), vmsSlow (VMs whose first delete doesn't finish), excluded (VMs tagged out of the scaling plan), galleryTags (what was tagged on gallery versions),
+  # deployment (the last succeeded record's parameters), runs (the rotation's own deployments by name: @{ name; state; timestamp }).
   # ARM leaves out what it doesn't have (lesson 0021): a pool with no tags has no tags property.
   $ro = $global:St.rotation
   if ($ro) {
@@ -84,6 +84,12 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
     if ($Method -eq 'GET' -and $Path -match "^$([regex]::Escape($vmBase))\?") {
       return & $ok @{ value=@($ro.hosts.Keys | Sort-Object | Where-Object { $ro.vmsGone -notcontains $_ } | ForEach-Object { @{ name=$_; id="$vmBase/$_" } }) }
     }
+    if ($Method -eq 'PATCH' -and $Path -match "^$([regex]::Escape($vmBase))/([^/?]+)/providers/Microsoft.Resources/tags/default\?") {
+      # The scaling plan's exclusion tag on a drained host (excluded: VM names that carry it).
+      $vm = $Matches[1]; $b = $Payload | ConvertFrom-Json
+      $ro.excluded = @(@($ro.excluded | Where-Object { $_ -and $_ -ne $vm }) + @(if ($b.operation -eq 'Merge') { $vm }))
+      return & $ok @{}
+    }
     if ($Path -match "^$([regex]::Escape($vmBase))/([^/?]+)\?") {
       $vm = $Matches[1]
       if ($Method -eq 'DELETE') {
@@ -100,7 +106,13 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
           @{ name='avdlz-dev-20261020-120000'; properties=@{ provisioningState='Succeeded'; timestamp='2026-10-20T12:00:00Z'; parameters=$ro.deployment; outputs=@{ hostPoolResourceId=@{ type='String'; value=$hpId } } } },
           @{ name='avdlz-dev-20261020-130000'; properties=@{ provisioningState='Succeeded'; timestamp='2026-10-20T13:00:00Z'; parameters=@{ sessionHostNamePrefix=@{ value='otherdsh' } }; outputs=@{ hostPoolResourceId=@{ type='String'; value=$other } } } },
           @{ name='avdlz-demo-20261020-140000'; properties=@{ provisioningState='Succeeded'; timestamp='2026-10-20T14:00:00Z' } }
-        ) + @($ro.runs | Where-Object { $_ } | ForEach-Object { @{ name=$_.name; properties=@{ provisioningState=$_.state; timestamp=$_.timestamp } } }) }
+        ) }
+    }
+    # The rotation's own deployment, read by the name it gave deploy.sh.
+    if ($Method -eq 'GET' -and $Path -match '^/subscriptions/[^/]+/providers/Microsoft\.Resources/deployments/(avdlz-[^/?]+-rot[ab]-[^/?]+)\?') {
+      $run = @($ro.runs | Where-Object { $_ -and $_.name -eq $Matches[1] })[0]
+      if (-not $run) { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"DeploymentNotFound"}}' } }
+      return & $ok @{ name=$run.name; properties=@{ provisioningState=$run.state; timestamp=$run.timestamp } }
     }
   }
   # ---- Recovery (Get-AvdRecoveryStatus, Export-AvdConfiguration, Start-AvdRecoveryTest, Test-AvdRecoveryCopies;

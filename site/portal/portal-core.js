@@ -632,8 +632,10 @@
         return { step: 'postdeploy', actions: a };
       }
       if (state.status === 'failed') {
-        note('The new hosts did not deploy', ((failures[0] || {}).detail || '') + ' Fix what deploy.sh reported and run the rotation again (it continues), or roll back.', cmd.rotation(cfg));
-        note('Or roll back', 'The original hosts take sessions again and the new ones are removed.', cmd.rotation(cfg, { rollback: true }));
+        var f0 = failures[0] || {};
+        if (f0.id === 'rotation-deploy') note('The new hosts did not deploy', (f0.detail || '') + ' Fix what deploy.sh reported and run the rotation again (it continues), or roll back.', cmd.rotation(cfg));
+        else note('The rotation stopped in phase ' + (ro.phase || 'Deploy'), (f0.detail || '') + ' ' + (f0.remediation || '') + ' Nothing after that was changed.', cmd.rotation(cfg));
+        if (!ro.rollback && ro.phase !== 'Remove') note('Or roll back', 'The original hosts take sessions again and the new ones are removed.', cmd.rotation(cfg, { rollback: true }));
         return { step: 'postdeploy', actions: a };
       }
       if (state.status === 'waiting') {

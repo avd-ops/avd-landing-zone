@@ -18,6 +18,7 @@
 # --image-id and --generation set a new landing zone's first image and host generation. After
 # that the host pool's avdlz-image and avdlz-generation tags decide, and only host rotation
 # (build/specs/image-pipeline-spec.md section 6.5) changes them: deploy.sh never replaces software.
+# The rotation script alone passes --rotation and --deployment-name (the name it then looks up).
 #
 # Environment variables (any flag above overrides):
 #   AVD_USERS_GROUP_ID, AVD_ADMINS_GROUP_ID   Entra group object IDs
@@ -43,6 +44,7 @@ IMAGE_ID_SET=false
 GENERATION=""
 GENERATION_SET=false
 ROTATION=false
+DEPLOY_NAME=""
 AVD_APP_ID="9cdead84-a844-4324-93f2-b2e6bb768d07"   # Azure Virtual Desktop first-party app
 
 usage() {
@@ -67,6 +69,7 @@ while [[ $# -gt 0 ]]; do
     --image-id) IMAGE_ID="$2"; IMAGE_ID_SET=true; shift 2 ;;
     --generation) GENERATION="$2"; GENERATION_SET=true; shift 2 ;;
     --rotation) ROTATION=true; shift ;;   # only Invoke-AvdHostRotation.ps1 passes this
+    --deployment-name) DEPLOY_NAME="$2"; shift 2 ;;   # and this
     *) usage ;;
   esac
 done
@@ -76,6 +79,7 @@ done
 for n in "$HOSTS" "$MAX_SESSIONS" "$PROFILE_QUOTA"; do
   [[ -z "$n" || "$n" =~ ^[0-9]+$ ]] || { echo "Sizing flags take whole numbers: '$n'"; exit 1; }
 done
+[[ -z "$DEPLOY_NAME" || "$DEPLOY_NAME" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || { echo "Not a deployment name: '$DEPLOY_NAME'"; exit 1; }
 [[ -z "$VM_SIZE" || "$VM_SIZE" =~ ^Standard_[A-Za-z0-9_]+$ ]] || { echo "Not a VM size: '$VM_SIZE'"; exit 1; }
 [[ -z "$AUTO_SHUTDOWN" || "$AUTO_SHUTDOWN" == none || "$AUTO_SHUTDOWN" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || { echo "--auto-shutdown takes HH:mm or none: '$AUTO_SHUTDOWN'"; exit 1; }
 [[ -z "$START_ON_CONNECT" || "$START_ON_CONNECT" == true || "$START_ON_CONNECT" == false ]] || { echo "--start-vm-on-connect takes true or false: '$START_ON_CONNECT'"; exit 1; }
@@ -197,7 +201,7 @@ if [[ -n "$AUTO_SHUTDOWN$START_ON_CONNECT" ]]; then
   echo "    Power: scheduled stop ${AUTO_SHUTDOWN:-file}, Start VM on Connect ${START_ON_CONNECT:-file}"
 fi
 
-DEPLOY_NAME="avdlz-$(basename "$PARAM_FILE" .bicepparam)-$(date +%Y%m%d-%H%M%S)"
+DEPLOY_NAME="${DEPLOY_NAME:-avdlz-$(basename "$PARAM_FILE" .bicepparam)-$(date +%Y%m%d-%H%M%S)}"
 
 # Machine-readable state for the deployment portal (site/portal). Schema: site/portal/README.md.
 PORTAL_URL="https://nickprignano.github.io/avd-landing-zone/portal/"
@@ -225,27 +229,9 @@ NAME_PREFIX=$(param_value namePrefix); ENV_NAME=$(param_value environmentName)
 NAME_PREFIX=${NAME_PREFIX//-/}; NAME_PREFIX=${NAME_PREFIX,,}   # cleanPrefix in bicep/main.bicep
 HOSTS_RG="rg-$NAME_PREFIX-$ENV_NAME-hosts"
 STOPPED_HOSTS=()
-if [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(az group exists -n "$HOSTS_RG")" == "true" ]]; then
-  # --- Hosts locked by auto shutdown (decision 0011) ---
-  # Lock tags the host pool, drains and tags the hosts and turns Start VM on Connect off. A
-  # deployment would start every host, replace the tags and turn Start VM on Connect back on,
-  # silently undoing what the budget alert bought. So it is refused until Resume has run.
-  POWER_LOCK=$(az resource show -g "rg-$NAME_PREFIX-$ENV_NAME-avd" -n "vdpool-$NAME_PREFIX-$ENV_NAME" \
-    --resource-type Microsoft.DesktopVirtualization/hostPools --query 'tags."avdlz-power-lock"' -o tsv 2>/dev/null || true)
-  if [[ -n "$POWER_LOCK" ]]; then
-    if $WHATIF; then
-      echo "==> The session hosts are locked by auto shutdown ($POWER_LOCK). The deployment itself is refused until Resume runs (or --unlock)."
-    elif $UNLOCK; then
-      echo "==> The session hosts are locked by auto shutdown ($POWER_LOCK); deploying anyway (--unlock)."
-      echo "    The deployment removes the lock tag and the scaling exclusion. The hosts stay in drain mode until Resume runs."
-    else
-      echo "==> The session hosts are locked by auto shutdown ($POWER_LOCK). Not deploying." >&2
-      echo "    A deployment would start the hosts and turn Start VM on Connect back on. Run Resume first:" >&2
-      echo "      ./scripts/automation/Invoke-AvdPowerAction.ps1 -Action Resume -NamePrefix $NAME_PREFIX -Environment $ENV_NAME" >&2
-      echo "    or pass --unlock to deploy over the lock (the hosts stay drained until Resume)." >&2
-      exit 1
-    fi
-  fi
+# Read whether or not the hosts resource group exists: a pool that outlived its hosts still records
+# their image, generation and any rotation in progress.
+if [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]]; then
   # --- Image and generation (image pipeline spec section 6.1) ---
   # The host pool's tags record which image and generation its hosts run; only the rotation script
   # changes them. Without --image-id and --generation the deployment keeps both, and it passes the
@@ -292,6 +278,28 @@ if [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(az group exists -n "$HOSTS
         echo "    New images reach existing hosts by rotation (build/specs/image-pipeline-spec.md section 6.5), not by deploy.sh." >&2
         exit 1
       fi
+    fi
+  fi
+fi
+if [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(az group exists -n "$HOSTS_RG")" == "true" ]]; then
+  # --- Hosts locked by auto shutdown (decision 0011) ---
+  # Lock tags the host pool, drains and tags the hosts and turns Start VM on Connect off. A
+  # deployment would start every host, replace the tags and turn Start VM on Connect back on,
+  # silently undoing what the budget alert bought. So it is refused until Resume has run.
+  POWER_LOCK=$(az resource show -g "rg-$NAME_PREFIX-$ENV_NAME-avd" -n "vdpool-$NAME_PREFIX-$ENV_NAME" \
+    --resource-type Microsoft.DesktopVirtualization/hostPools --query 'tags."avdlz-power-lock"' -o tsv 2>/dev/null || true)
+  if [[ -n "$POWER_LOCK" ]]; then
+    if $WHATIF; then
+      echo "==> The session hosts are locked by auto shutdown ($POWER_LOCK). The deployment itself is refused until Resume runs (or --unlock)."
+    elif $UNLOCK; then
+      echo "==> The session hosts are locked by auto shutdown ($POWER_LOCK); deploying anyway (--unlock)."
+      echo "    The deployment removes the lock tag and the scaling exclusion. The hosts stay in drain mode until Resume runs."
+    else
+      echo "==> The session hosts are locked by auto shutdown ($POWER_LOCK). Not deploying." >&2
+      echo "    A deployment would start the hosts and turn Start VM on Connect back on. Run Resume first:" >&2
+      echo "      ./scripts/automation/Invoke-AvdPowerAction.ps1 -Action Resume -NamePrefix $NAME_PREFIX -Environment $ENV_NAME" >&2
+      echo "    or pass --unlock to deploy over the lock (the hosts stay drained until Resume)." >&2
+      exit 1
     fi
   fi
   echo "==> Checking the session hosts' power state in $HOSTS_RG"

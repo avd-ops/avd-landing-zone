@@ -839,6 +839,17 @@ test('state: rotation waiting for sessions -> run it again, or roll back', () =>
   assertSelfContained(r);
 });
 
+test('state: rotation stopped by an Azure error -> what Azure said, run it again, or roll back', () => {
+  const text = fixture('state-rotation-waiting.txt').replace('"status":"waiting"', '"status":"failed"')
+    .replace('"failures":[]', '"failures":[{"id":"rotation-error","area":"Rotation","check":"Phase Wait","detail":"ARM PATCH failed: 429 TooManyRequests","remediation":"Fix what Azure reported and run this again; it continues from the same phase."}]');
+  const r = P.analyze(text, {}, {});
+  assert.equal(r.status, 'failed');
+  assert.match(r.actions[0].title, /stopped in phase Wait/);
+  assert.match(r.actions[0].why, /429 TooManyRequests .* continues from the same phase/);
+  assert.equal(last(r.actions[0].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev');
+  assert.match(last(r.actions[1].command), / -Rollback$/);
+});
+
 test('state: rotation past the deadline -> sign-out only when asked, with -LogOffAtDeadline', () => {
   const r = analyze('state-rotation-after-deadline.txt');
   assert.equal(last(r.actions[0].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -LogOffAtDeadline');
