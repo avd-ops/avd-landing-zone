@@ -25,6 +25,12 @@
   -Rollback before Remove swaps the generations back: the new hosts drain and are removed. After Remove,
   -Rollback rotates to the version the pool ran before (avdlz-image-previous).
 
+  -StopBefore pauses once at a cutover point: Drain (the new hosts are ready, the old ones still take
+  every session; cut over later, in a maintenance window) or Remove (the old hosts are drained and empty,
+  kept so a rollback still has them). The rotation tag records it, so reruns in between keep it without
+  the switch; the run after the pause continues. While paused before Drain the new hosts follow the
+  scaling plan and auto shutdown like any host, and the cutover waits until they are Available and open.
+
   Not built yet: removing the old hosts' Entra ID and Intune device objects. They are listed, by name,
   to delete by hand; the in-host check that records their IDs is image pipeline step 4.
 
@@ -35,6 +41,9 @@
 
 .EXAMPLE
   ./scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -Rollback
+
+.EXAMPLE
+  ./scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -ImageId <gallery image version ID> -StopBefore Drain
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -47,6 +56,8 @@ param(
   [ValidateRange(1, 720)][int] $DeadlineHours = 72,
   [switch] $LogOffAtDeadline,
   [switch] $Rollback,
+  # Pause once before the old hosts drain, or before they are removed; the next run after the pause continues.
+  [ValidateSet('Drain', 'Remove')][string] $StopBefore,
   [string] $SubscriptionId
 )
 
@@ -266,6 +277,16 @@ elseif (-not $state) {
 }
 $context.from = "$($state.from)"; $context.to = "$($state.to)"; $context.version = "$($state.version)"; $context.rollback = [bool]$state.rollback
 
+# -StopBefore is recorded on the rotation, so the runs before the pause keep it without the switch.
+if ($StopBefore) {
+  if (Test-AvdRotationPastStop -State $state -StopBefore $StopBefore) {
+    Add-AvdCheckResult 'Rotation' "Pause before $StopBefore" 'Fail' -Id 'rotation-stop' -Detail "The rotation is already in phase $($state.phase), past $StopBefore." -Remediation 'Run this again without -StopBefore; it continues.'
+    $context.phase = "$($state.phase)"
+    Complete-Rotation 'refused' 1
+  }
+  if ("$($state.stop)" -ne $StopBefore) { $state | Add-Member -NotePropertyName stop -NotePropertyValue $StopBefore -Force; Save-State $state }
+}
+
 # ---------------------------------------------------------------- phases
 $deployed = $false
 for ($i = 0; $i -lt 20; $i++) {
@@ -288,6 +309,14 @@ for ($i = 0; $i -lt 20; $i++) {
   $step = Get-AvdRotationStep -State $state -SessionHosts $hosts -ExpectedCount $expected -Now $now -LogOffAtDeadline:$LogOffAtDeadline -DeploymentState $deployState
   $context.phase = "$($state.phase)"
   Write-Host "  [$($state.phase)] $($step.Detail)" -ForegroundColor DarkGray
+  if (Test-AvdRotationPause -State $state -Step $step) {
+    $context.stopBefore = "$($state.stop)"
+    Add-AvdCheckResult 'Rotation' "Paused before $($state.stop)" 'Warn' -Id 'rotation-paused' -Detail $step.Detail `
+      -Remediation "Run this again to continue from phase $($state.phase)$(if ($state.rollback) { ' (the rollback)' } else { ', or with -Rollback to undo the rotation' })."
+    # The pause is spent: the next run continues.
+    $state.PSObject.Properties.Remove('stop'); Save-State $state
+    Complete-Rotation 'waiting' 0
+  }
   switch ($step.Action) {
     'deploy' {
       if ($deployed) {

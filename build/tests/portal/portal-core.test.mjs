@@ -839,6 +839,30 @@ test('state: rotation waiting for sessions -> run it again, or roll back', () =>
   assertSelfContained(r);
 });
 
+test('state: rotation paused with -StopBefore -> continue without it, or roll back', () => {
+  const text = fixture('state-rotation-waiting.txt').replace('"phase":"Wait","sessionsLeft":2', '"phase":"Wait","stopBefore":"Remove"')
+    .replace(/"warnings":\[.*\]\}/, '"warnings":[{"id":"rotation-paused","area":"Rotation","check":"Paused before Remove","detail":"No sessions left on the old hosts.","remediation":"Run this again without -StopBefore to continue from phase Wait, or with -Rollback to undo the rotation."}]}');
+  const r = P.analyze(text, {}, {});
+  assert.equal(r.status, 'waiting');
+  assert.match(r.actions[0].title, /paused before Remove/);
+  assert.match(r.actions[0].why, /No sessions left .* continue from phase Wait/);
+  assert.equal(last(r.actions[0].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev');
+  assert.equal(last(r.actions[1].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -Rollback');
+  assertSelfContained(r);
+});
+
+test('state: rollback or rotation paused before Drain -> continue; a paused rollback offers no rollback', () => {
+  const paused = '"warnings":[{"id":"rotation-paused","area":"Rotation","check":"Paused before Drain","detail":"2 new host(s) ready.","remediation":"Run this again to continue from phase Deploy, or with -Rollback to undo the rotation."}]}';
+  const base = fixture('state-rotation-waiting.txt').replace(/"warnings":\[.*\]\}/, paused);
+  let r = P.analyze(base.replace('"phase":"Wait","sessionsLeft":2', '"phase":"Deploy","stopBefore":"Drain"'), {}, {});
+  assert.match(r.actions[0].title, /paused before Drain/);
+  assert.match(r.actions[0].why, /continue from phase Deploy/);
+  assert.equal(r.actions.length, 2);
+  r = P.analyze(base.replace('"rollback":false', '"rollback":true').replace('"phase":"Wait","sessionsLeft":2', '"phase":"Wait","stopBefore":"Remove"'), {}, {});
+  assert.equal(r.actions.length, 1);
+  assert.equal(last(r.actions[0].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev');
+});
+
 test('state: rotation stopped by an Azure error -> what Azure said, run it again, or roll back', () => {
   const text = fixture('state-rotation-waiting.txt').replace('"status":"waiting"', '"status":"failed"')
     .replace('"failures":[]', '"failures":[{"id":"rotation-error","area":"Rotation","check":"Phase Wait","detail":"ARM PATCH failed: 429 TooManyRequests","remediation":"Fix what Azure reported and run this again; it continues from the same phase."}]');

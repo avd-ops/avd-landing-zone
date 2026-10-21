@@ -566,6 +566,18 @@ Describe 'Blue/green host rotation (image pipeline spec section 6.5)' {
     Get-RotationLine 'back-finish' | Should -Match '^phase= image=2026\.1004\.1 gen=b next= previous=2026\.1101\.1 hosts=avdlzdshb-001:open,avdlzdshb-002:open .* gallery=Merge 2026\.1004\.1,Delete 2026\.1101\.1$'
   }
   It 'rolls back before Remove: the original hosts take sessions again and the new ones are removed; a preview writes nothing' {
+    # Paused before Drain by the pause the first run recorded: the new hosts are ready, the pool's image and
+    # generation are unchanged, nothing drains, and the pause is spent.
+    $states[22].warnings[0].id | Should -Be 'rotation-paused'
+    $states[22].context.stopBefore | Should -Be 'Drain'
+    Get-RotationLine 'rb-paused' | Should -Match '^phase=Deploy image=2026\.1004\.1 gen= .*hosts=avdlzdsh-001:open,avdlzdsh-002:open,avdlzdsha-001:open,avdlzdsha-002:open vmsGone= '
+    Get-RotationLine 'rb-paused' 'stop' | Should -BeNullOrEmpty
+    # Paused before Remove: drained and empty, but kept for a rollback.
+    $states[23].warnings[-1].id | Should -Be 'rotation-paused'
+    $states[23].context.phase | Should -Be 'Wait'
+    $states[23].warnings[-1].remediation | Should -Match 'or with -Rollback to undo'
+    Get-RotationLine 'rb-drain' | Should -Match '^phase=Wait .*hosts=avdlzdsh-001:drain,avdlzdsh-002:drain,avdlzdsha-001:open,avdlzdsha-002:open vmsGone= '
+    @($states[24].failures.id) | Should -Be @('rotation-stop')
     Get-RotationLine 'rb-drain' | Should -Match 'hosts=avdlzdsh-001:drain,avdlzdsh-002:drain,avdlzdsha-001:open,avdlzdsha-002:open'
     Get-RotationLine 'rb-drain' 'excluded' | Should -Be 'avdlzdsh-001,avdlzdsh-002'
     Get-RotationLine 'rollback' 'excluded' | Should -Be 'avdlzdsha-001,avdlzdsha-002'
@@ -587,7 +599,7 @@ Describe 'Blue/green host rotation (image pipeline spec section 6.5)' {
     $states[-1].failures[0].remediation | Should -Match 'Nothing to roll back to'
   }
   It 'prints a portal state line for every run, with the parameter file' {
-    ($states | ForEach-Object status) -join ' ' | Should -Be 'refused refused refused refused waiting waiting waiting waiting waiting waiting refused waiting waiting waiting waiting waiting waiting done waiting done waiting waiting waiting waiting waiting done refused'
+    ($states | ForEach-Object status) -join ' ' | Should -Be 'refused refused refused refused waiting waiting waiting waiting waiting waiting refused waiting waiting waiting waiting waiting waiting done waiting done waiting waiting waiting waiting refused waiting waiting done refused'
     @($states | Where-Object { $_.context.parameterFile -ne 'parameters/dev.bicepparam' }).context.parameterFile | Should -Be 'parameters/test.bicepparam'
   }
 }

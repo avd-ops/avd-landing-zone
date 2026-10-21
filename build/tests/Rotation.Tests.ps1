@@ -60,11 +60,11 @@ Describe 'The rotation tag' {
   }
   It 'fits the longest version numbers by shortening who started it, never the state' {
     $by = '0' * 40; $name = 'd' * 64; $ver = '2147483647.2147483647.2147483647'
-    $deploy = ConvertTo-AvdRotationTag @{ phase = 'Deploy'; from = 'a'; to = 'b'; version = $ver; deploy = $name; hours = 720; prefix = 'p' * 11; rollback = $true; by = $by }
+    $deploy = ConvertTo-AvdRotationTag @{ phase = 'Deploy'; from = 'a'; to = 'b'; version = $ver; deploy = $name; hours = 720; prefix = 'p' * 11; stop = 'Remove'; rollback = $true; by = $by }
     $deploy.Length | Should -BeLessOrEqual 256
     $o = ConvertFrom-AvdRotationTag $deploy
     $o.version | Should -Be $ver; $o.deploy | Should -Be $name; $o.prefix | Should -Be ('p' * 11); $o.hours | Should -Be '720'
-    $wait = ConvertTo-AvdRotationTag @{ phase = 'Wait'; from = 'a'; to = 'b'; version = $ver; deadline = '2026-10-23T12:00:59Z'; notice = '2026-10-23T12:00:59Z'; hours = 720; prefix = 'p' * 11; rollback = $true; by = $by }
+    $wait = ConvertTo-AvdRotationTag @{ phase = 'Wait'; from = 'a'; to = 'b'; version = $ver; deadline = '2026-10-23T12:00:59Z'; notice = '2026-10-23T12:00:59Z'; hours = 720; prefix = 'p' * 11; stop = 'Remove'; rollback = $true; by = $by }
     $wait.Length | Should -BeLessOrEqual 256
     (ConvertFrom-AvdRotationTag $wait).notice | Should -Be '2026-10-23T12:00:59Z'
   }
@@ -179,6 +179,20 @@ Describe 'Each phase''s next step' {
     $r.Action | Should -Be 'wait-sessions'; $r.Detail | Should -Match '2 session\(s\) left'
     $h[0] = New-SessionHost 'avdlzdsha-001' 'a' -Sessions 0 -Allow $false
     (Get-AvdRotationStep -State (& $s 'Wait' @{ deadline = '2026-10-23T12:00Z' }) -SessionHosts $h -Now $now).Action | Should -Be 'remove'
+  }
+  It 'pauses only where asked, at the cutover the step is about to cross' {
+    $ready = [pscustomobject]@{ Action = 'drain'; Phase = 'Drain' }; $empty = [pscustomobject]@{ Action = 'remove'; Phase = 'Remove' }
+    Test-AvdRotationPause -State (& $s 'Deploy' @{ stop = 'Drain' }) -Step $ready | Should -BeTrue
+    Test-AvdRotationPause -State (& $s 'Deploy') -Step $ready | Should -BeFalse
+    Test-AvdRotationPause -State (& $s 'Deploy' @{ stop = 'Remove' }) -Step $ready | Should -BeFalse
+    Test-AvdRotationPause -State (& $s 'Wait' @{ stop = 'Remove' }) -Step $empty | Should -BeTrue
+    # Finishing a removal already under way is no pause.
+    Test-AvdRotationPause -State (& $s 'Remove' @{ stop = 'Remove' }) -Step ([pscustomobject]@{ Action = 'remove'; Phase = 'Done' }) | Should -BeFalse
+    Test-AvdRotationPastStop -State (& $s 'Deploy') -StopBefore Drain | Should -BeFalse
+    Test-AvdRotationPastStop -State (& $s 'Drain') -StopBefore Drain | Should -BeTrue
+    Test-AvdRotationPastStop -State (& $s 'Wait') -StopBefore Remove | Should -BeFalse
+    Test-AvdRotationPastStop -State (& $s 'Remove') -StopBefore Remove | Should -BeTrue
+    (ConvertFrom-AvdRotationTag (ConvertTo-AvdRotationTag (& $s 'Deploy' @{ stop = 'Drain' }))).stop | Should -Be 'Drain'
   }
   It 'keeps the session gates in Remove, so a user on a host reopened mid-removal is never force-deleted' {
     $h = @((New-SessionHost 'avdlzdsha-001' 'a' -Sessions 1 -Allow $false), (New-SessionHost 'avdlzdshb-001' 'b'))
