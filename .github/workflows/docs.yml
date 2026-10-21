@@ -16,7 +16,7 @@ jobs:
   docs:
     permissions:
       contents: read
-    uses: nickprignano/avd-second-brain/.github/workflows/docs-check.yml@fccd64473c69727036e5a3976d782ab6407103d9
+    uses: avd-ops/avd-second-brain/.github/workflows/docs-check.yml@fccd64473c69727036e5a3976d782ab6407103d9
     with:
       repo-name: avd-landing-zone
       brain-ref: fccd64473c69727036e5a3976d782ab6407103d9
