@@ -125,7 +125,7 @@ test('buildReport: works without pasted output', () => {
 });
 
 test('issueUrl: short reports go whole; long ones keep the start and the state line', () => {
-  const repo = 'https://github.com/nickprignano/avd-landing-zone';
+  const repo = 'https://github.com/avd-ops/avd-landing-zone';
   const small = R.issueUrl(repo, 'T', 'body');
   assert.equal(small.trimmed, 0);
   assert.ok(small.url.startsWith(repo + '/issues/new?labels=portal-report&title=T&body='));

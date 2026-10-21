@@ -15,7 +15,7 @@ const last = (cmd) => cmd.trim().split('\n').pop();
 // Every command must work in a fresh Cloud Shell session (build/lessons/0015).
 function assertSelfContained(r) {
   for (const a of r.actions.filter((x) => x.command && /scripts\//.test(x.command))) {
-    assert.match(a.command, /git clone https:\/\/github\.com\/nickprignano\/avd-landing-zone\.git ~\/avd-landing-zone/, a.title);
+    assert.match(a.command, /git clone https:\/\/github\.com\/avd-ops\/avd-landing-zone\.git ~\/avd-landing-zone/, a.title);
     assert.match(a.command, /Set-Location ~\/avd-landing-zone/, a.title);
   }
 }

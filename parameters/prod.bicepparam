@@ -83,7 +83,7 @@ param budgetStartDate = '2026-10-01'
 // ---- Auto shutdown (decision 0011) ----
 // deploy.sh pins the runbook to the commit being deployed (AVD_RUNBOOK_URI).
 param autoShutdownRunbookUri = empty(readEnvironmentVariable('AVD_RUNBOOK_URI', ''))
-  ? 'https://raw.githubusercontent.com/nickprignano/avd-landing-zone/master/scripts/automation/Invoke-AvdPowerAction.ps1'
+  ? 'https://raw.githubusercontent.com/avd-ops/avd-landing-zone/master/scripts/automation/Invoke-AvdPowerAction.ps1'
   : readEnvironmentVariable('AVD_RUNBOOK_URI', '')
 // Prod relies on the scaling plan for daily scale-down; a budget alert locks the hosts
 // (autoShutdownBudgetAction = 'Lock', the default) until someone runs Resume.
