@@ -753,10 +753,10 @@ Describe 'Deployment portal hosting (decision 0017)' {
     Get-AvdPortalContentType 'LICENSE' | Should -Be 'application/octet-stream'
   }
   It 'prints the GitHub Pages portal unless AVD_PORTAL_URL is an https URL' {
-    Get-AvdPortalUrl -Url '' | Should -Be 'https://nickprignano.github.io/avd-landing-zone/portal/'
-    Get-AvdPortalUrl -Url 'http://x.example/portal/' | Should -Be 'https://nickprignano.github.io/avd-landing-zone/portal/'
+    Get-AvdPortalUrl -Url '' | Should -Be 'https://deploy.avd-ops.dev/portal/'
+    Get-AvdPortalUrl -Url 'http://x.example/portal/' | Should -Be 'https://deploy.avd-ops.dev/portal/'
     Get-AvdPortalUrl -Url 'https://x.azurestaticapps.net/portal' | Should -Be 'https://x.azurestaticapps.net/portal/'
-    Get-AvdPortalUrl -Url 'https://x.example/a b' | Should -Be 'https://nickprignano.github.io/avd-landing-zone/portal/'
+    Get-AvdPortalUrl -Url 'https://x.example/a b' | Should -Be 'https://deploy.avd-ops.dev/portal/'
   }
 }
 

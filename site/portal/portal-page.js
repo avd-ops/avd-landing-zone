@@ -36,7 +36,7 @@
   $('issues-link').textContent = repoSlug;
 
   // Saved settings are checked like typed ones: an old or edited value that no longer fits is dropped.
-  var cfg = Object.assign({}, P.DEFAULTS, P.validSettings(load('config', {})).settings, { repoUrl: repoUrl, ref: site.ref, sizing: load('sizing', null), power: load('power', null), hoursWorkedPerWeek: load('hoursWorked', 50), launch: P.launchTarget(load('launch', null)), record: load('record', null) });
+  var cfg = Object.assign({}, P.DEFAULTS, P.validSettings(load('config', {})).settings, { repoUrl: repoUrl, ref: site.ref, sizing: P.validSizing(load('sizing', null)), power: P.validPower(load('power', null)), hoursWorkedPerWeek: load('hoursWorked', 50), launch: P.launchTarget(load('launch', null)), record: load('record', null) });
   var step = load('step', null);
   // Furthest step reached, by id: later steps stay hidden until the deployment gets there. (Saved as an
   // index before the Cost step existed; those indexes are read against the old step list.)
@@ -55,9 +55,11 @@
     FIELDS.forEach(function (k) { if (checked.settings[k]) cfg[k] = checked.settings[k]; });
     showRejected(checked.rejected);
     // A pasted preflight says which sizing it validated; the next commands keep it.
-    if (patch && patch.sizing && patch.sizing.hosts) { cfg.sizing = patch.sizing; save('sizing', cfg.sizing); }
+    var sizing = patch && P.validSizing(patch.sizing);
+    if (sizing) { cfg.sizing = sizing; save('sizing', cfg.sizing); }
     // ... and which power settings it priced.
-    if (patch && patch.power && patch.power.autoShutdownTime) { cfg.power = { startVmOnConnect: patch.power.startVmOnConnect !== false, autoShutdownTime: patch.power.autoShutdownTime }; save('power', cfg.power); }
+    var power = patch && P.validPower(patch.power);
+    if (power) { cfg.power = power; save('power', cfg.power); }
     // ... and, after the post-deployment setup or the demo, the desktop to launch (decision 0014).
     var launch = patch && P.launchTarget(patch.launch);
     if (launch) { cfg.launch = launch; save('launch', launch); }
@@ -104,7 +106,6 @@
   }
   // Short labels and phases for the progress rail; the full step titles stay everywhere else.
   var RAIL = { region: ['Region', 'Plan'], size: ['Size'], cost: ['Cost'], predeploy: ['Preflight', 'Deploy'], deploy: ['Deploy'], postdeploy: ['Setup'], signin: ['Sign in', 'Use'], verify: ['Verify'] };
-  function phaseOf(i) { for (var j = i; j >= 0; j--) { var r = RAIL[P.STEPS[j].id]; if (r && r[1]) return r[1]; } return ''; }
   function renderSteps() {
     var cur = curIndex(), ol = $('steps');
     ol.textContent = '';
@@ -135,9 +136,6 @@
     slides().forEach(function (sl, i) {
       sl.classList.toggle('hidden', i > reached);
       sl.querySelector('h2 .n').textContent = (i + 1) + '.';
-      var eb = sl.querySelector(':scope > .eyebrow');
-      if (!eb) { eb = el('p', 'eyebrow'); sl.insertBefore(eb, sl.firstChild); }
-      eb.textContent = phaseOf(i) + ' \u00b7 Step ' + (i + 1) + ' of ' + P.STEPS.length;
       if (i === cur) sl.removeAttribute('inert'); else sl.setAttribute('inert', '');
     });
     var slot = currentSlide().querySelector('.slot'), shared = $('shared');
@@ -155,11 +153,12 @@
   function fitTrack() { var sl = currentSlide(); if (sl) track.style.height = sl.offsetHeight + 'px'; }
   if (window.ResizeObserver) { var ro = new ResizeObserver(fitTrack); slides().forEach(function (sl) { ro.observe(sl); }); }
   window.addEventListener('resize', function () { fitTrack(); showStep('instant'); });
+  var bar = document.querySelector('header.bar');
   function showStep(page) {
     var sl = currentSlide(); if (!sl) return;
     programmatic = Date.now();
     track.scrollTo({ left: sl.offsetLeft - track.offsetLeft, behavior: page === 'instant' ? 'auto' : 'smooth' });
-    if (page !== 'instant' && track.getBoundingClientRect().top < 0) $('steps').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (page !== 'instant' && track.getBoundingClientRect().top < (bar ? bar.getBoundingClientRect().bottom : 0)) $('steps').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   // Scrolling the track sideways (swipe, trackpad, keyboard) changes the step in view.
   var scrollTimer = null;
@@ -188,6 +187,29 @@
   }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
 
+  // ---------------------------------------------------------------- run in (avd-ops docs/design-system.md, "Run in")
+  // Kept under one key for every avd-ops portal, in this browser only; blocked storage means the default.
+  var runIn = (function () { try { return P.validRunIn(JSON.parse(localStorage.getItem('avd-ops-runin') || 'null')); } catch (e) { return P.validRunIn(null); } })();
+  function syncRunIn() {
+    var bash = document.querySelector('input[name="runin-shell"][value="bash"]');
+    bash.disabled = runIn.where === 'windows';
+    bash.parentNode.title = bash.disabled ? 'On Windows the commands run in PowerShell 7' : '';
+    document.querySelectorAll('input[name="runin-where"], input[name="runin-shell"]').forEach(function (i) { i.checked = i.value === runIn.where || i.value === runIn.shell; });
+    $('runin-note').textContent = [runIn.where === 'cloudshell' ? (runIn.shell === 'bash' ? 'These blocks need Cloud Shell\'s Bash prompt (you@Azure:~$). If it shows PS /home/you>, type bash first.' : 'These blocks need Cloud Shell\'s PowerShell prompt (PS /home/you>). If it shows you@Azure:~$, type pwsh first.') : '',
+      runIn.where === 'windows' ? 'Windows runs the commands in PowerShell 7.' : '',
+      runIn.where === 'cloudshell' ? '' : 'Each block signs in to Azure first, with a device code, if this machine is not signed in yet.',
+      runIn.shell === 'bash' ? 'In Bash each block runs its PowerShell in a new pwsh, so a step that uses Microsoft Graph asks for its device code again.' : ''].filter(Boolean).join(' ');
+  }
+  document.querySelectorAll('input[name="runin-where"], input[name="runin-shell"]').forEach(function (i) {
+    i.addEventListener('change', function () {
+      var next = { where: runIn.where, shell: runIn.shell }; next[i.name === 'runin-where' ? 'where' : 'shell'] = i.value;
+      runIn = P.validRunIn(next);
+      try { localStorage.setItem('avd-ops-runin', JSON.stringify(runIn)); } catch (e) { /* storage unavailable */ }
+      syncRunIn(); render();
+    });
+  });
+  syncRunIn();
+
   function renderActions(actions, box) {
     box = box || $('actions'); box.textContent = '';
     actions.forEach(function (a, i) {
@@ -195,10 +217,22 @@
       d.appendChild(el('h3', '', (actions.length > 1 ? (i + 1) + '. ' : '') + a.title));
       if (a.why) d.appendChild(el('p', 'why', a.why));
       if (a.command) {
-        var term = el('div', 'term'), head = el('div', 'term-head'), b = el('button', 'secondary', 'Copy');
-        b.type = 'button'; b.addEventListener('click', function () { copy(a.command, b); });
-        head.appendChild(el('span', 'term-label', 'Cloud Shell')); head.appendChild(b); term.appendChild(head);
-        term.appendChild(el('pre', '', a.command)); d.appendChild(term);
+        // The block for the place and shell chosen in Run in; a script that doesn't run there hides the block.
+        var sup = P.support(a.command, runIn);
+        if (sup.status === 'no') {
+          d.appendChild(el('p', 'status unsupported', 'This step runs ' + sup.blockedBy.join(', ') + ', which does not run on ' + sup.place +
+            (sup.shell === 'bash' ? ' in Bash' : ' in PowerShell') + '. Run this step in Cloud Shell' + (sup.place === 'Windows' ? ' or on macOS' : '') + '.'));
+        } else {
+          var text = P.forRunIn(a.command, runIn);
+          var term = el('div', 'term'), head = el('div', 'term-head'), b = el('button', 'secondary', 'Copy');
+          term.setAttribute('data-shell', sup.shell);
+          b.type = 'button'; b.addEventListener('click', function () { copy(text, b); });
+          head.appendChild(el('span', 'term-label', sup.place));
+          if (sup.status === 'untested') head.appendChild(el('span', 'untested', 'Not tested yet'));
+          head.appendChild(b); term.appendChild(head);
+          term.appendChild(el('pre', '', text)); d.appendChild(term);
+          if (sup.requires.length) d.appendChild(el('p', 'requires', sup.requires.join(', ')));
+        }
       }
       box.appendChild(d);
     });
@@ -293,7 +327,7 @@
       renderActions(r.actions);
     }
     else {
-      $('next-title').textContent = 'Run in Cloud Shell';
+      $('next-title').textContent = 'Run in ' + P.PLACES[runIn.where];
       chip.className = 'chip hidden'; head.classList.add('hidden'); $('findings').classList.add('hidden'); $('estimate-line').classList.add('hidden'); $('version-line').classList.add('hidden');
       renderActions(P.actionsForStep(step || 'region', config()));
     }

@@ -11,7 +11,7 @@ Workflows:
 | [`image-build.yml`](../.github/workflows/image-build.yml) | Third Monday of the month (a daily cron on days 15–21 that skips all but Monday), and manual with `force` and `emergency` | Builds the month's golden image with Azure Image Builder through `scripts/ops/Start-AvdImageBuild.ps1`, keeps the customization log as an artifact and opens an `image-build` issue. Signs in through the `images` GitHub Environment's federated identity. Setup: [images.md](images.md) |
 | [`pages.yml`](../.github/workflows/pages.yml) | Pushes to `master` touching `site/`, and manual | Publishes `site/` (the deployment portal, the region latency page) to GitHub Pages. One-time setup: **Settings → Pages → Source: GitHub Actions**. Until that is set, the last published site stays up |
 
-**Advisory AI review** comes from GitHub Copilot code review, not a workflow: Copilot follows [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) (the review checklist, distilled from `CLAUDE.md`). Request it on a PR, or have a branch ruleset on `master` request it automatically (**Settings → Rules → Rulesets → Automatically request Copilot code review**). It needs no repository secret, and it reviews fork PRs too. It only comments: no AI review satisfies a review requirement ([second-brain-spec.md](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md) §9.3).
+**Advisory AI review** comes from GitHub Copilot code review, not a workflow: Copilot follows [`.github/copilot-instructions.md`](../.github/copilot-instructions.md) (the review checklist, distilled from `CLAUDE.md`). Request it on a PR, or have a branch ruleset on `master` request it automatically (**Settings → Rules → Rulesets → Automatically request Copilot code review**). It needs no repository secret, and it reviews fork PRs too. It only comments: no AI review satisfies a review requirement ([second-brain-spec.md](https://github.com/avd-ops/avd-second-brain/blob/main/docs/operations-spec.md) §9.3).
 
 The **bicep** and **scripts** jobs need no setup: the parameter files compile with placeholder identity values set in the workflow. `bicepconfig.json` makes security-relevant linter findings errors, and the lint step fails on any warning too: Bicep exits 0 on a warning, and warnings like BCP245 or BCP037 mean a resource that fails at deploy time.
 
@@ -77,12 +77,14 @@ Create GitHub Environments `dev` and `prod`, and add **required reviewers** to `
 | Secret | `AZURE_SUBSCRIPTION_ID` | landing zone subscription |
 | Secret | `AVD_LOCAL_ADMIN_PASSWORD` | Optional break-glass password; if unset, `deploy.sh` generates a random one |
 | Variable | `AZURE_LOCATION` | The region the landing zone is deployed to, e.g. `northcentralus`. It overrides the parameter file's default through `AVD_LOCATION` |
-| Variable | `AVD_USERS_GROUP_ID` | group object ID |
-| Variable | `AVD_ADMINS_GROUP_ID` | group object ID |
-| Variable | `AVD_SERVICE_PRINCIPAL_ID` | `az ad sp show --id 9cdead84-a844-4324-93f2-b2e6bb768d07 --query id -o tsv` |
-| Variable | `AVD_ALERT_EMAIL` | optional |
+| Secret | `AVD_USERS_GROUP_ID` | group object ID |
+| Secret | `AVD_ADMINS_GROUP_ID` | group object ID |
+| Secret | `AVD_SERVICE_PRINCIPAL_ID` | `az ad sp show --id 9cdead84-a844-4324-93f2-b2e6bb768d07 --query id -o tsv` |
+| Secret | `AVD_ALERT_EMAIL` | optional |
 | Variable | `AVD_MONTHLY_BUDGET` | optional |
 | Variable (repo) | `AZURE_WHATIF_ENABLED` | `true` to enable the PR what-if |
+
+IDs and email addresses are secrets, not variables, even though none of them grants access: the repo is public, and an Actions log shows every step's inputs and environment, masked only when the value is a secret.
 
 ## Running the checks locally
 

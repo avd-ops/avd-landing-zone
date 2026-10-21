@@ -25,6 +25,16 @@ WDOT is the family's one image optimization tool: avd-current-state reads the pi
 
 None of the services the landing zone depends on (spec §5.5: `dmwappushservice`, Defender, `wuauserv`, `BITS`, `WSearch`, `LanmanWorkstation`, `KeyIso`, `TokenBroker`, `AppXSvc`, `ClipSVC`, Edge Update and the RDP stack) is in WDOT's `Services.json` at this commit. A test keeps it that way, and `Test-GoldenImage.ps1` checks them again on the built image.
 
+## How a run is verified
+
+WDOT returns without an error when it skips work, so the build never takes its return as success ([lesson 0031](../../../build/lessons/0031-wdot-returns-without-error.md)). `Invoke-Wdot.ps1` creates WDOT's event log first (v1.1 can't on Windows PowerShell 5.1), runs WDOT, prints every warning and error, and then requires, from the `verify` block of the lock:
+
+- a fresh `LastRunTime` and the lock's `toolVersion` under `HKLM:\SOFTWARE\WDOT`;
+- WDOT's start and end events, an Information event for each category it runs (`categoryEvents`), and no run-level error event (`fatalEventIds`);
+- every service `Services.json` applies, where the machine has it, set to `Disabled`, unless WDOT reported it couldn't change it. A WDOT event source already registered to another log fails the step before WDOT runs.
+
+Anything missing fails the build's `wdot` step with the list of problems. A newer WDOT updates `toolVersion` and the `verify` block in the same PR as the files, and drops `knownErrors` entries it fixes.
+
 ## Changing the profile
 
 1. Edit the JSON (`Apply` or `Skip`), and say why in the table above.

@@ -3,8 +3,10 @@ name: pages
 # Publishes site/ (the deployment portal, the region latency page and anything else on the
 # website) to GitHub Pages. The site is kept apart from the code people deploy (README, "Repo
 # layout"). Needs Settings > Pages > Source set to "GitHub Actions"; until then the last
-# deployment stays up. The avd-ops site itself is published from nickprignano/avd-ops; the old
-# pages here redirect to it. Nothing here touches Azure.
+# deployment stays up. The avd-ops site itself is published from avd-ops/avd-ops; the old
+# pages here redirect to it. The custom domain deploy.avd-ops.dev is set in Settings > Pages (an Actions
+# deployment needs no CNAME file); GitHub then sends avd-ops.github.io/avd-landing-zone/... there. Nothing
+# here touches Azure.
 on:
   push:
     branches:
@@ -12,6 +14,9 @@ on:
     paths:
       - 'site/**'
       - '.github/workflows/pages.yml'
+  # Daily, so a new release reaches the portal without a site change (avd-ops decision 0008).
+  schedule:
+    - cron: '17 6 * * *'
   workflow_dispatch:
 
 permissions:
@@ -32,14 +37,40 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      # Once a release exists, the site is built from the release's tree, so the portal's command
+      # builders match the scripts its commands check out (avd-ops decision 0008). Only a 404 means
+      # "no release yet"; any other failure stops the job with what GitHub returned.
+      - name: Find the latest release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Reading the latest release of $GITHUB_REPOSITORY"
+          if body=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" 2>&1); then
+            tag=$(jq -r .tag_name <<<"$body")
+            [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::Latest release tag is not vMAJOR.MINOR.PATCH: $tag"; exit 1; }
+            echo "Building the site from $tag"
+          elif [[ $body == *"HTTP 404"* ]]; then
+            tag=''; echo "No release yet: building from $GITHUB_SHA, commands follow master"
+          else
+            echo "::error::Reading the latest release failed: $body"; exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          ref: ${{ steps.release.outputs.tag || github.sha }}
           persist-credentials: false
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
       # The commit this portal is built from (decision 0017): the page compares it with the commit in
-      # every pasted state line and says when the scripts are newer than the portal.
-      - name: Record the build commit in portal-config.js
-        run: printf '/* Written by the pages workflow (decision 0017). */\nwindow.AVDLZ_PORTAL_CONFIG = {"commit":"%s"};\n' "$GITHUB_SHA" > site/portal/portal-config.js
+      # every pasted state line and says when the scripts are newer than the portal. With a release,
+      # its tag is also the ref every command checks out.
+      - name: Record the build commit and release tag in portal-config.js
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          commit=$(git rev-parse HEAD)
+          ref=''; [[ -n "$TAG" ]] && ref=",\"ref\":\"$TAG\""
+          printf '/* Written by the pages workflow (decision 0017). */\nwindow.AVDLZ_PORTAL_CONFIG = {"commit":"%s"%s};\n' "$commit" "$ref" > site/portal/portal-config.js
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: site

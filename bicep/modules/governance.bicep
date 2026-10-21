@@ -43,7 +43,7 @@ resource inheritRgTagDefinition 'Microsoft.Authorization/policyDefinitions@2023-
 var tagContributorRoleId = '4a9ae827-6dc8-4573-8ac7-8239d42aa03f'
 var assignmentMetadata = {
   assignedBy: 'AVD landing zone (Bicep)'
-  source: 'https://github.com/nickprignano/avd-landing-zone'
+  source: 'https://github.com/avd-ops/avd-landing-zone'
 }
 var governedTags = [
   'environment'

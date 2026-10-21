@@ -143,6 +143,7 @@ The Azure store is **durable log storage for the sandbox**, set up once per subs
 - One StorageV2 account, LRS, hot tier; shared key access off, minimum TLS 1.2, no public blob access; the operator gets Storage Blob Data Contributor on the account only. Entra auth from Cloud Shell, no keys or SAS anywhere (R2).
 - Append blobs for the journal; block blobs for redacted transcripts and the report.
 - A lifecycle rule moves run folders to the cool tier after 30 days and the cold tier after 90 days. It **never deletes** (R9).
+- A second container, `records`, holds the sandbox spend runs, batches, approvals and batch results (`docs/sandbox-runs.md`, decision 0020): small JSON written with conditional writes, so two Cloud Shell sessions can't overwrite each other. No lifecycle rule covers it and nothing deletes from it (R9); the local folder the scripts work in is a cache of it.
 - Blob soft delete and container soft delete (14 days) cover a mistaken delete. Versioning stays off because the journal is append-only.
 - **No locked immutability.** A locked time-based retention policy makes the container and account undeletable until it expires (§12, F4), which breaks R6. Integrity comes from a SHA-256 manifest written at the end of the run and included in the report. Locked WORM retention is a §10 option, never a sandbox default.
 - Tagged `avdlz-run: <runId>` and `avdlz-component: recorder`.

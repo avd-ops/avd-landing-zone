@@ -99,7 +99,7 @@ function Test-AvdGoldenImage {
   $wdotCommit = Get-AvdRegistryValue $marker 'WdotCommit'
   $wdotProfile = Get-AvdRegistryValue $marker 'WdotProfileSha256'
   $wdotResult = Get-AvdRegistryValue $marker 'WdotResult'
-  Write-AvdImageCheck 'wdot' ($wdotResult -eq 'Succeeded' -and $wdotCommit -eq $WdotCommit -and $wdotProfile -eq $WdotProfileSha256) "result=$wdotResult commit=$wdotCommit profile=$wdotProfile warnings=$(Get-AvdRegistryValue $marker 'WdotWarnings')"
+  Write-AvdImageCheck 'wdot' ($wdotResult -eq 'Succeeded' -and $wdotCommit -eq $WdotCommit -and $wdotProfile -eq $WdotProfileSha256) "result=$wdotResult commit=$wdotCommit profile=$wdotProfile warnings=$(Get-AvdRegistryValue $marker 'WdotWarnings') itemErrors=$(Get-AvdRegistryValue $marker 'WdotItemErrors') problems=$(Get-AvdRegistryValue $marker 'WdotProblems')"
   $disabled = @(); $absent = @()
   foreach ($name in $ProtectedService) {
     $svc = Get-Service -Name $name -ErrorAction SilentlyContinue

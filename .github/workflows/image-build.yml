@@ -5,8 +5,10 @@ name: image-build
 # person promotes it, so a scheduled build needs no approval.
 #
 # Setup (docs/images.md): deploy bicep/images/main.bicep, then create the GitHub Environment
-# "images" with the variables AZURE_CLIENT_ID (the output buildIdentityClientId),
-# AZURE_TENANT_ID and AZURE_SUBSCRIPTION_ID. The identity is federated to that environment only.
+# "images" with the secrets AZURE_CLIENT_ID (the output buildIdentityClientId),
+# AZURE_TENANT_ID and AZURE_SUBSCRIPTION_ID. Secrets, not variables: the repo is public, and Actions
+# prints step inputs and env values, unmasked unless they are secrets. The identity is federated to
+# that environment only.
 on:
   schedule:
     # About a week after Patch Tuesday, on the third Monday. Cron combines a day-of-month
@@ -67,9 +69,9 @@ jobs:
         if: steps.gate.outputs.skip != 'true'
         uses: azure/login@8216e11d8cd9b42fe925c852af8e76311ff067ac # v2.3.1
         with:
-          client-id: ${{ vars.AZURE_CLIENT_ID }}
-          tenant-id: ${{ vars.AZURE_TENANT_ID }}
-          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           enable-AzPSSession: true
 
       - name: Build

@@ -17,7 +17,7 @@ What this landing zone deliberately doesn't do, and where to go instead.
 
 ## Another project's lane
 
-These belong to a sibling project; refer the work there and read its knowledge base before researching it here. The list is kept in avd-second-brain's [family.yaml](https://github.com/nickprignano/avd-second-brain/blob/main/docs/knowledge/family.yaml) (`not_here`, its decision 0012).
+These belong to a sibling project; refer the work there and read its knowledge base before researching it here. The list is kept in avd-second-brain's [family.yaml](https://github.com/avd-ops/avd-second-brain/blob/main/docs/knowledge/family.yaml) (`not_here`, its decision 0012).
 
 - **Terraform, Packer, OpenTofu or any other HCL**: [nerdio-hcl](https://github.com/nickprignano/nerdio-hcl). This repo is Bicep and PowerShell only, and CI fails on an HCL file (`.github/workflows/lanes.yml`).
 - **Nerdio Manager** and its scripted actions: [nerdio-hcl](https://github.com/nickprignano/nerdio-hcl). Nothing here depends on Nerdio.
@@ -26,7 +26,7 @@ These belong to a sibling project; refer the work there and read its knowledge b
 
 ## Next layers to build
 
-- **Image pipeline** (Azure Image Builder → Azure Compute Gallery; decision 0013) and host rotation on new image versions. Planned next, before the second brain: see [image-pipeline-spec.md](../build/specs/image-pipeline-spec.md) and [second-brain-spec.md](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md) Q6.
+- **Image pipeline** (Azure Image Builder → Azure Compute Gallery; decision 0013) and host rotation on new image versions. Planned next, before the second brain: see [image-pipeline-spec.md](../build/specs/image-pipeline-spec.md) and [second-brain-spec.md](https://github.com/avd-ops/avd-second-brain/blob/main/docs/operations-spec.md) Q6.
 - **App delivery**: App Attach, Intune apps, or baked into the image. An optional Liquidware tier (ProfileUnity, FlexApp through app attach, CommandCTRL) that runs against a landing zone from this repo lives in [avd-liquidware](https://github.com/nickprignano/avd-liquidware).
 - **Profile storage sizing**: provisioned size and IOPS for your user count; Azure NetApp Files for very large pools.
 - **Disaster recovery**: a secondary region and cross-region profile replication. Backup here is in-region.

@@ -40,9 +40,30 @@ function Get-AzResource {
 }
 function Get-AzStorageAccount { param($ResourceGroupName,$ErrorAction)
   [pscustomobject]@{StorageAccountName=$saName;Id=$saId;Kind='FileStorage';PublicNetworkAccess='Disabled';AzureFilesIdentityBasedAuth=[pscustomobject]@{DirectoryServiceOptions='AADKERB'}} }
-function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
+function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction,$Uri)
+  if ($Uri) { $Path = "$Uri" }
   Log "ARM $Method $Path"
   $ok = { param($o) [pscustomobject]@{StatusCode=200;Content=($o|ConvertTo-Json -Depth 20)} }
+  # ---- Sandbox spend (AvdSpend.psm1, docs/sandbox-runs.md). Only when $global:St.spend is set:
+  # inventoryFile (a JSON array of Resource Graph rows; the scenario's item scripts write it, so a
+  # deploy adds resources and a teardown removes them), monthToDate (this month's cost), budgets.
+  $sp = $global:St.spend
+  if ($sp) {
+    if ($Method -eq 'POST' -and $Path -match '^/providers/Microsoft.ResourceGraph/resources\?') {
+      $rows = @(if ($sp.inventoryFile -and (Test-Path $sp.inventoryFile)) { Get-Content $sp.inventoryFile -Raw | ConvertFrom-Json | ForEach-Object { $_ } })
+      return & $ok @{ totalRecords=$rows.Count; count=$rows.Count; data=@($rows) } }
+    if ($Method -eq 'POST' -and $Path -match '/providers/Microsoft.CostManagement/query\?') {
+      return & $ok @{ properties=@{ columns=@(@{ name='Cost'; type='Number' }, @{ name='Currency'; type='String' }); rows=@(,@([double]$sp.monthToDate, 'USD')) } } }
+    if ($Path -match 'Microsoft.Consumption/budgets\?') { return & $ok @{ value=@($sp.budgets | Where-Object { $_ }) } }
+    # Health before spend (Test-AvdSandboxHealth.ps1): permissions (default: everything), devices
+    # (Entra devices: @{ displayName }), graphStatus (a Graph failure), runStore (the account exists).
+    if ($Path -match '/providers/Microsoft.Authorization/permissions\?') { return & $ok @{ value=@($(if ($sp.ContainsKey('permissions')) { $sp.permissions } else { @{ actions=@('*') } })) } }
+    if ($Path -match '^https://graph\.microsoft\.com/v1\.0/devices\?.*startswith\(displayName,''([^'']+)''\)') {
+      if ($sp.graphStatus) { return [pscustomobject]@{ StatusCode=$sp.graphStatus; Content='{"error":{"code":"Authorization_RequestDenied","message":"Insufficient privileges to complete the operation."}}' } }
+      $p = $Matches[1]; return & $ok @{ value=@($sp.devices | Where-Object { $_ -and $_.displayName -like "$p*" }) } }
+    if ($Path -match '/resourceGroups/avdlz-runs-rg/providers/Microsoft.Storage/storageAccounts/([^/?]+)\?' -and $Method -eq 'GET' -and $sp.ContainsKey('runStore')) {
+      if ($sp.runStore) { return & $ok @{ name=$Matches[1] } } else { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"ResourceGroupNotFound"}}' } } }
+  }
   # ---- Host rotation (Invoke-AvdHostRotation.ps1; image pipeline spec section 6.5). Only when $global:St.rotation is
   # set: tags (the host pool's), hosts (VM name -> @{ status; sessions; allowNew; healthy; deleted }), vmsGone (VMs
   # deleted), vmsSlow (VMs whose first delete doesn't finish), excluded (VMs tagged out of the scaling plan), galleryTags (what was tagged on gallery versions),

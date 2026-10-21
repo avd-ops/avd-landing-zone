@@ -1,4 +1,4 @@
-# 0031. An unattended teardown must delete device objects with the app's own Graph token
+# 0033. An unattended teardown must delete device objects with the app's own Graph token
 
 - **Area:** Ops scripts (cleanup)
 - **Found in / fixed by:** PR #91

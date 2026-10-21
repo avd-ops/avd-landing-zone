@@ -30,7 +30,7 @@ The build VM and AIB's build container run in two subnets of one landing zone's 
 
 ```bash
 # Azure Cloud Shell (Bash)
-cd ~ && { [ -d avd-landing-zone ] && git -C avd-landing-zone pull --ff-only || git clone https://github.com/nickprignano/avd-landing-zone; } && cd avd-landing-zone
+cd ~ && { [ -d avd-landing-zone ] && git -C avd-landing-zone pull --ff-only || git clone https://github.com/avd-ops/avd-landing-zone; } && cd avd-landing-zone
 export AVD_IMAGE_BUILD_SUBNETS=true
 ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus \
   --users-group "AVD Users" --admins-group "AVD Admins" --what-if
@@ -68,7 +68,7 @@ The deployment fails early if step 1 wasn't done. You need Owner, or User Access
 
 ```bash
 # Azure Cloud Shell (Bash)
-cd ~ && { [ -d avd-landing-zone ] && git -C avd-landing-zone pull --ff-only || git clone https://github.com/nickprignano/avd-landing-zone; } && cd avd-landing-zone
+cd ~ && { [ -d avd-landing-zone ] && git -C avd-landing-zone pull --ff-only || git clone https://github.com/avd-ops/avd-landing-zone; } && cd avd-landing-zone
 export AVD_GITHUB_REPOSITORY='<owner>/<repo>'   # the repository that runs image-build.yml
 az deployment sub create --name avdlz-images --location northcentralus \
   --template-file bicep/images/main.bicep --parameters parameters/images.bicepparam \
@@ -79,9 +79,9 @@ The last line prints the build identity's client ID, needed in step 4. Use the s
 
 ### 4. The GitHub Environment `images`
 
-In the repository: **Settings → Environments → New environment → `images`**. Add these variables (not secrets; the identity uses OIDC, so nothing secret is stored):
+In the repository: **Settings → Environments → New environment → `images`**. Add these as environment **secrets**. None of them grants access (the identity uses OIDC), but the repo is public and an Actions log shows a step's inputs unmasked unless they are secrets:
 
-| Variable | Value |
+| Secret | Value |
 |---|---|
 | `AZURE_CLIENT_ID` | The client ID from step 3 |
 | `AZURE_TENANT_ID` | Your tenant ID |
@@ -116,11 +116,11 @@ From Cloud Shell instead of GitHub Actions:
 
 ```powershell
 # Azure Cloud Shell (PowerShell)
-cd ~; if (Test-Path avd-landing-zone) { git -C avd-landing-zone pull --ff-only } else { git clone https://github.com/nickprignano/avd-landing-zone }; Set-Location ~/avd-landing-zone
+cd ~; if (Test-Path avd-landing-zone) { git -C avd-landing-zone pull --ff-only } else { git clone https://github.com/avd-ops/avd-landing-zone }; Set-Location ~/avd-landing-zone
 ./scripts/ops/Start-AvdImageBuild.ps1 -NamePrefix avdlz
 ```
 
-Cloud Shell sessions time out on idle; the GitHub workflow is the reliable path for a multi-hour build. A build interrupted after deploying leaves a template behind, and the next build removes it after 24 hours, once it has saved the template's customization log. Deleting a template also deletes its staging account, the only copy of that log, so when the log can't be saved the template stays and the run says so; `-DiscardLastCopy` removes it anyway ([never delete the last copy](https://github.com/nickprignano/avd-second-brain/blob/main/docs/knowledge/decisions/0016-never-delete-the-last-copy.md)). The 90-day artifact doesn't count as a durable copy, since it expires.
+Cloud Shell sessions time out on idle; the GitHub workflow is the reliable path for a multi-hour build. A build interrupted after deploying leaves a template behind, and the next build removes it after 24 hours, once it has saved the template's customization log. Deleting a template also deletes its staging account, the only copy of that log, so when the log can't be saved the template stays and the run says so; `-DiscardLastCopy` removes it anyway ([never delete the last copy](https://github.com/avd-ops/avd-second-brain/blob/main/docs/knowledge/decisions/0016-never-delete-the-last-copy.md)). The 90-day artifact doesn't count as a durable copy, since it expires.
 
 ## When a build fails
 

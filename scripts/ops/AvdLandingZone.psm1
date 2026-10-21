@@ -55,7 +55,7 @@ function Add-AvdCheckResult {
 
 # The portal the scripts point operators to: the published one on GitHub Pages, or a copy in the
 # operator's own subscription (Publish-AvdPortal.ps1 prints the AVD_PORTAL_URL to set; decision 0017).
-$script:DefaultPortalUrl = 'https://nickprignano.github.io/avd-landing-zone/portal/'
+$script:DefaultPortalUrl = 'https://deploy.avd-ops.dev/portal/'
 
 function Get-AvdPortalUrl {
   <# The portal URL to print: $env:AVD_PORTAL_URL when it is an https URL, else the GitHub Pages portal. #>

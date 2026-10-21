@@ -9,7 +9,8 @@ BeforeAll {
   $script:pwsh = (Get-Process -Id $PID).Path
   function Invoke-OfflineScenario([string] $Name) {
     $file = Join-Path $PSScriptRoot "offline/$Name.Scenario.ps1"
-    $out = & $script:pwsh -NoProfile -NonInteractive -File $file 2>&1 | Out-String
+    # Out-String ends lines with CRLF on Windows; the assertions read LF, as on Linux and macOS.
+    $out = (& $script:pwsh -NoProfile -NonInteractive -File $file 2>&1 | Out-String) -replace "`r`n", "`n"
     if ($LASTEXITCODE -ne 0) { throw "Scenario $Name crashed (exit $LASTEXITCODE):`n$out" }
     $out
   }
@@ -245,6 +246,7 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     Get-StepExit $out 'stopped' | Should -Be 0
     Get-Result 'stopped-calls' | Should -Be 'group-exists,vm-list,vm-start,deployment-create,vm-deallocate'
     Get-Result 'stopped-ids' | Should -Be 'avdlzdsh-001,avdlzdsh-001'
+    Get-Result 'stopped-idpaths' | Should -Be 'True,True' -Because 'resource IDs reach az unchanged (Git Bash rewrites a leading / without MSYS_NO_PATHCONV)'
   }
   It 'deallocates it again when the deployment fails, and still fails' {
     Get-StepExit $out 'stopped-fails' | Should -Be 1
@@ -381,6 +383,25 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     Get-StepExit $out 'subscription-other-tenant' | Should -Be 1
     Get-Result 'subscription-other-tenant-calls' | Should -Be ''
     $out | Should -Match "Run 'az login --tenant 00000000-0000-0000-0000-0000000000f2' first"
+  }
+  It 'never reads the runbook from master: refuses a commit no remote has unless AVD_RUNBOOK_URI is set' {
+    Get-StepExit $out 'runbook-unpinned' | Should -Be 1
+    $out | Should -Match "can't pin the auto-shutdown runbook"
+    Get-Result 'runbook-unpinned-calls' | Should -Be ''
+  }
+  It 'previews an unpinned commit with master in what-if, and says a deployment would stop' {
+    Get-StepExit $out 'runbook-unpinned-whatif' | Should -Be 0
+    Get-Result 'runbook-unpinned-whatif-runbook' | Should -Match '/master/scripts/automation/Invoke-AvdPowerAction\.ps1$'
+    $out | Should -Match 'A deployment would stop here'
+  }
+  It 'pins the runbook to the deployed commit when a remote has it' {
+    Get-StepExit $out 'runbook-pinned' | Should -Be 0 -Because "git in bash saw: $(Get-Result 'runbook-pinned-git'); deploy.sh said: $((($out -split '######## runbook-pinned')[1] -split 'RESULT runbook-pinned EXIT')[0])"
+    Get-Result 'runbook-pinned-runbook' | Should -Be "https://raw.githubusercontent.com/contoso/avd-landing-zone/$(Get-Result 'runbook-pinned-sha')/scripts/automation/Invoke-AvdPowerAction.ps1"
+  }
+  It 'refuses an AVD_RUNBOOK_URI that names a branch' {
+    Get-StepExit $out 'runbook-branch' | Should -Be 1
+    Get-Result 'runbook-branch-calls' | Should -Be ''
+    $out | Should -Match 'AVD_RUNBOOK_URI must be'
   }
 }
 
@@ -924,5 +945,97 @@ Describe 'Deployment portal published into the subscription (decision 0017)' {
   }
   It 'the scripts name the GitHub Pages portal unless AVD_PORTAL_URL is an https URL, and spell out an override (PH-5)' {
     $out | Should -Match 'RESULT portal-url default=True hostNamed=True override=True httpIgnored=True'
+  }
+}
+
+Describe 'Sandbox batches from Cloud Shell (decision 0020)' {
+  BeforeAll { $script:out = Invoke-OfflineScenario 'SandboxBatch' }
+
+  It 'builds a priced batch from item files, sharing one deployment between items with the same key' {
+    Get-StepExit $out 'build' | Should -Be 0
+    $out | Should -Match 'RESULT build groups=3 total=3.5 g1=1\+2 unattended=True md=True'
+  }
+  It 'runs nothing without a go, and refuses a go for the wrong amount' {
+    Get-StepExit $out 'no-approval' | Should -Be 2
+    Get-StepExit $out 'wrong-go' | Should -Be 1
+    $out | Should -Match 'REFUSED The go is for 0.01'
+    Get-StepExit $out 'approve' | Should -Be 0
+  }
+  It 'opens the spend run, deploys once, runs every test, tears down and closes, and reports a failed test' {
+    Get-StepExit $out 'g1' | Should -Be 3
+    $out | Should -Match 'RESULT g1 outcome=tests-failed steps=start:0,deploy:0,test:0,test:1,teardown:0,close:0 spend=True tests=11'
+  }
+  It 'never starts a group a second time on the same approval' {
+    Get-StepExit $out 'g1-again' | Should -Be 2
+    Get-StepExit $out 'g3-start-again' | Should -Be 2
+  }
+  It 'starts no later group after one stopped the batch, until the operator says it was dealt with' {
+    $out | Should -Match 'Not starting: group G2 stopped the batch\..*-ContinueAfterStop'
+  }
+  It 'prints blocks that run the same from Cloud Shell''s PowerShell or Bash prompt' {
+    $out | Should -Match "pwsh -NoLogo -Command 'if \(-not \(Test-Path ~/avd-landing-zone\)\).*\`$HOME/avd-landing-zone.*Invoke-AvdSandboxBatch\.ps1 -BatchId b20261021-0100 -Group G1 -MonthlyCap 150 -RunCap 25 -Local'"
+    $out | Should -Match "pwsh -NoLogo -Command 'Set-Location ~/avd-landing-zone; \./scripts/ops/Invoke-AvdSandboxBatch\.ps1 -BatchId b20261021-0100 -Group G3 -Resume'"
+  }
+  It 'stops the batch when the close finds a leftover, and closes clean after cleanup' {
+    Get-StepExit $out 'g2-leftover' | Should -Be 2
+    $out | Should -Match 'RESULT g2-leftover outcome=stop-batch'
+    Get-StepExit $out 'g2-cleaned' | Should -Be 0
+  }
+  It 'gives each spend run its own record, even when two start in the same minute' {
+    $ids = @([regex]::Matches($out, 'Run \*\*(\d{8}-\d{4}[b-z]?-avd)\*\* is open') | ForEach-Object { $_.Groups[1].Value })
+    $ids.Count | Should -BeGreaterOrEqual 3
+    @($ids | Select-Object -Unique).Count | Should -Be $ids.Count
+  }
+  It 'shows a group Cloud Shell dropped, and how to resume it, even after a stopped group' {
+    $out | Should -Match 'G3  #4 .* stopped part way: last step test \(#4\) was interrupted'
+    $out | Should -Match 'Invoke-AvdSandboxBatch\.ps1 -BatchId b20261021-0100 -Group G3 -Resume'
+    $out | Should -Match 'batch b20261021-0100 G3'
+  }
+  It 'resumes without deploying again, runs the interrupted test again, and closes' {
+    Get-StepExit $out 'g3-resume' | Should -Be 0
+    $out | Should -Match 'RESULT g3-resume outcome=passed deploys=1 tests=1 teardowns=1'
+  }
+  It 'does nothing in the safety net after a clean close' {
+    Get-StepExit $out 'g3-teardown-only' | Should -Be 0
+    $out | Should -Match 'RESULT g3-teardown-only teardowns=1'
+  }
+
+  It 'pins the run recorder in the batch, so the approval covers it' {
+    $out | Should -Match 'RESULT build2 recorder=contoso/avd-landing-zone@True'
+  }
+  It 'opens the recorded run before spending, exports logs before teardown, and closes it after' {
+    Get-StepExit $out 'recorded' | Should -Be 0
+    $out | Should -Match 'RESULT recorded outcome=passed runId=run-\d{8}-\d{4}-q001 steps=record-open,start,deploy,test,record-export,teardown,close,record-close'
+    $out | Should -Match 'RESULT recorded order=Start-AvdRunRecorder -RunId\|deploy rg-lz-d\|test 5\|Stop-AvdRunRecorder -RunId\|teardown rg-lz-d\|Stop-AvdRunRecorder -RunId'
+  }
+  It 'reports a host device an earlier run left, but not one whose VM still exists, and deletes nothing' {
+    Get-StepExit $out 'health-device' | Should -Be 1
+    $out | Should -Match 'FAIL \] Devices from earlier runs: Still there with no VM of that name in any subscription you can read: avdlzdsh-001\. '
+    $out | Should -Match 'Nothing here deletes them for you'
+    $out | Should -Not -Match 'DELETE https://graph'
+  }
+  It 'refuses an unhealthy group before its claim, so the same block runs again once it is fixed' {
+    Get-StepExit $out 'unhealthy-group' | Should -Be 2
+    $out | Should -Match 'RESULT unhealthy-group claimed=False deploys=0'
+    Get-StepExit $out 'healthy-group' | Should -Be 0
+    $out | Should -Match 'RESULT healthy-group outcome=passed deploys=1'
+  }
+  It 'reports a failed Graph read as it came back, a leftover resource group and a missing run store' {
+    Get-StepExit $out 'health-graph' | Should -Be 1
+    $out | Should -Match 'Reading devices returned 403: .*Authorization_RequestDenied'
+    Get-StepExit $out 'health-group' | Should -Be 1
+    $out | Should -Match 'Resource groups from earlier runs: Still there: rg-avdlz-dev-hosts\.'
+    Get-StepExit $out 'health-store' | Should -Be 1
+    $out | Should -Match 'Run store: No run store'
+    Get-StepExit $out 'health-ok' | Should -Be 0
+    $out | Should -Match 'RESULT health-ok healthy=True'
+  }
+  It 'spends nothing when the recorder refuses the run' {
+    Get-StepExit $out 'recorder-refused' | Should -Be 2
+    $out | Should -Match 'RESULT recorder-refused outcome=stop-batch deploys=0'
+  }
+  It 'refuses to keep private output on Cloud Shell''s disk alone' {
+    Get-StepExit $out 'keep-local' | Should -Be 2
+    $out | Should -Match 'RESULT keep-local deploys=0'
   }
 }

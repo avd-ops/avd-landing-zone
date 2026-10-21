@@ -36,7 +36,9 @@ Add a lesson whenever a real run fails for a reason the tests didn't catch. The 
 | 0028 | [Azure Files denies Entra Kerberos sessions when AES-256-GCM is the only channel encryption](0028-smb-channel-encryption-entra-kerberos.md) | Bicep | #45 | Template test: SMB channel encryption; readiness check |
 | 0029 | [A cleanup step that fails after its inputs are deleted can't be retried](0029-device-cleanup-rerun.md) | Cleanup | #46 | Offline scenario: device-retry; portal test |
 | 0030 | [Microsoft Graph's service principal doesn't list every delegated permission it issues](0030-graph-unlisted-delegated-scope.md) | Ops scripts | #47 | Offline scenario: GraphSignIn (setup, default-to-operator) |
-| 0031 | [An unattended teardown must delete device objects with the app's own Graph token](0031-app-identity-graph-cleanup.md) | Ops scripts | #91 | Unit test: Test-AvdAppIdentity |
+| 0031 | [WDOT returns without an error when it skips work, so its return is never proof it ran](0031-wdot-returns-without-error.md) | Image pipeline | #98 | Pester: WDOT run verification |
+| 0032 | [Every field of a pasted state line is input, not only its settings](0032-pasted-state-line-fields.md) | Deployment portal | #111 | Portal test: crafted paste (every field of every state fixture) |
+| 0033 | [An unattended teardown must delete device objects with the app's own Graph token](0033-app-identity-graph-cleanup.md) | Ops scripts | #91 | Unit test: Test-AvdAppIdentity |
 
 ## Template
 

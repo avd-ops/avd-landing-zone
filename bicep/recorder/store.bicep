@@ -53,6 +53,16 @@ resource runs 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05
   }
 }
 
+// Spend runs, sandbox batches and approvals (docs/sandbox-runs.md): small JSON the scripts
+// write with conditional writes. Kept hot: no lifecycle rule covers this container.
+resource records 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
+  parent: blob
+  name: 'records'
+  properties: {
+    publicAccess: 'None'
+  }
+}
+
 // Tiers down, never deletes (spec R9): cool after 30 days, cold after 90.
 resource lifecycle 'Microsoft.Storage/storageAccounts/managementPolicies@2023-05-01' = {
   parent: sa

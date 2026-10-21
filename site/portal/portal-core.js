@@ -28,7 +28,7 @@
   ];
 
   var DEFAULTS = {
-    repoUrl: 'https://github.com/nickprignano/avd-landing-zone',
+    repoUrl: 'https://github.com/avd-ops/avd-landing-zone',
     parameterFile: 'parameters/dev.bicepparam',
     location: 'northcentralus',
     usersGroup: 'AVD Users',
@@ -41,7 +41,10 @@
   };
 
   // ---------------------------------------------------------------- helpers
-  function psQuote(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
+  // PowerShell also ends a single-quoted string at U+2018 to U+201B, so every quote of any kind is doubled (as its
+  // own EscapeSingleQuotedStringContent does); psUnquote undoes it when a block is rewritten for Bash.
+  function psQuote(s) { return "'" + String(s).replace(/['\u2018\u2019\u201a\u201b]/g, '$&$&') + "'"; }
+  function psUnquote(s) { return String(s).replace(/(['\u2018\u2019\u201a\u201b])\1/g, '$1'); }
   function merge(a, b) {
     var o = {}, k;
     for (k in a) if (Object.prototype.hasOwnProperty.call(a, k)) o[k] = a[k];
@@ -96,6 +99,86 @@
       else out.settings[k] = v;
     }
     return out;
+  }
+  // A pasted state line is untrusted input (decision 0007), and its context and check data go into commands
+  // that run as subscription Owner. Only these fields of a context reach the config: the settings above, and
+  // sizing, power and launch, each checked field by field. Anything else a context carries (a repo URL, a ref,
+  // a run to record) is dropped, so a crafted paste can't point the next block at other code.
+  // The ranges are the scripts' own (Test-AvdLandingZoneReadiness.ps1 ValidateRange and ValidatePattern). A field
+  // left out or null (deploy.sh writes null for a flag it wasn't given) is left out; a field that is there and
+  // doesn't fit rejects the whole object.
+  var VM_SIZE = /^Standard_[A-Za-z0-9_]{2,40}$/;
+  var SHUTDOWN = /^(([01][0-9]|2[0-3]):[0-5][0-9]|none)$/;
+  function wholeIn(v, min, max) { var n = Number(v); return typeof v !== 'boolean' && v !== '' && v !== null && isFinite(n) && Math.floor(n) === n && n >= min && n <= max ? n : null; }
+  // Returns { value, bad }: the fields that are there and fit (null when none are), and whether any did not.
+  function checkFields(obj, rules) {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { value: null, bad: true };
+    var o = {}, k, v;
+    for (k in rules) {
+      v = obj[k];
+      if (v === undefined || v === null) continue;
+      v = rules[k](v);
+      if (v === null) return { value: null, bad: true };
+      o[k] = v;
+    }
+    return { value: Object.keys(o).length ? o : null, bad: false };
+  }
+  var SIZING_RULES = {
+    hosts: function (v) { return wholeIn(v, 1, 200); },
+    vmSize: function (v) { return typeof v === 'string' && VM_SIZE.test(v) ? v : null; },
+    maxSessions: function (v) { return wholeIn(v, 1, 1000); },
+    profileQuotaGiB: function (v) { return wholeIn(v, 1, 102400); },
+    activeHoursPerWeek: function (v) { var n = Number(v); return typeof v !== 'boolean' && v !== '' && isFinite(n) && n >= 1 && n <= 168 ? n : null; }
+  };
+  var POWER_RULES = {
+    startVmOnConnect: function (v) { return v === true || v === 'true' ? true : v === false || v === 'false' ? false : null; },
+    autoShutdownTime: function (v) { return typeof v === 'string' && SHUTDOWN.test(v) ? v : null; }
+  };
+  function validSizing(s) { return checkFields(s, SIZING_RULES).value; }
+  function validPower(p) { return checkFields(p, POWER_RULES).value; }
+  // An estimate is shown and repriced, never put into a command: it only has to have the shape the page reads.
+  function validEstimate(e) {
+    if (!e || typeof e !== 'object' || Array.isArray(e)) return null;
+    var lists = ['lines', 'unpriced', 'excluded'];
+    for (var i = 0; i < lists.length; i++) if (e[lists[i]] !== undefined && e[lists[i]] !== null && !Array.isArray(e[lists[i]])) return null;
+    return (e.lines || []).every(function (l) { return l && typeof l === 'object'; }) ? e : null;
+  }
+  function present(o, k) { return !!o && o[k] !== undefined && o[k] !== null; }
+  function contextSettings(context) {
+    var patch = {};
+    SETTING_NAMES.forEach(function (k) { if (context && Object.prototype.hasOwnProperty.call(context, k)) patch[k] = context[k]; });
+    var checked = validSettings(patch);
+    [['sizing', SIZING_RULES], ['power', POWER_RULES]].forEach(function (r) {
+      if (!present(context, r[0])) return;
+      var c = checkFields(context[r[0]], r[1]);
+      if (c.bad) checked.rejected.push(r[0]); else if (c.value) checked.settings[r[0]] = c.value;
+    });
+    var launch = context && launchTarget(context.launch);
+    if (launch) checked.settings.launch = launch;
+    return checked;
+  }
+  // Values from a state line's other fields that go into a command, checked where they are read.
+  var PASTED = {
+    location: /^[a-z][a-z0-9]{2,39}$/,
+    deploymentName: /^[A-Za-z0-9._()-]{1,64}$/,
+    // Get-AvdRunId's run IDs, the same pattern as RUN_ID.
+    runId: /^run-\d{8}-\d{4}-[a-z0-9]{4}$/,
+    quotaName: /^[A-Za-z0-9_.-]{1,80}$/,
+    // Single-quoted in the command; any UPN Entra ID allows, apostrophes included, with no control character.
+    user: /^[^\x00-\x20\x7f@]{1,113}@[A-Za-z0-9][A-Za-z0-9.-]{0,253}$/
+  };
+  function pasted(kind, v) { return typeof v === 'string' && PASTED[kind].test(v) ? v : null; }
+  function pastedList(kind, list) { return (Array.isArray(list) ? list : []).filter(function (v) { return pasted(kind, v) !== null; }); }
+  // Quota items from a preflight: a region, a quota name and whole numbers, or the item is left out.
+  function pastedQuota(d) {
+    if (!d || !pasted('location', d.location) || !pasted('quotaName', d.quotaName)) return null;
+    var o = { location: d.location, quotaName: d.quotaName }, ok = true;
+    ['limit', 'used', 'needed'].forEach(function (k) { var n = wholeIn(d[k] === undefined || d[k] === null ? 0 : d[k], 0, 1000000); if (n === null) ok = false; o[k] = n; });
+    return ok ? o : null;
+  }
+  // Another landing zone the post-deployment preflight found: only its name prefix and environment.
+  function pastedLandingZone(f) {
+    return f && SETTINGS.namePrefix.test(String(f.namePrefix || '')) && SETTINGS.environment.test(String(f.environment || '')) ? { namePrefix: f.namePrefix, environment: f.environment } : null;
   }
   function repoDir(cfg) { return (cfg.repoUrl || DEFAULTS.repoUrl).replace(/\/+$/, '').split('/').pop(); }
 
@@ -240,7 +323,9 @@
   // Every command is a self-contained Cloud Shell (PowerShell) block: sessions are ephemeral,
   // so each starts by cloning or updating the repo and moving into it (build/lessons/0015).
   function preamble(cfg) {
-    var dir = '~/' + repoDir(cfg), url = cfg.repoUrl.replace(/\/+$/, '') + '.git';
+    // The page checks the repo URL it puts in the config; a URL that isn't a plain GitHub repo falls back to this repo.
+    var repo = isRepoUrl(cfg.repoUrl) ? cfg.repoUrl : DEFAULTS.repoUrl;
+    var dir = '~/' + repoDir({ repoUrl: repo }), url = repo.replace(/\/+$/, '') + '.git';
     var lines = ['if (-not (Test-Path ' + dir + ')) { git clone ' + url + ' ' + dir + ' }'];
     // A published copy pins its repo and ref: an existing clone is pointed at that repo and checked out at that ref.
     if (isRef(cfg.ref)) lines.push('Set-Location ' + dir + '; git remote set-url origin ' + url + '; git fetch -q --tags origin; git checkout -q ' + psQuote(cfg.ref));
@@ -402,6 +487,120 @@
     }
   };
 
+  // ---------------------------------------------------------------- run in (avd-ops docs/design-system.md, "Run in")
+  // Where the operator runs the commands: Cloud Shell, Windows or macOS, in PowerShell or Bash. The commands
+  // above are written for Cloud Shell PowerShell, the default, and stay exactly as they are there; forRunIn()
+  // rewrites a block for the other places. Where each script works: scripts/platforms.json (copied here; a test
+  // keeps them equal). tested: a real run proved it; untested: should work, no real run yet; no: hidden.
+  var PLATFORMS = {
+    "scripts/ops/Connect-AvdLandingZone.ps1": {"cloudshell-pwsh": "tested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules", "evidence": "build/lessons/0030-graph-unlisted-delegated-scope.md"},
+    "scripts/ops/Test-AvdLandingZoneReadiness.ps1": {"cloudshell-pwsh": "tested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules", "evidence": "build/tests/portal/fixtures/real-predeploy-ready.txt, real-postdeploy-ready.txt"},
+    "scripts/deploy/deploy.sh": {"cloudshell-pwsh": "tested", "cloudshell-bash": "untested", "windows": "no", "macos": "untested", "requires": "bash, the az CLI with Bicep", "evidence": "build/tests/portal/fixtures/real-deploy-dcr-tables.txt, build/lessons/0006-provider-registration.md"},
+    "scripts/ops/Deploy-AvdDemo.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules"},
+    "scripts/ops/Test-AvdUserConnection.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules"},
+    "scripts/ops/Get-AvdRunStatus.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules"},
+    "scripts/ops/Start-AvdRunRecorder.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules"},
+    "scripts/ops/Stop-AvdRunRecorder.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules"},
+    "scripts/ops/Get-AvdRecoveryStatus.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules"},
+    "scripts/ops/Export-AvdConfiguration.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules"},
+    "scripts/ops/Invoke-AvdHostRotation.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules"},
+    "scripts/ops/Start-AvdRecoveryTest.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules"},
+    "scripts/ops/Remove-AvdDemo.ps1": {"cloudshell-pwsh": "tested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules", "evidence": "build/lessons/0029-device-cleanup-rerun.md"},
+    "scripts/automation/Invoke-AvdPowerAction.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules"}
+  };
+  var RUNIN_DEFAULT = { where: 'cloudshell', shell: 'pwsh' };
+  var PLACES = { cloudshell: 'Cloud Shell', windows: 'Windows', macos: 'macOS' };
+  // Windows runs PowerShell 7 only; Bash there means WSL, which is its own Linux machine.
+  function validRunIn(r) {
+    r = r || {};
+    var where = PLACES.hasOwnProperty(r.where) ? r.where : RUNIN_DEFAULT.where;
+    var shell = r.shell === 'bash' && where !== 'windows' ? 'bash' : 'pwsh';
+    return { where: where, shell: shell };
+  }
+  function isDefaultRunIn(r) { r = validRunIn(r); return r.where === 'cloudshell' && r.shell === 'pwsh'; }
+  function platformKey(r) { return r.where === 'cloudshell' ? 'cloudshell-' + r.shell : r.where; }
+  function scriptsIn(command) {
+    var seen = {}, out = [];
+    String(command || '').replace(/\.\/(scripts\/[\w.\/-]+\.(?:ps1|sh))/g, function (m, p) { if (!seen[p]) { seen[p] = 1; out.push(p); } return m; });
+    return out;
+  }
+  // How well a block works where the operator runs it: the weakest of its scripts. A block with no script
+  // (inline az or PowerShell) is tested where it was written and untested elsewhere.
+  function support(command, runIn) {
+    var r = validRunIn(runIn), key = platformKey(r), rank = { tested: 0, untested: 1, no: 2 }, status = 'tested', requires = [], blockedBy = [];
+    var scripts = scriptsIn(command);
+    if (!scripts.length && !isDefaultRunIn(r)) status = 'untested';
+    scripts.forEach(function (s) {
+      var p = PLATFORMS[s], v = p ? p[key] : 'untested';
+      if (!rank.hasOwnProperty(v)) v = 'untested';
+      if (v === 'no') blockedBy.push(s);
+      if (rank[v] > rank[status]) status = v;
+      if (p && p.requires) String(p.requires).split(/,\s*/).forEach(function (q) { if (q && requires.indexOf(q) < 0) requires.push(q); });
+    });
+    if (r.where === 'cloudshell') requires = [];
+    return { status: status, requires: requires, blockedBy: blockedBy, place: PLACES[r.where], shell: r.shell };
+  }
+  function bashQuote(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
+  // PowerShell's $env: assignments and Remove-Item Env: become export and unset, so pwsh and bash scripts
+  // started from the same bash prompt both see them.
+  function envToBash(line) {
+    var sets = line.trim().split(/;\s*(?=\$env:)/), out = [];
+    for (var i = 0; i < sets.length; i++) {
+      var m = /^\$env:([A-Z0-9_]+) = '((?:[^']|'')*)'$/.exec(sets[i]);
+      if (!m) return null;
+      out.push(m[1] + '=' + bashQuote(psUnquote(m[2])));
+    }
+    return 'export ' + out.join(' ');
+  }
+  function unsetToBash(line) {
+    var m = /^Remove-Item ((?:Env:[A-Z0-9_]+(?:, )?)+) -ErrorAction SilentlyContinue$/.exec(line.trim());
+    return m ? 'unset ' + m[1].split(/,\s*/).map(function (v) { return v.replace(/^Env:/, ''); }).join(' ') : null;
+  }
+  var AZ_SIGNIN_PS = 'if (-not (Get-AzContext)) { Connect-AzAccount -UseDeviceAuthentication | Out-Null }';
+  var AZ_CLI_SIGNIN_PS = 'az account show -o none 2>$null; if ($LASTEXITCODE -ne 0) { az login --use-device-code -o none }';
+  var AZ_CLI_SIGNIN_BASH = 'az account show -o none 2>/dev/null || az login --use-device-code -o none';
+  // Rewrites a Cloud Shell PowerShell block for another place and shell. Cloud Shell PowerShell returns it as is.
+  function forRunIn(command, runIn) {
+    var r = validRunIn(runIn);
+    if (!command || isDefaultRunIn(r)) return command || '';
+    if (/^AVD_PS$/m.test(command)) throw new Error('The block holds a line the Bash version cannot carry.');
+    var lines = String(command).split('\n'), pre = [], body = lines;
+    var clone = /^if \(-not \(Test-Path (~\/\S+)\)\) \{ git clone (\S+) \S+ \}$/.exec(lines[0] || '');
+    var into = clone && /^Set-Location (~\/\S+); (.*)$/.exec(lines[1] || '');
+    if (into) { body = lines.slice(2); }
+    var local = r.where !== 'cloudshell';
+    var usesCli = body.some(function (l) { return /^bash \.\/|(^|[;(]\s*)az /.test(l); });
+    // Az PowerShell: the scripts and the Az cmdlets; a block of az commands needs only the az CLI sign-in.
+    var azPs = function (l) { return /\.ps1\b|-Az[A-Z]|Get-AzContext/.test(l); };
+    var usesPs = body.some(azPs);
+    if (r.shell === 'pwsh') {
+      if (into) pre = [lines[0], lines[1]];
+      if (local && usesPs) pre.push(AZ_SIGNIN_PS);
+      if (local && usesCli) pre.push(AZ_CLI_SIGNIN_PS);
+      return pre.concat(body).join('\n');
+    }
+    // Bash: the clone and checkout in bash, then each stretch of PowerShell lines in one pwsh process (a Graph
+    // sign-in and the script that uses it must share it), and bash scripts as they are.
+    if (into) pre = ['[ -d ' + into[1] + ' ] || git clone ' + clone[2] + ' ' + clone[1], 'cd ' + into[1] + ' && ' + into[2].split(/;\s*/).join(' && ')];
+    if (local && usesCli) pre.push(AZ_CLI_SIGNIN_BASH);
+    // Each stretch is written word for word to a file through a quoted heredoc (bash expands nothing in it).
+    var out = [], ps = [], file = false;
+    var flush = function () {
+      if (!ps.length) return;
+      if (local && ps.some(azPs)) ps.unshift(AZ_SIGNIN_PS);
+      if (!file) { out.push('f="$(mktemp -d)/step.ps1"'); file = true; }
+      out.push("cat > \"$f\" <<'AVD_PS'"); out = out.concat(ps); out.push('AVD_PS', 'pwsh -NoLogo -File "$f"'); ps = [];
+    };
+    body.forEach(function (l) {
+      var b = envToBash(l) || unsetToBash(l);
+      if (b) { flush(); out.push(b); }
+      else if (/^bash \.\//.test(l)) { flush(); out.push(l.replace(/'((?:[^']|'')*)'/g, function (m, s) { return bashQuote(psUnquote(s)); })); }
+      else ps.push(l);
+    });
+    flush();
+    return pre.concat(out).join('\n');
+  }
+
   // ---------------------------------------------------------------- reading the paste
   function extractStates(text) {
     var states = [], re = /<<<AVDLZ-STATE([\s\S]*?)AVDLZ-STATE>>>/g, m;
@@ -451,7 +650,7 @@
       var ctx = {}, dm = /deploy\.sh -p (\S+) -l (\S+) --users-group '((?:[^']|'')*)' --admins-group '((?:[^']|'')*)'/.exec(text);
       var pf = /PRE-DEPLOYMENT preflight - (\S+\.bicepparam)/.exec(text);
       if (pf) ctx.parameterFile = pf[1];
-      if (dm) { ctx.parameterFile = dm[1]; ctx.location = dm[2]; ctx.usersGroup = dm[3].replace(/''/g, "'"); ctx.adminsGroup = dm[4].replace(/''/g, "'"); }
+      if (dm) { ctx.parameterFile = dm[1]; ctx.location = dm[2]; ctx.usersGroup = psUnquote(dm[3]); ctx.adminsGroup = psUnquote(dm[4]); }
       var pm = /prefix ([a-z0-9]+), env (dev|test|prod), ([a-z0-9]+),/.exec(text);
       if (pm) { ctx.namePrefix = pm[1]; ctx.environment = pm[2]; ctx.location = ctx.location || pm[3]; }
       return { v: 0, stage: 'predeploy', status: ready && !notReady ? 'ready' : 'notready', fix: fix, context: ctx, failures: failures, warnings: [] };
@@ -534,20 +733,20 @@
         note('Run the preflight again with -Fix', [others.length > 0 && hasFixable(others) ? 'It creates the missing groups and service principal and registers providers and features, waiting until they finish.' : '',
           kvFix ? 'It recovers the deleted Key Vault (' + kv[0].data.vaults[0] + ') into its resource group, so the deployment reuses it and keeps the name prefix.' : ''].filter(Boolean).join(' '), cmd.predeploy(cfg, true));
       if (hp.length) {
-        var regions = (hp[0].data && hp[0].data.regions) || [];
-        var pick = (ctx.rankedRegions || []).filter(function (r) { return regions.indexOf(r) >= 0; })[0] || regions[0];
+        var regions = pastedList('location', hp[0].data && hp[0].data.regions);
+        var pick = pastedList('location', ctx.rankedRegions).filter(function (r) { return regions.indexOf(r) >= 0; })[0] || regions[0];
         if (pick) {
           regionChange = true;
           note('Choose a region that offers AVD host pools', cfg.location + ' does not offer AVD host pools. ' + (ctx.rankedRegions ? 'The closest one that does, by your latency test, is ' + pick + '.' : 'For example ' + pick + '; run the latency test in step 1 to pick the closest.'), cmd.predeploy(merge(cfg, { location: pick }), false));
         }
       }
       if (lzr.length) {
-        var where = (lzr[0].data && lzr[0].data.deployedIn || [])[0];
+        var where = pastedList('location', lzr[0].data && lzr[0].data.deployedIn)[0];
         if (where) regionChange = true;
         note('Use the region the landing zone is already in', 'Resource groups cannot move region. Check against ' + where + ', or remove the existing landing zone first.', where ? cmd.predeploy(merge(cfg, { location: where }), false) : '');
       }
       if (quota.length)
-        note('Request more vCPU quota', quota.map(function (q) { return q.check + ': ' + q.detail; }).join('; ') + '. Small increases are usually approved within minutes; if it goes to review, follow it in Portal > Quotas > My requests. Then run the preflight again.', cmd.quota(quota.map(function (q) { return q.data || {}; }).filter(function (d) { return d.quotaName; })));
+        note('Request more vCPU quota', quota.map(function (q) { return q.check + ': ' + q.detail; }).join('; ') + '. Small increases are usually approved within minutes; if it goes to review, follow it in Portal > Quotas > My requests. Then run the preflight again.', cmd.quota(quota.map(function (q) { return pastedQuota(q.data); }).filter(Boolean)));
       if (kv.length && !kvFix)
         note('Resolve the soft-deleted Key Vault', 'A deleted, purge-protected vault (' + ((kv[0].data && kv[0].data.vaults) || []).join(', ') + ') still holds the vault name for 90 days. ' + [kv[0].detail, kv[0].remediation].filter(Boolean).join(' ') + ' (namePrefix is in ' + cfg.parameterFile + '.)', '');
       if (others.length && !fixFirst)
@@ -568,7 +767,7 @@
         return { step: 'deploy', actions: a };
       }
       if (state.status === 'started') {
-        note('Check on the deployment', 'The output ends while the deployment was running. It keeps running in Azure even if Cloud Shell disconnected. Run this and paste the result; when it shows Succeeded, the post-deployment setup is next. Do not start the deployment again while it runs.', cmd.deployStatus(cfg, state.context && state.context.deploymentName));
+        note('Check on the deployment', 'The output ends while the deployment was running. It keeps running in Azure even if Cloud Shell disconnected. Run this and paste the result; when it shows Succeeded, the post-deployment setup is next. Do not start the deployment again while it runs.', cmd.deployStatus(cfg, pasted('deploymentName', state.context && state.context.deploymentName)));
         return { step: 'deploy', actions: a };
       }
       var known = armErrors(ctx.text), codes = armCodes(ctx.text);
@@ -576,7 +775,7 @@
         known.forEach(function (e) { note(e.code + ': ' + e.what, e.fix, e.action === 'redeploy' ? cmd.deploy(cfg) : cmd.predeploy(cfg, e.action === 'predeploy-fix')); });
       }
       else {
-        note('Find out what failed', 'The deployment failed' + (codes.length ? ' (' + codes.join(', ') + ')' : '') + '. This lists the failed resources and their error codes; paste the result here.', cmd.deployStatus(cfg, state.context && state.context.deploymentName));
+        note('Find out what failed', 'The deployment failed' + (codes.length ? ' (' + codes.join(', ') + ')' : '') + '. This lists the failed resources and their error codes; paste the result here.', cmd.deployStatus(cfg, pasted('deploymentName', state.context && state.context.deploymentName)));
       }
       return { step: 'deploy', actions: a };
     }
@@ -584,7 +783,7 @@
     if (S === 'postdeploy') {
       var missing = byId(failures, 'lz-missing');
       if (missing.length) {
-        var found = (missing[0].data && missing[0].data.found) || [];
+        var found = (Array.isArray(missing[0].data && missing[0].data.found) ? missing[0].data.found : []).map(pastedLandingZone).filter(Boolean);
         if (found.length) note('Check the landing zone that exists', 'No landing zone named ' + cfg.namePrefix + '-' + cfg.environment + ' in this subscription, but there is ' + found.map(function (f) { return f.namePrefix + '-' + f.environment; }).join(', ') + '.', cmd.postdeploy(merge(cfg, found[0]), false));
         else note('Deploy the landing zone first', 'Nothing is deployed under this name in this subscription. Start with the pre-deployment preflight (or switch subscription with Set-AzContext).', cmd.predeploy(cfg, false));
         return { step: found.length ? 'postdeploy' : 'predeploy', actions: a };
@@ -638,7 +837,7 @@
 
     if (S === 'verify') {
       // Test-AvdUserConnection.ps1 (decision 0014). It fails closed: only "verified" is a pass.
-      var vc = state.context || {}, conns = vc.connections || [], again = { user: vc.user, demo: vc.demo };
+      var vc = state.context || {}, conns = vc.connections || [], again = { user: pasted('user', vc.user), demo: vc.demo === true };
       var connected = conns.filter(function (c) { return c && c.connectedAt; })[0];
       var who = vc.user || 'you';
       if (state.status === 'verified') {
@@ -695,7 +894,7 @@
       // Get-AvdRunStatus.ps1 (run recorder spec section 4): Azure says where the run stands; the journal only adds detail.
       var rc = state.context || {}, basis = rc.basis ? ' ' + rc.basis : '';
       if (rc.lastStage === 'deploy' && rc.lastStatus === 'running') {
-        note('Wait for the deployment', 'Azure shows the deployment still running.' + basis + ' Do not start it again. Check on it with this, and paste the result when it shows Succeeded or Failed.', cmd.deployStatus(cfg, rc.deploymentName));
+        note('Wait for the deployment', 'Azure shows the deployment still running.' + basis + ' Do not start it again. Check on it with this, and paste the result when it shows Succeeded or Failed.', cmd.deployStatus(cfg, pasted('deploymentName', rc.deploymentName)));
         return { step: 'deploy', actions: a };
       }
       if (state.status !== 'ready' || !rc.nextStage) {
@@ -703,7 +902,7 @@
         return { step: null, actions: a };
       }
       if (rc.lastStage === 'deploy' && rc.lastStatus === 'failed') {
-        note('Find out what failed', 'The last deployment failed.' + basis + ' This lists the failed resources and their error codes; paste the result here.', cmd.deployStatus(cfg, rc.deploymentName));
+        note('Find out what failed', 'The last deployment failed.' + basis + ' This lists the failed resources and their error codes; paste the result here.', cmd.deployStatus(cfg, pasted('deploymentName', rc.deploymentName)));
         return { step: 'deploy', actions: a };
       }
       var NEXT = { predeploy: 'Run the pre-deployment preflight', deploy: 'Deploy the landing zone', postdeploy: 'Run the post-deployment setup', signin: 'Deploy the demo and sign in', verify: 'Check access' };
@@ -752,15 +951,15 @@
     }
     if (S === 'recovery') {
       // Get-AvdRecoveryStatus.ps1 and Start-AvdRecoveryTest.ps1: one action for the first thing that isn't met.
-      var rv = state.context || {}, open = failures.concat(warnings);
+      var rv = state.context || {}, open = failures.concat(warnings), runId = pasted('runId', rv.runId);
       var has = function (id) { return byId(open, id).length > 0; };
       var opts = { tier: rv.tier, recoveryLocation: rv.recoveryLocation };
       if (rv.test) {
         if (rv.mode === 'plan' && state.status === 'ready') note('Run the recovery test when you are ready', 'The plan above restores the newest recovery point into a new storage account and prints its cost. Nothing was created. Add -Go to the same command to run it, and remove it after with -Cleanup.', cmd.recoveryTest(cfg) + ' -Go');
         else if (rv.mode === 'plan') note('Not ready for a recovery test', ((failures[0] || {}).detail || '') + ' Nothing was created.', '');
-        else if (state.status === 'passed') note('Remove the test copy', 'The restore passed; the measured RPO and restore time are in the run record. Remove the test copy now so it stops billing.', cmd.recoveryTest(cfg) + ' -Cleanup -RunId ' + psQuote(rv.runId || ''));
+        else if (state.status === 'passed') note('Remove the test copy', 'The restore passed; the measured RPO and restore time are in the run record. Remove the test copy now so it stops billing.', cmd.recoveryTest(cfg) + ' -Cleanup -RunId ' + psQuote(runId || ''));
         else if (state.status === 'done') note('Check the recovery status again', 'The test copy is removed. The status check now counts the passed test.', cmd.recoveryStatus(cfg, opts));
-        else note('Remove the test, then look at the error', ((failures[0] || {}).detail || 'The test did not pass.') + ' Remove what it created first, so nothing keeps billing.', rv.runId ? cmd.recoveryTest(cfg) + ' -Cleanup -RunId ' + psQuote(rv.runId) : '');
+        else note('Remove the test, then look at the error', ((failures[0] || {}).detail || 'The test did not pass.') + ' Remove what it created first, so nothing keeps billing.', runId ? cmd.recoveryTest(cfg) + ' -Cleanup -RunId ' + psQuote(runId) : '');
         return { step: 'recovery', actions: a };
       }
       if (state.status === 'met') {
@@ -811,15 +1010,14 @@
 
     // The context goes into the next commands, so its settings are checked like typed ones (red team PH-4);
     // the commit it carries is compared with this portal's, not merged.
-    var checked = validSettings(state && state.context);
+    var checked = contextSettings(state && state.context);
     var stateCommit = state && state.context && isCommit(state.context.commit) ? String(state.context.commit).toLowerCase() : null;
-    delete checked.settings.commit;
     if (state && state.context) cfg = merge(cfg, checked.settings);
     if (state && state.context && checked.settings.parameterFile && !checked.settings.environment) cfg.environment = envFromFile(checked.settings.parameterFile) || cfg.environment;
 
     var result = { recognized: !!state || problems.length > 0, source: source, problems: problems, config: cfg, rejectedSettings: checked.rejected, failures: [], warnings: [], actions: [], stage: null, status: null, headline: '', step: options.currentStep || null,
-      estimate: (state && state.context && state.context.estimate) || null, sizing: (state && state.context && state.context.sizing) || null,
-      power: (state && state.context && state.context.power) || null,
+      estimate: validEstimate(state && state.context && state.context.estimate), sizing: checked.settings.sizing || null,
+      power: checked.settings.power || null,
       commit: { state: stateCommit, portal: isCommit(options.portalCommit) ? String(options.portalCommit).toLowerCase() : null }, versionNote: versionNote(stateCommit, options.portalCommit) };
     if (state) {
       var d = decide(state, cfg, { text: text, rankedRegions: options.rankedRegions });
@@ -988,6 +1186,7 @@
     return a;
   }
 
-  return { STEPS: STEPS, newRunId: newRunId, recording: recording, recordActions: recordActions, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, isCommit: isCommit, siteConfig: siteConfig, SETTINGS: SETTINGS, SETTING_NAMES: SETTING_NAMES, validSettings: validSettings, versionNote: versionNote, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_HOSTS: MAX_HOSTS, computePool: computePool, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
+  return { STEPS: STEPS, newRunId: newRunId, recording: recording, recordActions: recordActions, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, isCommit: isCommit, siteConfig: siteConfig, SETTINGS: SETTINGS, SETTING_NAMES: SETTING_NAMES, validSettings: validSettings, contextSettings: contextSettings, validSizing: validSizing, validPower: validPower, validEstimate: validEstimate, versionNote: versionNote, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_HOSTS: MAX_HOSTS, computePool: computePool, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
+    PLATFORMS: PLATFORMS, RUNIN_DEFAULT: RUNIN_DEFAULT, PLACES: PLACES, validRunIn: validRunIn, isDefaultRunIn: isDefaultRunIn, scriptsIn: scriptsIn, support: support, forRunIn: forRunIn,
     REACHABILITY_HOSTS: REACHABILITY_HOSTS, rateLatency: rateLatency, classifyReachability: classifyReachability, launchTarget: launchTarget, launchUrl: launchUrl };
 });

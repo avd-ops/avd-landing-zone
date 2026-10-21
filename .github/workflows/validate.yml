@@ -105,6 +105,13 @@ jobs:
           Install-Module PSScriptAnalyzer -RequiredVersion $env:PSSCRIPTANALYZER_VERSION -Scope CurrentUser -Force
           Import-Module PSScriptAnalyzer -RequiredVersion $env:PSSCRIPTANALYZER_VERSION
           Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit
+          # Runs anywhere (avd-ops docs/run-anywhere.md): operator scripts on PowerShell 7 everywhere,
+          # the scripts that run inside Azure on Windows PowerShell 5.1.
+          $inAzure = 'scripts/image', 'scripts/sessionhost', 'scripts/ops/host', 'scripts/automation', 'scripts/jumpbox'
+          foreach ($f in Get-ChildItem scripts/ops -Recurse -File -Include *.ps1, *.psm1 | Where-Object { $_.FullName -notmatch '[\\/]host[\\/]' }) {
+            Invoke-ScriptAnalyzer -Path $f.FullName -Settings ./build/analyzer/Portable.psd1 -EnableExit
+          }
+          foreach ($p in $inAzure) { Invoke-ScriptAnalyzer -Path $p -Recurse -Settings ./build/analyzer/WindowsPowerShell.psd1 -EnableExit }
 
       # The offline scenarios and template guards compile the parameter files.
       - name: Install Bicep
@@ -126,6 +133,60 @@ jobs:
 
       - name: shellcheck (deploy script, session hook, pre-commit hook)
         run: shellcheck scripts/deploy/deploy.sh .claude/hooks/session-start.sh .githooks/pre-commit build/snapshot-diff.sh
+
+  # Runs anywhere (avd-ops docs/run-anywhere.md, decision 0006): the whole Pester suite (unit tests,
+  # offline scenarios, template guards) on macOS and Windows, with deploy.sh in Homebrew bash on macOS
+  # (stock /bin/bash 3.2 must stop with a clear message) and in Git Bash on Windows.
+  tests-other-os:
+    name: Tests on ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macOS, os: macos-latest, bicep: bicep-osx-arm64 }
+          - { name: Windows, os: windows-latest, bicep: bicep-win-x64.exe }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Stock macOS bash stops with a clear message
+        if: runner.os == 'macOS'
+        run: |
+          set +e
+          out=$(/bin/bash ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus 2>&1); code=$?
+          echo "$out"
+          [ "$code" -eq 1 ] && grep -q 'needs Bash 4 or later' <<<"$out"
+
+      - name: Pick the bash under test, install Bicep
+        shell: pwsh
+        env:
+          BICEP_ASSET: ${{ matrix.bicep }}
+        run: |
+          $bin = Join-Path $env:RUNNER_TEMP 'bin'
+          New-Item -ItemType Directory -Path $bin -Force | Out-Null
+          if ($IsMacOS) {
+            if (-not (Test-Path "$(brew --prefix)/bin/bash")) { brew install bash }
+            $bash = "$(brew --prefix)/bin/bash"
+            $bicep = Join-Path $bin 'bicep'
+          } else {
+            # Git Bash first on PATH, so scripts that call bash (host rotation) get it rather than WSL.
+            $bash = "$env:ProgramFiles\Git\bin\bash.exe"
+            "$env:ProgramFiles\Git\bin" >> $env:GITHUB_PATH
+            $bicep = Join-Path $bin 'bicep.exe'
+          }
+          "AVDLZ_TEST_BASH=$bash" >> $env:GITHUB_ENV
+          Invoke-WebRequest -UseBasicParsing -OutFile $bicep "https://github.com/Azure/bicep/releases/download/$env:BICEP_VERSION/$env:BICEP_ASSET"
+          if ($IsMacOS) { chmod +x $bicep }
+          & $bicep --version
+          $bin >> $env:GITHUB_PATH
+
+      - name: Pester
+        shell: pwsh
+        run: |
+          & $env:AVDLZ_TEST_BASH --version | Select-Object -First 1
+          Install-Module Pester -RequiredVersion $env:PESTER_VERSION -Scope CurrentUser -Force -SkipPublisherCheck
+          Import-Module Pester -RequiredVersion $env:PESTER_VERSION
+          Invoke-Pester -Path ./build/tests -CI -Output Detailed
 
   portal:
     name: Deployment portal tests
@@ -231,9 +292,9 @@ jobs:
       contents: read
       id-token: write
     env:
-      AVD_USERS_GROUP_ID: ${{ vars.AVD_USERS_GROUP_ID }}
-      AVD_ADMINS_GROUP_ID: ${{ vars.AVD_ADMINS_GROUP_ID }}
-      AVD_SERVICE_PRINCIPAL_ID: ${{ vars.AVD_SERVICE_PRINCIPAL_ID }}
+      AVD_USERS_GROUP_ID: ${{ secrets.AVD_USERS_GROUP_ID }}
+      AVD_ADMINS_GROUP_ID: ${{ secrets.AVD_ADMINS_GROUP_ID }}
+      AVD_SERVICE_PRINCIPAL_ID: ${{ secrets.AVD_SERVICE_PRINCIPAL_ID }}
       AVD_LOCAL_ADMIN_PASSWORD: ${{ secrets.AVD_LOCAL_ADMIN_PASSWORD || 'WhatIf-placeholder-only-1!' }}
       AVD_LOCATION: ${{ vars.AZURE_LOCATION }}
     steps:

@@ -62,7 +62,7 @@ Entra ID-only, Intune-managed, private-by-default Azure Virtual Desktop landing 
 | `autoShutdownScheduleAction` | string | `'Stop'` | What the scheduled stop does: Stop deallocates idle hosts; Lock keeps every host off until Resume. |
 | `autoShutdownBudgetAction` | string | `'Lock'` | What a budget alert does: Lock keeps every host off until someone runs Resume; Stop deallocates idle hosts; None = no budget trigger. Needs the budget (monthlyBudgetAmount, budgetStartDate, alertEmailAddresses). |
 | `autoShutdownBudgetPercent` | int | `100` | Percentage of the monthly budget (actual cost) that triggers autoShutdownBudgetAction. |
-| `autoShutdownRunbookUri` | string | `'https://raw.githubusercontent.com/nickprignano/avd-landing-zone/master/scripts/automation/Invoke-AvdPowerAction.ps1'` | Where Automation downloads the runbook from. deploy.sh pins it to the commit being deployed (AVD_RUNBOOK_URI). |
+| `autoShutdownRunbookUri` | string | `'https://raw.githubusercontent.com/avd-ops/avd-landing-zone/master/scripts/automation/Invoke-AvdPowerAction.ps1'` | Where Automation downloads the runbook from. deploy.sh pins it to the commit being deployed (AVD_RUNBOOK_URI). |
 | `deployJumpbox` | bool | `false` | Add an operator jumpbox: a small Linux or Windows Server VM in the spoke with the Cloud Shell toolchain, reached in the browser through Azure Bastion Developer (no charge, no public IP). Off by default. Bastion Developer exists only in some regions (Get-AvdBastionDeveloperRegion). |
 | `jumpboxSubnetPrefix` | string | `'(address in the source)'` | Jumpbox subnet (inside the spoke). |
 | `jumpboxOs` | string | `'Linux'` | Jumpbox operating system: Linux (Ubuntu 24.04, the default) or Windows (Windows Server 2025). |

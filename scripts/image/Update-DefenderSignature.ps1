@@ -11,7 +11,7 @@ $errors = @()
 foreach ($source in 'MicrosoftUpdateServer', 'MMPC') {
   for ($i = 1; $i -le 3; $i++) {
     try { Update-MpSignature -UpdateSource $source; $errors = @(); break }
-    catch { $errors += "$source attempt $i: $($_.Exception.Message)"; Start-Sleep -Seconds (15 * $i) }
+    catch { $errors += "$source attempt ${i}: $($_.Exception.Message)"; Start-Sleep -Seconds (15 * $i) }
   }
   if (-not $errors.Count) { break }
 }

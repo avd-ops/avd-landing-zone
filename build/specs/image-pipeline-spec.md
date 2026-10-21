@@ -2,7 +2,7 @@
 
 - **Status:** Proposed (see [decision 0013](../decisions/0013-image-pipeline.md)); all red-team findings folded in; see [image-pipeline-redteam.md](image-pipeline-redteam.md). Built offline: step 1 (build), the image and generation parameters of step 2 (section 6.1) and the main pool's rotation of step 3 (section 6.5); nothing has run against a real tenant
 - **Date:** 2026-10-04
-- **Scope:** landing zones built from this repo. This is phase 0b of the [second brain spec](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md), built before its phase 1 (Q6).
+- **Scope:** landing zones built from this repo. This is phase 0b of the [second brain spec](https://github.com/avd-ops/avd-second-brain/blob/main/docs/operations-spec.md), built before its phase 1 (Q6).
 
 This is a personal project, not for production, provided as is. Nothing in this spec has run against a real tenant yet; §11 lists what to verify at build time.
 
@@ -174,7 +174,7 @@ AIB generalizes the VM (sysprep) after the last customizer, with its default dep
 - no reboot is pending, and no update failed in this build;
 - no local user account exists beyond the built-ins;
 - Defender is enabled, with signatures less than 24 hours old;
-- WDOT ran with the `avdlz` profile at the pinned version and reported success, and no protected service (§5.5) is Disabled;
+- WDOT ran with the `avdlz` profile at the pinned version and its run was verified (`Invoke-Wdot.ps1` checks WDOT's registry stamp, its event log and the services it disabled, because WDOT returns without an error when it skips work; lesson 0031), and no protected service (§5.5) is Disabled;
 - Windows and Microsoft 365 Apps automatic updates are off (§5.6).
 
 It prints one `RESULT <check> <Pass|Fail> <detail>` line per check, the format of the offline scenarios, so the build issue can quote it.

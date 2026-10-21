@@ -28,7 +28,8 @@ test('redact: removes every private value in the sample', () => {
 
 test('redact: keeps what diagnosis needs', () => {
   const t = R.redact(fixture('pii-sample.txt')).text;
-  for (const v of ['9cdead84-a844-4324-93f2-b2e6bb768d07', '10.100.2.9', 'privatelink.file.core.windows.net', 'parameters/dev.bicepparam', 'eastus2', 'https://microsoft.com/devicelogin', 'Test-AvdLandingZoneReadiness.ps1'])
+  // The portal URL the scripts print is public and stays readable.
+  for (const v of ['9cdead84-a844-4324-93f2-b2e6bb768d07', '10.100.2.9', 'privatelink.file.core.windows.net', 'parameters/dev.bicepparam', 'eastus2', 'https://microsoft.com/devicelogin', 'Test-AvdLandingZoneReadiness.ps1', 'https://deploy.avd-ops.dev/portal/'])
     assert.ok(t.includes(v), `lost ${v}`);
 });
 
@@ -125,7 +126,7 @@ test('buildReport: works without pasted output', () => {
 });
 
 test('issueUrl: short reports go whole; long ones keep the start and the state line', () => {
-  const repo = 'https://github.com/nickprignano/avd-landing-zone';
+  const repo = 'https://github.com/avd-ops/avd-landing-zone';
   const small = R.issueUrl(repo, 'T', 'body');
   assert.equal(small.trimmed, 0);
   assert.ok(small.url.startsWith(repo + '/issues/new?labels=portal-report&title=T&body='));

@@ -247,7 +247,7 @@ param autoShutdownBudgetAction string = 'Lock'
 param autoShutdownBudgetPercent int = 100
 
 @description('Where Automation downloads the runbook from. deploy.sh pins it to the commit being deployed (AVD_RUNBOOK_URI).')
-param autoShutdownRunbookUri string = 'https://raw.githubusercontent.com/nickprignano/avd-landing-zone/master/scripts/automation/Invoke-AvdPowerAction.ps1'
+param autoShutdownRunbookUri string = 'https://raw.githubusercontent.com/avd-ops/avd-landing-zone/master/scripts/automation/Invoke-AvdPowerAction.ps1'
 
 // ---------- Operator jumpbox (decision 0019) ----------
 @description('Add an operator jumpbox: a small Linux or Windows Server VM in the spoke with the Cloud Shell toolchain, reached in the browser through Azure Bastion Developer (no charge, no public IP). Off by default. Bastion Developer exists only in some regions (Get-AvdBastionDeveloperRegion).')
