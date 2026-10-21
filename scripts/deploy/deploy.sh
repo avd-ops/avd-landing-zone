@@ -145,7 +145,8 @@ if [[ -n "${AVD_RUNBOOK_URI:-}" ]]; then
   [[ $AVD_RUNBOOK_URI =~ $RUNBOOK_PIN ]] \
     || { echo "AVD_RUNBOOK_URI must be the runbook's raw.githubusercontent.com URL at a commit SHA or a v* tag: '$AVD_RUNBOOK_URI'"; exit 1; }
 else
-  repo_dir=$(cd "$(dirname "$0")/../.." && pwd)
+  # pwd -W gives Git Bash's Windows path: with MSYS_NO_PATHCONV set, native git can't read /d/... paths.
+  repo_dir=$(cd "$(dirname "$0")/../.." && { pwd -W 2>/dev/null || pwd; })
   sha=$(git -C "$repo_dir" rev-parse HEAD 2>/dev/null || true)
   origin=$(git -C "$repo_dir" remote get-url origin 2>/dev/null || true)
   if [[ $origin =~ github\.com[:/]([^/]+)/([^/]+)$ ]] && [[ -n "$sha" ]] &&
