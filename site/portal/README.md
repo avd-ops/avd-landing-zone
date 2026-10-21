@@ -21,7 +21,7 @@ At each step it gives a self-contained Cloud Shell block (clone or update the re
 
 **Report a problem** opens a GitHub issue with the pasted output and the portal's analysis. [`report.js`](report.js) redacts it in the browser first (decision [0008](../../build/decisions/0008-portal-issue-reports.md)). The reporter reviews it and submits it on GitHub.
 
-The logic lives in [`portal-core.js`](portal-core.js), which runs in the browser and in Node, so it is tested against real Cloud Shell output: `node --test "build/tests/portal/*.test.mjs"` (CI job *Deployment portal tests*).
+The page's own code is [`portal-page.js`](portal-page.js) (browser only). The logic lives in [`portal-core.js`](portal-core.js), which runs in the browser and in Node, so it is tested against real Cloud Shell output: `node --test "build/tests/portal/*.test.mjs"` (CI job *Deployment portal tests*).
 
 ## The state line
 
@@ -86,6 +86,15 @@ The same value always gets the same placeholder. Reports carry `<!-- avdlz-porta
 |---|---|
 | `repoUrl` | The repo the commands clone. Only `https://github.com/<owner>/<repo>`; anything else is ignored and the page says so. |
 | `ref` | The tag or commit the commands check out (an existing clone is pointed at `repoUrl` first). Without it, the commands follow `master`. |
+| `commit` | The commit the portal was built from. The Pages workflow writes it for the hosted portal and `Publish-AvdPortal.ps1` for a copy (the commit its `ref` resolves to). The scripts put their own commit in every state line (`context.commit`), and when the two differ the page says so under the result, so an older portal is never mistaken for a wrong command. A note, never a verdict. |
 | `portalUrl`, `hosting` | Where the copy is served and how (`StaticWebApp` or `Storage`), for reference. |
 
-The page shows which repo and ref its commands run, under the command blocks.
+The page shows which repo and ref its commands run, and its build commit, under the command blocks.
+
+## What goes into a command
+
+Every setting the commands use (parameter file, region, groups, name prefix, environment, test user, Graph app client ID) has a pattern in `portal-core.js` (`SETTINGS`), matching the Bicep parameters and Azure's names. The settings panel, the settings saved in the browser and the `context` of a pasted state line all pass through `validSettings()`: a value that does not fit is dropped, the panel names it, and the previous value stays. The repo URL and ref come only from `portal-config.js` or the `*.github.io` host name, never from a paste or a setting. Group names and the test user are single-quoted in the commands as well.
+
+## Content Security Policy
+
+`index.html` carries a `Content-Security-Policy` meta tag: scripts only from the page's own files (none inline, which is why the page's code lives in `portal-page.js`), no third-party source, styles from its own files plus inline style attributes, images and fonts from its own files, and `connect-src https:` for the latency and reachability probes. A meta tag cannot carry `frame-ancestors`, so a copy published to Static Web Apps sends that and the other response headers from `staticwebapp.config.json`; on GitHub Pages, framing is left to the browser's defaults. A test checks the tag and that nothing inline or third-party crept back in.

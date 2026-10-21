@@ -53,12 +53,48 @@
   // a GitHub repo URL, and a tag or commit to check out (no quotes, spaces, options or shell characters).
   function isRepoUrl(u) { return typeof u === 'string' && /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$/.test(u) && !/\.\./.test(u); }
   function isRef(r) { return typeof r === 'string' && /^[A-Za-z0-9][A-Za-z0-9._\/-]{0,99}$/.test(r) && !/\.\.|\/\/|\/$|\.lock$/.test(r); }
-  // site: window.AVDLZ_PORTAL_CONFIG. Returns { repoUrl, ref, ignored[] }: what is valid, and the keys that were not.
+  function isCommit(c) { return typeof c === 'string' && /^[0-9a-f]{7,40}$/i.test(c); }
+  // site: window.AVDLZ_PORTAL_CONFIG. Returns { repoUrl, ref, commit, ignored[] }: what is valid, and the keys that were not.
+  // commit: the commit this portal was built from (the Pages workflow or Publish-AvdPortal.ps1 writes it).
   function siteConfig(site) {
     site = site || {};
-    var out = { repoUrl: null, ref: null, ignored: [] };
+    var out = { repoUrl: null, ref: null, commit: null, ignored: [] };
     if (site.repoUrl !== undefined) { if (isRepoUrl(site.repoUrl)) out.repoUrl = site.repoUrl.replace(/\/+$/, ''); else out.ignored.push('repoUrl'); }
     if (site.ref !== undefined) { if (isRef(site.ref)) out.ref = site.ref; else out.ignored.push('ref'); }
+    if (site.commit !== undefined) { if (isCommit(site.commit)) out.commit = site.commit.toLowerCase(); else out.ignored.push('commit'); }
+    return out;
+  }
+
+  // Every setting that goes into a command, and what it may look like (red team PH-4). The settings panel,
+  // the saved settings and a pasted state line's context all pass through here; anything else is dropped
+  // and reported, so neither a crafted paste nor an old saved value can put more than a value into a command.
+  // The patterns match the Bicep parameters (namePrefix 2-8 lowercase letters or digits, environmentName
+  // dev/test/prod) and Azure's region names; group names and the UPN are also single-quoted in the command.
+  var SETTINGS = {
+    parameterFile: /^parameters\/[a-z][a-z0-9-]{0,39}\.bicepparam$/,
+    location: /^[a-z][a-z0-9]{2,39}$/,
+    usersGroup: /^[^\x00-\x1f\x7f]{1,256}$/,
+    adminsGroup: /^[^\x00-\x1f\x7f]{1,256}$/,
+    namePrefix: /^[a-z0-9]{2,8}$/,
+    environment: /^(dev|test|prod)$/,
+    testUserUpn: /^[^\s@'"`$;|&<>]{1,64}@[A-Za-z0-9][A-Za-z0-9.-]{0,253}$/,
+    graphClientId: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  };
+  var SETTING_NAMES = Object.keys(SETTINGS);
+  // patch: candidate settings (other keys pass through untouched). Returns { settings, rejected[] }: the
+  // settings whose values fit, trimmed, and the names of those that did not (an empty value is neither).
+  function validSettings(patch) {
+    var out = { settings: {}, rejected: [] }, k, v;
+    for (k in patch || {}) {
+      if (!Object.prototype.hasOwnProperty.call(patch, k)) continue;
+      v = patch[k];
+      if (SETTINGS[k]) {
+        if (v === null || v === undefined || v === '') continue;
+        v = String(v).trim();
+        if (SETTINGS[k].test(v)) out.settings[k] = v; else out.rejected.push(k);
+      }
+      else out.settings[k] = v;
+    }
     return out;
   }
   function repoDir(cfg) { return (cfg.repoUrl || DEFAULTS.repoUrl).replace(/\/+$/, '').split('/').pop(); }
@@ -735,12 +771,18 @@
     var source = states.length ? 'state' : (state ? 'text' : 'none');
     var problems = shellProblems(text);
 
-    if (state && state.context) cfg = merge(cfg, state.context);
-    if (state && state.context && state.context.parameterFile && !state.context.environment) cfg.environment = envFromFile(state.context.parameterFile) || cfg.environment;
+    // The context goes into the next commands, so its settings are checked like typed ones (red team PH-4);
+    // the commit it carries is compared with this portal's, not merged.
+    var checked = validSettings(state && state.context);
+    var stateCommit = state && state.context && isCommit(state.context.commit) ? String(state.context.commit).toLowerCase() : null;
+    delete checked.settings.commit;
+    if (state && state.context) cfg = merge(cfg, checked.settings);
+    if (state && state.context && checked.settings.parameterFile && !checked.settings.environment) cfg.environment = envFromFile(checked.settings.parameterFile) || cfg.environment;
 
-    var result = { recognized: !!state || problems.length > 0, source: source, problems: problems, config: cfg, failures: [], warnings: [], actions: [], stage: null, status: null, headline: '', step: options.currentStep || null,
+    var result = { recognized: !!state || problems.length > 0, source: source, problems: problems, config: cfg, rejectedSettings: checked.rejected, failures: [], warnings: [], actions: [], stage: null, status: null, headline: '', step: options.currentStep || null,
       estimate: (state && state.context && state.context.estimate) || null, sizing: (state && state.context && state.context.sizing) || null,
-      power: (state && state.context && state.context.power) || null };
+      power: (state && state.context && state.context.power) || null,
+      commit: { state: stateCommit, portal: isCommit(options.portalCommit) ? String(options.portalCommit).toLowerCase() : null }, versionNote: versionNote(stateCommit, options.portalCommit) };
     if (state) {
       var d = decide(state, cfg, { text: text, rankedRegions: options.rankedRegions });
       result.stage = state.stage; result.status = state.stage === 'cleanup' && state.status === 'ready' ? 'done' : state.status;
@@ -766,6 +808,18 @@
       result.actions = [{ title: 'Paste the whole output of the command', why: 'Include everything from the command to the prompt that follows it. The scripts end with a line starting <<<AVDLZ-STATE, which is what this page reads.', command: '' }];
     }
     return result;
+  }
+
+  // The scripts write their commit into the state line and the host writes the portal's into portal-config.js.
+  // When both are known and differ, the portal may be behind the scripts (or a copy pinned to an older ref
+  // runs newer scripts): say so, since a renamed parameter or a new state field would otherwise look like
+  // a wrong command (red team PH-8). One may be the short form of the other.
+  function versionNote(stateCommit, portalCommit) {
+    if (!isCommit(stateCommit) || !isCommit(portalCommit)) return '';
+    var a = String(stateCommit).toLowerCase(), b = String(portalCommit).toLowerCase();
+    if (a.indexOf(b) === 0 || b.indexOf(a) === 0) return '';
+    return 'This output came from the landing zone at commit ' + a.slice(0, 7) + ', but this portal was built from ' + b.slice(0, 7) +
+      '. If the commands or the findings look wrong, reload the page (GitHub Pages) or republish the copy (Publish-AvdPortal.ps1) and paste the output again.';
   }
 
   function rerunForStep(step, cfg, fix) {
@@ -882,6 +936,6 @@
     }
   }
 
-  return { STEPS: STEPS, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, siteConfig: siteConfig, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_HOSTS: MAX_HOSTS, computePool: computePool, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
+  return { STEPS: STEPS, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, isCommit: isCommit, siteConfig: siteConfig, SETTINGS: SETTINGS, SETTING_NAMES: SETTING_NAMES, validSettings: validSettings, versionNote: versionNote, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_HOSTS: MAX_HOSTS, computePool: computePool, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
     REACHABILITY_HOSTS: REACHABILITY_HOSTS, rateLatency: rateLatency, classifyReachability: classifyReachability, launchTarget: launchTarget, launchUrl: launchUrl };
 });

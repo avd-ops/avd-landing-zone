@@ -25,7 +25,7 @@ test('a release archive holds what a user needs, and not the website or the buil
 test('the website lives in site/ and the Pages workflow publishes it', () => {
   assert.ok(existsSync(root + 'site/portal/index.html'));
   assert.ok(existsSync(root + 'site/region-latency/index.html'));
-  assert.match(readFileSync(root + '.github/workflows/pages.yml', 'utf8'), /upload-pages-artifact@v\d+\s+with:\s+path: site\b/);
+  assert.match(readFileSync(root + '.github/workflows/pages.yml', 'utf8'), /upload-pages-artifact@[0-9a-f]{40} # v\d+\.\d+\.\d+\s+with:\s+path: site\b/);
 });
 
 test('nothing a user runs reads from a folder the release archive leaves out', () => {

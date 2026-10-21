@@ -60,7 +60,7 @@ jobs:
     name: Bicep lint + build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Install Bicep
         run: az bicep install --version "$BICEP_VERSION" && az bicep version
@@ -96,7 +96,7 @@ jobs:
     name: Script analysis + tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: PSScriptAnalyzer
         shell: pwsh
@@ -131,8 +131,8 @@ jobs:
     name: Deployment portal tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
       # The portal engine against real Cloud Shell output and the scripts' state lines,
@@ -147,7 +147,7 @@ jobs:
     # A gate: every finding is either fixed or suppressed with a written
     # justification in .ps-rule/Suppressions.Rule.yaml.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # Install the standalone Bicep CLI at a fixed path and point PSRule at it.
       # Relying on az/PATH discovery was intermittent and silently skipped a
@@ -185,7 +185,7 @@ jobs:
     # The resources each parameter file would deploy, compared with the base branch, in the
     # job summary. No Azure sign-in. Advisory: a difference is information, not a failure.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
 
@@ -221,10 +221,10 @@ jobs:
       AVD_LOCAL_ADMIN_PASSWORD: ${{ secrets.AVD_LOCAL_ADMIN_PASSWORD || 'WhatIf-placeholder-only-1!' }}
       AVD_LOCATION: ${{ vars.AZURE_LOCATION }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Azure login (OIDC)
-        uses: azure/login@v2
+        uses: azure/login@8216e11d8cd9b42fe925c852af8e76311ff067ac # v2.3.1
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}

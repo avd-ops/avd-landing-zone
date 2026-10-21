@@ -64,6 +64,17 @@ function Get-AvdPortalUrl {
   $script:DefaultPortalUrl
 }
 
+function Get-AvdRepoCommit {
+  <# The short commit of this checkout, once per run; $null without git or outside a clone. #>
+  if ($script:RepoCommitRead) { return $script:RepoCommit }
+  $script:RepoCommitRead = $true
+  if (Get-Command git -ErrorAction SilentlyContinue) {
+    $c = git -C $PSScriptRoot rev-parse --short HEAD 2>$null
+    if (-not $LASTEXITCODE -and "$c" -match '^[0-9a-f]{7,40}$') { $script:RepoCommit = "$c" }
+  }
+  $script:RepoCommit
+}
+
 function Get-AvdPortalState {
   <#
     Machine-readable result of a run for the deployment portal (site/portal): what stage ran,
@@ -103,6 +114,9 @@ function Get-AvdPortalState {
 function Write-AvdPortalState {
   <# Prints the portal state between markers. The portal reads it from anything pasted around it. #>
   param([Parameter(Mandatory)] $State)
+  # The commit the scripts ran from, so the portal can tell when it is older than them (red team PH-8).
+  $commit = Get-AvdRepoCommit
+  if ($commit -and $State.context -is [System.Collections.IDictionary] -and -not $State.context.Contains('commit')) { $State.context['commit'] = $commit }
   $json = $State | ConvertTo-Json -Compress -Depth 8
   Write-Host ''
   $portal = Get-AvdPortalUrl
@@ -217,11 +231,7 @@ function Start-AvdRunJournal {
   if (-not $env:AVDLZ_RECORD -or $env:AVDLZ_RECORD -eq 'off' -or -not $Invocation) { return }
   if (-not $PSCmdlet.ShouldProcess('run journal', 'Write step.start')) { return }
   $script:JournalStep = [pscustomobject]@{ Name = if ($Invocation.MyCommand.Name) { $Invocation.MyCommand.Name } else { 'interactive' }; Started = [datetime]::UtcNow }
-  $commit = $null
-  if (Get-Command git -ErrorAction SilentlyContinue) {
-    $commit = git -C $PSScriptRoot rev-parse --short HEAD 2>$null
-    if ($LASTEXITCODE) { $commit = $null }
-  }
+  $commit = Get-AvdRepoCommit
   Write-AvdJournalEvent 'step.start' ([ordered]@{
       step = $script:JournalStep.Name; portalStep = $env:AVDLZ_PORTAL_STEP; params = (Get-AvdJournalParam $Invocation.BoundParameters)
       repoCommit = $commit; shell = 'pwsh'; cloudShell = (Test-AvdCloudShell)
@@ -2755,11 +2765,17 @@ function Get-AvdPortalConfigScript {
     [Parameter(Mandatory)][string] $RepoUrl,
     [Parameter(Mandatory)][string] $Ref,
     [Parameter(Mandatory)][string] $PortalUrl,
-    [Parameter(Mandatory)][ValidateSet('StaticWebApp', 'Storage')][string] $Hosting
+    [Parameter(Mandatory)][ValidateSet('StaticWebApp', 'Storage')][string] $Hosting,
+    # The commit the ref resolves to, when the checkout knows it: the portal compares it with the
+    # commit in each pasted state line (red team PH-8).
+    [string] $Commit
   )
   if ($RepoUrl -notmatch '^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/?$' -or $RepoUrl -match '\.\.') { throw "-RepoUrl must be a GitHub repository URL (https://github.com/<owner>/<repo>), not '$RepoUrl'." }
   if ($Ref -notmatch '^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$' -or $Ref -match '\.\.|//|/$|\.lock$') { throw "-Ref must be a tag or commit, not '$Ref'." }
-  $json = [ordered]@{ repoUrl = $RepoUrl.TrimEnd('/'); ref = $Ref; portalUrl = $PortalUrl; hosting = $Hosting } | ConvertTo-Json -Compress
+  if ($Commit -and $Commit -notmatch '^[0-9a-f]{7,40}$') { throw "-Commit must be a commit hash, not '$Commit'." }
+  $cfg = [ordered]@{ repoUrl = $RepoUrl.TrimEnd('/'); ref = $Ref; portalUrl = $PortalUrl; hosting = $Hosting }
+  if ($Commit) { $cfg['commit'] = $Commit }
+  $json = $cfg | ConvertTo-Json -Compress
   "/* Written by scripts/ops/Publish-AvdPortal.ps1 (decision 0017). */`nwindow.AVDLZ_PORTAL_CONFIG = $json;`n"
 }
 
