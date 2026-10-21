@@ -142,7 +142,7 @@ function Get-AvdTargetStatePlan {
   $lines = @(
     "# $($pool.id) of $($Manifest.engagement) ($($Manifest.estate)), approved $($Approval.approvedUtc), manifest SHA-256 $sha..."
     "# Estimated $($pool.monthlyEstimate) $($Manifest.cost.currency) a month at list prices; compare with the preflight's estimate below."
-    'if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }'
+    'if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }'
     'Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only'
   )
   if ($AlertEmail) {

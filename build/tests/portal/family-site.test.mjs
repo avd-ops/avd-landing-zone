@@ -1,4 +1,4 @@
-// The avd-ops site moved to its own repo (nickprignano/avd-ops, https://avd-ops.dev/). The old pages here
+// The avd-ops site moved to its own repo (avd-ops/avd-ops, https://avd-ops.dev/). The old pages here
 // (site/index.html and site/family/) stay as redirects so links to nickprignano.github.io/avd-landing-zone/
 // keep working, and each points at the same page on avd-ops.dev.
 // Run: node --test "build/tests/portal/*.test.mjs"

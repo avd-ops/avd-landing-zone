@@ -3,7 +3,7 @@ name: pages
 # Publishes site/ (the deployment portal, the region latency page and anything else on the
 # website) to GitHub Pages. The site is kept apart from the code people deploy (README, "Repo
 # layout"). Needs Settings > Pages > Source set to "GitHub Actions"; until then the last
-# deployment stays up. The avd-ops site itself is published from nickprignano/avd-ops; the old
+# deployment stays up. The avd-ops site itself is published from avd-ops/avd-ops; the old
 # pages here redirect to it. Nothing here touches Azure.
 on:
   push:
