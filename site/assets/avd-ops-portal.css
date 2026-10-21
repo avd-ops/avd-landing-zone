@@ -1,8 +1,9 @@
-/* avd-ops portal components v2.4.1 (https://avd-ops.dev/, avd-ops/avd-ops site/assets/avd-ops-portal.css). MIT.
+/* avd-ops portal components v2.5.0 (https://avd-ops.dev/, avd-ops/avd-ops site/assets/avd-ops-portal.css). MIT.
    Personal project, not for production, as is; not affiliated with the author's employer, Liquidware or Microsoft.
    The pieces a guided, step-by-step portal page shares: the progress rail, one stage panel in view, the
    "run in Cloud Shell, then paste the output" timeline, terminal blocks, the paste box, form fields, switches,
-   buttons, the sticky Back and Next bar, result chips, check outcome pills and a file drop
+   buttons, the sticky Back and Next bar, result chips, check outcome pills, a file drop, and (2.5.0) the
+   one-screen-at-a-time wizard: head, phase progress, full-screen step, "more" disclosure, reply and sheet
    (the segmented choice and the Run in row are in avd-ops.css).
    First drawn for the avd-landing-zone deployment portal, promoted here so every portal vendors one copy
    (docs/design-system.md). Load it after avd-ops.css and put class="portal" on <body>: everything here is scoped
@@ -117,6 +118,124 @@ body.portal{font:16px/1.55 var(--body);-webkit-font-smoothing:antialiased}
 .portal .stepnav button{min-width:7.5rem;box-shadow:var(--shadow)}
 .portal .stepnav .where{text-align:center;flex:1;min-width:0;font:.78rem var(--mono);letter-spacing:.02em;color:var(--muted)}
 @media (max-width:560px){.portal .stepnav .where{display:none}.portal .stepnav button{min-width:0;flex:1 1 0}}
+
+/* Wizard (2.5.0): one screen at a time (docs/design-system.md, "One screen at a time"). A slim head (the
+   portal's name, one line on what it does, two quiet tools), a progress bar grouped by phase, one step that
+   fills the screen, and Back and Next along the bottom on every screen size. */
+.portal .wz-head{display:flex;align-items:center;gap:var(--space-3) var(--space-5);padding-block:22px 0;border-bottom:0}
+.portal .wz-head .title{margin-right:auto;min-width:0}
+.portal .wz-head h1{font:700 1.05rem/1.2 var(--display);margin:0}
+.portal .wz-head .purpose{margin:2px 0 0;font-size:.86rem;color:var(--muted);max-width:none}
+.portal .wz-tools{display:flex;gap:2px;flex-wrap:wrap}
+.portal .wz-tool{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 10px;border:0;border-radius:var(--radius-sm);background:none;color:var(--muted);font:600 .86rem var(--body);text-decoration:none;cursor:pointer}
+.portal .wz-tool:hover,.portal .wz-tool[aria-expanded="true"]{background:var(--sunken);color:var(--fg)}
+.portal .wz-tool svg{width:16px;height:16px;flex:none}
+@media (pointer:coarse){.portal .wz-tool{min-height:var(--tap)}}
+/* Phones: the tools as icons (each keeps its name for screen readers in .t), and no purpose line. */
+@media (max-width:560px){.portal .wz-head{padding-top:14px}.portal .wz-head .purpose{display:none}.portal .wz-tool{width:var(--tap);min-height:var(--tap);justify-content:center;padding:0}
+  .portal .wz-tool>.t{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}}
+
+/* Progress: ol.wz-progress > li.phase[data-steps] > .phase-name + .segs > button.seg. A phase is as wide as its
+   steps, so its name sits over its own steps. .seg.done, .seg.current; a disabled .seg is not reached yet. */
+.portal ol.wz-progress{display:flex;gap:10px;margin:18px 0 0;padding:0;list-style:none}
+.portal .wz-progress .phase{display:grid;gap:4px;min-width:0;flex:1}
+.portal .wz-progress .phase[data-steps="2"]{flex:2} .portal .wz-progress .phase[data-steps="3"]{flex:3}
+.portal .wz-progress .phase[data-steps="4"]{flex:4} .portal .wz-progress .phase[data-steps="5"]{flex:5}
+.portal .wz-progress .phase-name{font-size:.78rem;font-weight:600;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.portal .wz-progress .phase.now .phase-name{color:var(--fg)}
+.portal .wz-progress .segs{display:flex;gap:4px}
+.portal .wz-progress button.seg{flex:1;min-width:0;height:22px;padding:0;border:0;border-radius:0;background:none;display:flex;align-items:center;cursor:pointer}
+.portal .wz-progress button.seg::before{content:"";display:block;width:100%;height:4px;border-radius:2px;background:var(--line-strong)}
+.portal .wz-progress button.seg:hover:not(:disabled){background:none}
+.portal .wz-progress button.seg:hover:not(:disabled)::before{background:var(--accent-hover)}
+.portal .wz-progress button.seg.done::before{background:var(--good)}
+.portal .wz-progress button.seg.current::before{background:var(--accent);height:6px;border-radius:3px}
+.portal .wz-progress button.seg:disabled{opacity:1;cursor:default}
+.portal .wz-progress button.seg:disabled::before{background:var(--line)}
+.portal .wz-progress button.seg:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+@media (pointer:coarse){.portal .wz-progress button.seg{height:var(--tap)}}
+
+/* Wizard layout (2.5.0): the steps as a list down the left, as the docs side list, and the step beside it.
+   main.wz-layout > .wz-rail (the portal's name, ol.wz-list, .wz-tools) + the step column. Below 64rem the rail
+   becomes a head over the step: the name and the tools on one row, then ol.wz-progress in place of the list. */
+.portal .wz-layout{display:grid;grid-template-columns:14rem minmax(0,1fr);gap:var(--space-6);max-width:var(--page);margin:0 auto;
+  padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
+.portal .wz-rail{position:sticky;top:calc(var(--bar) + 1px + env(safe-area-inset-top,0px));align-self:start;max-height:calc(100dvh - var(--bar) - 1px - env(safe-area-inset-top,0px));overflow-y:auto;scrollbar-width:thin;
+  display:grid;gap:var(--space-4);align-content:start;padding-block:28px 24px;border:0}
+.portal .wz-rail h1{font:700 1rem/1.25 var(--display);margin:0 0 0 10px}
+.portal .wz-rail .purpose{margin:4px 0 0 10px;font-size:.8rem;color:var(--muted)}
+.portal ol.wz-list{list-style:none;margin:0;padding:0;display:grid;gap:2px}
+.portal .wz-list .group{font-size:.8rem;font-weight:600;color:var(--muted);margin:var(--space-4) 0 var(--space-1);padding-left:10px}
+.portal .wz-list .group:first-child{margin-top:0}
+.portal .wz-list button.step{display:flex;align-items:center;gap:10px;width:100%;min-height:36px;padding:0 10px;border:0;border-radius:var(--radius-sm);background:none;color:var(--fg);font:400 .9rem/1.2 var(--body);text-align:left}
+.portal .wz-list button.step:hover:not(:disabled){background:var(--sunken);color:var(--fg)}
+.portal .wz-list .n{flex:none;width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font:600 .68rem var(--mono);border:1.5px solid var(--line-strong);color:var(--muted)}
+.portal .wz-list button.step.done .n{background:var(--good);border-color:var(--good);color:var(--surface)}
+.portal .wz-list button.step[aria-current="step"]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.portal .wz-list button.step[aria-current="step"] .n{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.portal .wz-list button.step:disabled{opacity:1;color:var(--muted)}
+.portal .wz-list button.step:disabled .n{border-style:dashed}
+.portal .wz-rail .wz-tools{display:grid;gap:2px;border-top:1px solid var(--line);padding-top:var(--space-3)}
+.portal .wz-rail ol.wz-progress{display:none}
+@media (pointer:coarse){.portal .wz-list button.step{min-height:var(--tap)}}
+.portal .wz-nav.wide>.in{max-width:var(--page)}
+@media (min-width:64.01rem){.portal .wz-nav.wide>.in{padding-left:calc(max(var(--gutter),env(safe-area-inset-left,0px)) + 14rem + var(--space-6))}}
+@media (max-width:64rem){
+  .portal .wz-layout{grid-template-columns:minmax(0,1fr);gap:0}
+  .portal .wz-rail{position:static;max-height:none;overflow:visible;grid-template-columns:minmax(0,1fr) auto;gap:0 var(--space-3);align-items:center;padding-block:18px 0}
+  .portal .wz-rail h1,.portal .wz-rail .purpose{margin-left:0}
+  .portal .wz-rail ol.wz-list{display:none}
+  .portal .wz-rail ol.wz-progress{display:flex;grid-column:1/-1}
+  .portal .wz-rail .wz-tools{display:flex;border:0;padding:0;grid-row:1;grid-column:2}
+}
+@media (max-width:560px){.portal .wz-rail .purpose{display:none}}
+
+/* The step: a large title, one line that says what to do, the one action, then detail behind details.more. */
+.portal .wz-stage{padding-block:clamp(24px,5vh,56px) 40px}
+.portal .wz-stage h2{font:700 clamp(1.8rem,1.3rem + 2vw,2.6rem)/1.08 var(--display);letter-spacing:-.02em;margin:0 0 10px}
+.portal .wz-stage .purpose{font-size:1rem;color:var(--muted);margin:0 0 24px;max-width:56ch}
+.portal .wz-stage .act{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3) 18px;margin:0 0 var(--space-4)}
+.portal .wz-stage .quiet{color:var(--muted);font-size:.86rem}
+.portal details.more{border-top:1px solid var(--line);padding-top:var(--space-3);margin-top:var(--space-5);max-width:46rem}
+.portal details.more>summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:var(--space-2);min-height:32px;color:var(--muted);font-size:.88rem;font-weight:600}
+.portal details.more>summary::-webkit-details-marker{display:none}
+.portal details.more>summary::before{content:"+";font:600 1rem/1 var(--mono);color:var(--accent);width:1ch}
+.portal details.more[open]>summary::before{content:"\2212"}
+.portal details.more>summary:hover{color:var(--fg)}
+.portal details.more>:not(summary){font-size:.92rem;color:var(--muted)}
+.portal details.more>:nth-child(2){margin-top:var(--space-2)}
+
+/* Run in, as one quiet line over a command block: "For Cloud Shell, PowerShell. Change". */
+.portal .runline{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px;font-size:.84rem;color:var(--muted);margin:0 0 10px}
+.portal .runline strong{color:var(--fg);font-weight:600}
+.portal .runline button.linkbtn{font-size:.84rem;padding:0}
+
+/* The answer to a paste, bottom line first, as a reply in a chat: .reply > .bl (the verdict, with .good, .ok or
+   .poor and its word) then one or two plain sentences, then the next action. */
+.portal .reply{background:var(--surface);border:1px solid var(--line);border-radius:4px var(--radius-lg) var(--radius-lg) var(--radius-lg);padding:14px 18px;box-shadow:var(--shadow)}
+.portal .reply .bl{display:flex;align-items:center;gap:10px;font:600 1.15rem/1.3 var(--display);margin:0 0 6px;color:var(--fg)}
+.portal .reply .bl::before{content:"\2022";flex:none;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:.8rem;background:var(--accent-soft);color:var(--accent)}
+.portal .reply .bl.good::before{content:"\2713";background:var(--good);color:var(--surface)}
+.portal .reply .bl.ok::before{content:"\2026";background:var(--caution-soft);color:var(--caution)}
+.portal .reply .bl.poor::before{content:"!";background:var(--bad-soft);color:var(--bad)}
+
+/* Back and Next: one bar along the bottom of the screen, on every screen size. .where names the step. */
+.portal .wz-nav{position:sticky;bottom:0;z-index:5;background:var(--bg);border-top:1px solid var(--line);box-shadow:0 -10px 18px -16px var(--shell)}
+.portal .wz-nav>.in{display:flex;align-items:center;gap:var(--space-3);min-height:68px;max-width:980px;margin:0 auto;
+  padding:10px max(var(--gutter),env(safe-area-inset-right,0px)) calc(10px + env(safe-area-inset-bottom,0px)) max(var(--gutter),env(safe-area-inset-left,0px))}
+.portal .wz-nav .where{flex:1;min-width:0;text-align:center;font-size:.84rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.portal .wz-nav button{min-width:7.5rem}
+@media (max-width:560px){.portal .wz-nav .where{display:none}.portal .wz-nav button{flex:1 1 0;min-width:0}.portal .wz-nav button:first-child{flex:0 0 auto}}
+
+/* Sheet: a panel that slides over the step (Settings, Where did I leave off), with .sheet-backdrop behind it.
+   Full width on a phone. The page toggles .hidden on both. */
+.portal .sheet{position:fixed;z-index:40;top:calc(var(--bar) + 1px + env(safe-area-inset-top,0px));right:0;bottom:0;width:min(34rem,100vw);margin:0;overflow-y:auto;overscroll-behavior:contain;
+  background:var(--surface);border:0;border-left:1px solid var(--line);border-radius:0;box-shadow:var(--shadow-2);padding:22px max(22px,env(safe-area-inset-right,0px)) calc(28px + env(safe-area-inset-bottom,0px)) 22px}
+.portal button.sheet-backdrop{position:fixed;inset:0;z-index:35;background:var(--shell);opacity:.45;border:0;border-radius:0;padding:0;cursor:default}
+.portal button.sheet-backdrop:hover{background:var(--shell);border:0}
+.portal .sheet h2{font-size:1.3rem}
+.portal .sheet .row{align-items:stretch}
+@media (max-width:560px){.portal .sheet{border-left:0;padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}}
 
 /* Terminal block: one Cloud Shell command with its own Copy button. */
 .portal .term{border:1px solid var(--term-border);border-radius:var(--radius-sm);background:var(--term-bg);overflow:hidden}

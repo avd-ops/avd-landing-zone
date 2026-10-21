@@ -48,8 +48,9 @@ test('the portal and the region latency page use it', () => {
   const portal = read('site/portal/index.html');
   // The deployment portal opens in the avd-ops shell: the brand bar with the switcher (Deploy is this page) and
   // the theme button, but no side list or menu; a portal keeps its own steps and settings.
-  assert.match(portal, /<body class="shell">/);
-  assert.match(portal, /<link rel="stylesheet" href="\.\.\/assets\/avd-ops-shell\.css">\s*<script src="\.\.\/assets\/theme\.js"><\/script>/);
+  assert.match(portal, /<body class="shell portal">/);
+  // The wizard pieces (design system 2.5.0) come from avd-ops-portal.css, loaded before the shell so the bar keeps its look.
+  assert.match(portal, /<link rel="stylesheet" href="\.\.\/assets\/avd-ops-portal\.css">\s*<link rel="stylesheet" href="\.\.\/assets\/avd-ops-shell\.css">\s*<script src="\.\.\/assets\/theme\.js"><\/script>/);
   const bar = (portal.match(/<header class="bar">([\s\S]*?)<\/header>/) || [])[1] || '';
   assert.match(bar, /<a class="brand" href="https:\/\/avd-ops\.dev\/"><img class="mark" src="\.\.\/assets\/brand\/mark\.svg" alt="" width="44" height="44"><span class="name"><span class="word">avd-ops<\/span><span class="tag">Deploy quietly<\/span><\/span><\/a>/, 'brand in the shell bar, as in the horizontal lockup');
   assert.match(bar, /<details class="notice"/, 'the research notice sits in the bar');
