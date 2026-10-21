@@ -408,6 +408,11 @@ Describe 'Pinned tool versions' {
     $script:hook | Should -Match ([regex]::Escape("grep -q 'version $($script:pin.BICEP_VERSION.TrimStart('v')) '"))
     $script:hook | Should -Match ([regex]::Escape("modules/Pester/$($script:pin.PESTER_VERSION)"))
   }
+  It 'reads IDs and emails from secrets, never variables (Actions logs of a public repo print variables unmasked)' {
+    foreach ($f in Get-ChildItem (Join-Path $PSScriptRoot '../../.github/workflows') -Filter '*.yml') {
+      Get-Content $f.FullName -Raw | Should -Not -Match 'vars\.[A-Z_]*(_ID|EMAIL)\b' -Because $f.Name
+    }
+  }
   It 'builds images with the Bicep version CI checks' {
     Get-Content (Join-Path $PSScriptRoot '../../.github/workflows/image-build.yml') -Raw | Should -Match ([regex]::Escape("bicep/releases/download/$($script:pin.BICEP_VERSION)/"))
   }
