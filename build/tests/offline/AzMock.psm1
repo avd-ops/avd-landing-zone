@@ -43,6 +43,18 @@ function Get-AzStorageAccount { param($ResourceGroupName,$ErrorAction)
 function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
   Log "ARM $Method $Path"
   $ok = { param($o) [pscustomobject]@{StatusCode=200;Content=($o|ConvertTo-Json -Depth 20)} }
+  # ---- Sandbox spend (AvdSpend.psm1, docs/sandbox-runs.md). Only when $global:St.spend is set:
+  # inventoryFile (a JSON array of Resource Graph rows; the scenario's item scripts write it, so a
+  # deploy adds resources and a teardown removes them), monthToDate (this month's cost), budgets.
+  $sp = $global:St.spend
+  if ($sp) {
+    if ($Method -eq 'POST' -and $Path -match '^/providers/Microsoft.ResourceGraph/resources\?') {
+      $rows = @(if ($sp.inventoryFile -and (Test-Path $sp.inventoryFile)) { Get-Content $sp.inventoryFile -Raw | ConvertFrom-Json | ForEach-Object { $_ } })
+      return & $ok @{ totalRecords=$rows.Count; count=$rows.Count; data=@($rows) } }
+    if ($Method -eq 'POST' -and $Path -match '/providers/Microsoft.CostManagement/query\?') {
+      return & $ok @{ properties=@{ columns=@(@{ name='Cost'; type='Number' }, @{ name='Currency'; type='String' }); rows=@(,@([double]$sp.monthToDate, 'USD')) } } }
+    if ($Path -match 'Microsoft.Consumption/budgets\?') { return & $ok @{ value=@($sp.budgets | Where-Object { $_ }) } }
+  }
   # ---- Host rotation (Invoke-AvdHostRotation.ps1; image pipeline spec section 6.5). Only when $global:St.rotation is
   # set: tags (the host pool's), hosts (VM name -> @{ status; sessions; allowNew; healthy; deleted }), vmsGone (VMs
   # deleted), vmsSlow (VMs whose first delete doesn't finish), excluded (VMs tagged out of the scaling plan), galleryTags (what was tagged on gallery versions),

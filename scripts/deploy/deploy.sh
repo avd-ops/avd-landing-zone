@@ -34,6 +34,15 @@
 #   AVD_ALERT_EMAIL, AVD_MONTHLY_BUDGET       optional (a budget also arms the auto-shutdown trigger)
 set -euo pipefail
 
+# Bash 4 or later (lowercase expansion, mapfile). macOS ships Bash 3.2 (avd-ops docs/run-anywhere.md).
+if (( BASH_VERSINFO[0] < 4 )); then
+  echo "deploy.sh needs Bash 4 or later; this is Bash $BASH_VERSION (macOS ships 3.2)." >&2
+  echo "Run it from Azure Cloud Shell, or install a newer bash (brew install bash) and run it with that bash." >&2
+  exit 1
+fi
+# Git Bash on Windows rewrites arguments that start with / (resource IDs) into Windows paths.
+export MSYS_NO_PATHCONV=1
+
 PARAM_FILE=""
 LOCATION=""
 SUBSCRIPTION=""
@@ -113,7 +122,10 @@ esac
   || { echo "--jumpbox-keep-running takes a UTC time, yyyy-MM-ddTHH:mmZ: '$JUMPBOX_KEEP_RUNNING'"; exit 1; }
 if [[ -n "$JUMPBOX_KEEP_RUNNING" ]]; then
   # Never leave the meter running (avd-second-brain decision 0017): an opt-out has an end, in the future.
-  until_s=$(date -u -d "${JUMPBOX_KEEP_RUNNING/T/ }" +%s 2>/dev/null) || { echo "Not a time: '$JUMPBOX_KEEP_RUNNING'"; exit 1; }
+  # GNU date (Linux, Git Bash) takes -d; BSD date (macOS) takes -j -f.
+  until_s=$(date -u -d "${JUMPBOX_KEEP_RUNNING/T/ }" +%s 2>/dev/null \
+    || date -j -u -f '%Y-%m-%dT%H:%MZ' "$JUMPBOX_KEEP_RUNNING" +%s 2>/dev/null) \
+    || { echo "Not a time: '$JUMPBOX_KEEP_RUNNING'"; exit 1; }
   (( until_s > $(date -u +%s) )) || { echo "--jumpbox-keep-running is in the past: '$JUMPBOX_KEEP_RUNNING'"; exit 1; }
 fi
 # Regions with Azure Bastion Developer (Microsoft Learn, bastion-sku-comparison; the same list as

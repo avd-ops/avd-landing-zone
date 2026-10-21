@@ -16,6 +16,7 @@ AVD_USERS_GROUP_ID=00000000-0000-0000-0000-000000000001 AVD_ADMINS_GROUP_ID=0000
 AVD_SERVICE_PRINCIPAL_ID=00000000-0000-0000-0000-000000000003 AVD_LOCAL_ADMIN_PASSWORD='Placeholder-only-for-build-1!' \
   bicep build-params parameters/dev.bicepparam --stdout > /dev/null
 pwsh -c "Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"
+# plus the compatibility passes in validate.yml: build/analyzer/Portable.psd1 (scripts/ops) and WindowsPowerShell.psd1 (in-Azure scripts)
 pwsh -c "Invoke-Pester -Path ./build/tests -CI"            # unit tests, offline scenarios, template guards
 shellcheck scripts/deploy/deploy.sh .claude/hooks/session-start.sh .githooks/pre-commit build/snapshot-diff.sh
 gitleaks git --redact .                              # secret scan, as the secret-scan workflow runs it
@@ -54,6 +55,8 @@ Without Pester, run an offline scenario directly: `pwsh -File build/tests/offlin
 - **Never delete the last copy** (avd-second-brain decision 0016). A step that deletes data (logs, diagnostics, evidence, reports, backups, user data) first checks that a durable copy exists outside what it deletes, or the operator passes `-DiscardLastCopy`, which `-Force` never implies. Teardown separates disposable resources from evidence; old data moves to a colder tier, never deleted. Logs and teardown evidence go to one run store outside the deployment, kept by default (`-TeardownLogs Keep`; run recorder spec R9 is the reference). `Remove-AvdDemo.ps1 -IncludeLandingZone` and the image build's template delete need `-DiscardLastCopy` until those exports exist.
 
 - **Never leave the meter running** (avd-second-brain decision 0017). Anything that bills by time is removed, stopped or on a schedule at the end of a run unless the operator opts in with an expiry or a reason; the demo hosts carry their own daily shutdown, and the preflight warns when a dev or test landing zone has no budget.
+
+- **Sandbox runs are part of the package** (decision 0020, `docs/sandbox-runs.md`). Spend runs, batches, approvals and results live in the run store's `records` container and are written with conditional writes; the local folder is a cache and `-Local` says it is the only copy. A group runs once per approval, resumes after a Cloud Shell drop (`-Resume`, `-TeardownOnly`), and nothing deletes leftovers automatically. A person types the go (`go batch <id> $<total>`); a model never approves. The v1 batch hash is frozen (golden test in `SandboxRuns.Tests.ps1`), and a new ARM route for these scripts goes into `AzMock.psm1` under `$St.spend` with an assertion in the SandboxBatch scenario.
 
 - **Personal project, not for production, as is, not affiliated with the author's employer.** The MIT `LICENSE`, the README warning, the portal's notice and footer, and the one-line notice at the top of entry-point code stay in place; a new entry-point script or template gets the notice (`build/tests/portal/disclaimer.test.mjs`).
 

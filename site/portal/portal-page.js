@@ -188,6 +188,28 @@
   }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
 
+  // ---------------------------------------------------------------- run in (avd-ops docs/design-system.md, "Run in")
+  // Kept under one key for every avd-ops portal, in this browser only; blocked storage means the default.
+  var runIn = (function () { try { return P.validRunIn(JSON.parse(localStorage.getItem('avd-ops-runin') || 'null')); } catch (e) { return P.validRunIn(null); } })();
+  function syncRunIn() {
+    var bash = document.querySelector('input[name="runin-shell"][value="bash"]');
+    bash.disabled = runIn.where === 'windows';
+    bash.parentNode.title = bash.disabled ? 'On Windows the commands run in PowerShell 7' : '';
+    document.querySelectorAll('input[name="runin-where"], input[name="runin-shell"]').forEach(function (i) { i.checked = i.value === runIn.where || i.value === runIn.shell; });
+    $('runin-note').textContent = [runIn.where === 'windows' ? 'Windows runs the commands in PowerShell 7.' : '',
+      runIn.where === 'cloudshell' ? '' : 'Each block signs in to Azure first, with a device code, if this machine is not signed in yet.',
+      runIn.shell === 'bash' ? 'In Bash each block runs its PowerShell in a new pwsh, so a step that uses Microsoft Graph asks for its device code again.' : ''].filter(Boolean).join(' ');
+  }
+  document.querySelectorAll('input[name="runin-where"], input[name="runin-shell"]').forEach(function (i) {
+    i.addEventListener('change', function () {
+      var next = { where: runIn.where, shell: runIn.shell }; next[i.name === 'runin-where' ? 'where' : 'shell'] = i.value;
+      runIn = P.validRunIn(next);
+      try { localStorage.setItem('avd-ops-runin', JSON.stringify(runIn)); } catch (e) { /* storage unavailable */ }
+      syncRunIn(); render();
+    });
+  });
+  syncRunIn();
+
   function renderActions(actions, box) {
     box = box || $('actions'); box.textContent = '';
     actions.forEach(function (a, i) {
@@ -195,10 +217,22 @@
       d.appendChild(el('h3', '', (actions.length > 1 ? (i + 1) + '. ' : '') + a.title));
       if (a.why) d.appendChild(el('p', 'why', a.why));
       if (a.command) {
-        var term = el('div', 'term'), head = el('div', 'term-head'), b = el('button', 'secondary', 'Copy');
-        b.type = 'button'; b.addEventListener('click', function () { copy(a.command, b); });
-        head.appendChild(el('span', 'term-label', 'Cloud Shell')); head.appendChild(b); term.appendChild(head);
-        term.appendChild(el('pre', '', a.command)); d.appendChild(term);
+        // The block for the place and shell chosen in Run in; a script that doesn't run there hides the block.
+        var sup = P.support(a.command, runIn);
+        if (sup.status === 'no') {
+          d.appendChild(el('p', 'status unsupported', 'This step runs ' + sup.blockedBy.join(', ') + ', which does not run on ' + sup.place +
+            (sup.shell === 'bash' ? ' in Bash' : ' in PowerShell') + '. Run this step in Cloud Shell' + (sup.place === 'Windows' ? ' or on macOS' : '') + '.'));
+        } else {
+          var text = P.forRunIn(a.command, runIn);
+          var term = el('div', 'term'), head = el('div', 'term-head'), b = el('button', 'secondary', 'Copy');
+          term.setAttribute('data-shell', sup.shell);
+          b.type = 'button'; b.addEventListener('click', function () { copy(text, b); });
+          head.appendChild(el('span', 'term-label', sup.place));
+          if (sup.status === 'untested') head.appendChild(el('span', 'untested', 'Not tested yet'));
+          head.appendChild(b); term.appendChild(head);
+          term.appendChild(el('pre', '', text)); d.appendChild(term);
+          if (sup.requires.length) d.appendChild(el('p', 'requires', sup.requires.join(', ')));
+        }
       }
       box.appendChild(d);
     });
@@ -293,7 +327,7 @@
       renderActions(r.actions);
     }
     else {
-      $('next-title').textContent = 'Run in Cloud Shell';
+      $('next-title').textContent = 'Run in ' + P.PLACES[runIn.where];
       chip.className = 'chip hidden'; head.classList.add('hidden'); $('findings').classList.add('hidden'); $('estimate-line').classList.add('hidden'); $('version-line').classList.add('hidden');
       renderActions(P.actionsForStep(step || 'region', config()));
     }

@@ -1,8 +1,9 @@
-/* avd-ops design system v1.1.0 (https://avd-ops.dev/, avd-ops/avd-ops site/assets/avd-ops.css). MIT.
+/* avd-ops design system v2.1.0 (https://avd-ops.dev/, nickprignano/avd-ops site/assets/avd-ops.css). MIT.
    Personal project, not for production, as is; not affiliated with the author's employer, Liquidware or Microsoft.
    One file for every public AVD page: tokens (light, dark, and a data-theme override), base type, and the shared
    pieces (top bar with the logo slot, notice, buttons, chips, status pills, tables, code, footer). Pages add only
-   their own layout. Other repos vendor this file with fonts/ and brand/ at a tagged version; see docs/design-system.md.
+   their own layout. The app shell every family page shares (brand bar, switcher, side list, notice line) is
+   avd-ops-shell.css, with theme.js for the theme switch and the drawer. Other repos vendor this file with fonts/ and brand/ at a tagged version; see docs/design-system.md.
    Fonts are served from fonts/ next to this file, so a page that uses it makes no requests to other sites. */
 
 @font-face{font-family:"Schibsted Grotesk";font-weight:600;font-display:swap;src:url("fonts/schibsted-grotesk-latin-600-normal.woff2") format("woff2")}
@@ -14,7 +15,8 @@
 
 /* Tokens. Neutrals are a cool slate; the accent is the logo's teal, darkened on light backgrounds for contrast
    (--brand and --brand-ink are the logo's own colors, for brand surfaces only); amber marks the optional
-   Liquidware tier; good, caution and bad are for results only, never decoration. */
+   Liquidware tier; good, caution and bad are for results only, never decoration, and info marks work in progress.
+   The shell pair is the brand bar's ink, the same in both themes so every family page opens on the same frame. */
 :root{
   --bg:#f4f6f9; --surface:#ffffff; --sunken:#eef2f6; --fg:#152232; --muted:#566578; --line:#d7dee8; --line-strong:#bfc9d6;
   --accent:#0b7a6e; --accent-hover:#09635a; --on-accent:#ffffff; --accent-soft:#e0f2ef; --focus:#0b7a6e;
@@ -23,14 +25,16 @@
   --good:#18794e; --good-soft:#e1f3e9; --caution:#8a5a00; --caution-soft:#fbf0d9; --bad:#b42323; --bad-soft:#fbe7e7;
   --warn-bg:#fff6e0; --warn-line:#e2b74a; --warn-fg:#4d3a07;
   --term-bg:#0f1822; --term-head:#18232f; --term-text:#dbe5ef; --term-muted:#8796a8; --term-border:#263342; --prompt:#5fcf86;
-  --s-built-bg:#d9f2e3; --s-built-fg:#14532d; --s-design-bg:#eee6fb; --s-design-fg:#4c1d95; --s-slice-bg:#fdecc8; --s-slice-fg:#713f12;
+  --s-built-bg:#d9f2e3; --s-built-fg:#14532d; --s-design-bg:#e4edfb; --s-design-fg:#1d4785; --s-slice-bg:#fdecc8; --s-slice-fg:#713f12;
+  --shell:#0d1015; --shell-fg:#e8f1f0; --shell-muted:#a3b3b8; --shell-line:#262f36; --shell-hover:#1b242a; --info:#2456a6; --info-soft:#e4edfb;
+  --shadow-2:0 2px 6px rgba(21,34,50,.08),0 12px 32px rgba(21,34,50,.10);
   --shadow:0 1px 2px rgba(21,34,50,.05),0 4px 16px rgba(21,34,50,.05);
   --display:"Schibsted Grotesk","Segoe UI",system-ui,sans-serif;
   --body:"Source Sans 3","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
   --mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",SFMono-Regular,Menlo,Consolas,monospace;
   --radius:8px; --radius-sm:6px; --pill:999px;
   --space-1:.25rem; --space-2:.5rem; --space-3:.75rem; --space-4:1rem; --space-5:1.5rem; --space-6:2.5rem;
-  --measure:46rem; --gutter:16px;
+  --measure:46rem; --gutter:16px; --page:76rem; --side:15rem; --tap:44px; --radius-lg:14px;
   --ease:cubic-bezier(.2,.7,.2,1); --fast:120ms; --slow:220ms;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
@@ -41,7 +45,9 @@
   --good:#4cc286; --good-soft:#10291c; --caution:#e0b04a; --caution-soft:#2c2311; --bad:#ff8a80; --bad-soft:#301818;
   --warn-bg:#2e2610; --warn-line:#8a6d1e; --warn-fg:#f3e3b0;
   --term-bg:#0a1018; --term-head:#121a24; --term-text:#dbe5ef; --term-muted:#7d8c9e; --term-border:#222e3c; --prompt:#5fcf86;
-  --s-built-bg:#123824; --s-built-fg:#a7e8c0; --s-design-bg:#2c1f4a; --s-design-fg:#d4c4fb; --s-slice-bg:#3d2e0e; --s-slice-fg:#f5d58a;
+  --s-built-bg:#123824; --s-built-fg:#a7e8c0; --s-design-bg:#14223a; --s-design-fg:#bcd2fa; --s-slice-bg:#3d2e0e; --s-slice-fg:#f5d58a;
+  --shell:#070a0d; --shell-fg:#e8f1f0; --shell-muted:#93a6ad; --shell-line:#1d262d; --shell-hover:#141c22; --info:#86b0f5; --info-soft:#14223a;
+  --shadow-2:0 2px 6px rgba(0,0,0,.4),0 12px 32px rgba(0,0,0,.45);
   --shadow:0 1px 2px rgba(0,0,0,.35); color-scheme:dark}}
 :root[data-theme="dark"]{
   --bg:#0f1620; --surface:#16202c; --sunken:#121b25; --fg:#e4ebf3; --muted:#9aa9ba; --line:#2a3646; --line-strong:#3a4859;
@@ -51,7 +57,9 @@
   --good:#4cc286; --good-soft:#10291c; --caution:#e0b04a; --caution-soft:#2c2311; --bad:#ff8a80; --bad-soft:#301818;
   --warn-bg:#2e2610; --warn-line:#8a6d1e; --warn-fg:#f3e3b0;
   --term-bg:#0a1018; --term-head:#121a24; --term-text:#dbe5ef; --term-muted:#7d8c9e; --term-border:#222e3c; --prompt:#5fcf86;
-  --s-built-bg:#123824; --s-built-fg:#a7e8c0; --s-design-bg:#2c1f4a; --s-design-fg:#d4c4fb; --s-slice-bg:#3d2e0e; --s-slice-fg:#f5d58a;
+  --s-built-bg:#123824; --s-built-fg:#a7e8c0; --s-design-bg:#14223a; --s-design-fg:#bcd2fa; --s-slice-bg:#3d2e0e; --s-slice-fg:#f5d58a;
+  --shell:#070a0d; --shell-fg:#e8f1f0; --shell-muted:#93a6ad; --shell-line:#1d262d; --shell-hover:#141c22; --info:#86b0f5; --info-soft:#14223a;
+  --shadow-2:0 2px 6px rgba(0,0,0,.4),0 12px 32px rgba(0,0,0,.45);
   --shadow:0 1px 2px rgba(0,0,0,.35); color-scheme:dark}
 
 /* Base */
@@ -64,6 +72,8 @@ h1{font-size:clamp(2rem,5vw,2.9rem);margin:var(--space-6) 0 var(--space-3);lette
 h2{font-size:1.45rem;margin:2.75rem 0 var(--space-3)} h3{font-size:1.1rem;margin:0 0 .35rem}
 code,.mono{font-family:var(--mono);font-size:.85em}
 pre{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);padding:.9rem 1rem;overflow-x:auto;font:.82rem/1.55 var(--mono)}
+/* Commands show every character as typed: no ligature turns << or != into one glyph. */
+pre,code,.mono{font-variant-ligatures:none}
 .lede{font-size:1.2rem;color:var(--muted)}
 .wrap{max-width:var(--measure);margin:0 auto;padding-block:0 4rem;
   padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
@@ -102,6 +112,28 @@ header.top nav a{text-decoration:none;color:var(--muted)} header.top nav a:hover
 /* Tables */
 .tbl{overflow-x:auto;margin:var(--space-4) 0} table{border-collapse:collapse;width:100%;font-size:.95rem}
 th,td{text-align:left;vertical-align:top;padding:.55rem .7rem;border-bottom:1px solid var(--line)} th{font-family:var(--display);font-size:.85rem;color:var(--muted)}
+
+/* Segmented choice: a radio group drawn as joined buttons. Markup: div.segmented with role="radiogroup" and an
+   aria-label, holding label>input[type=radio]+span; arrow keys move, as radios do. 44px on touch screens. */
+.segmented{display:inline-flex;max-width:100%;border:1px solid var(--line-strong);border-radius:var(--radius-sm);overflow:hidden;background:var(--surface)}
+.segmented label{position:relative;display:flex;flex:1 1 auto;cursor:pointer}
+.segmented label+label{border-left:1px solid var(--line-strong)}
+.segmented input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
+.segmented span{display:flex;align-items:center;justify-content:center;width:100%;min-height:34px;padding:0 12px;font-weight:600;font-size:.88rem;color:var(--muted);white-space:nowrap;transition:background var(--fast) var(--ease)}
+.segmented label:hover span{color:var(--fg)}
+.segmented input:checked+span{background:var(--accent-soft);color:var(--accent)}
+.segmented input:focus-visible+span{outline:2px solid var(--focus);outline-offset:-2px}
+@media (pointer:coarse){.segmented span{min-height:var(--tap)}}
+
+/* Run in: where the page's commands run, as two segmented choices (place, then shell) that every command block
+   follows. .runin-title names the row; the page remembers the choice in this browser only. */
+.runin{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-3);padding:var(--space-2) var(--space-3);border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--sunken)}
+.runin-title{font:600 .72rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+@media (max-width:40rem){.runin .segmented{display:flex;width:100%}}
+/* Not tested yet: a variant no real run has proved; the word always shows, never the color alone. */
+.untested{display:inline-block;font:600 .7rem/1.6 var(--mono);letter-spacing:.06em;text-transform:uppercase;border-radius:var(--pill);padding:1px 9px;color:var(--caution);background:var(--caution-soft);white-space:nowrap}
+/* What a variant needs on the machine it runs on (PowerShell 7.2, the Az modules, the az CLI). */
+.requires{font-size:.85rem;color:var(--muted)} .requires::before{content:"Needs: ";font-weight:600;color:var(--fg)}
 
 /* Footer */
 footer.site{margin-top:3.5rem;padding-top:1.25rem;border-top:1px solid var(--line);font-size:.85rem;color:var(--muted)}

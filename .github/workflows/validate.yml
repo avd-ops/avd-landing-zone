@@ -105,6 +105,13 @@ jobs:
           Install-Module PSScriptAnalyzer -RequiredVersion $env:PSSCRIPTANALYZER_VERSION -Scope CurrentUser -Force
           Import-Module PSScriptAnalyzer -RequiredVersion $env:PSSCRIPTANALYZER_VERSION
           Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit
+          # Runs anywhere (avd-ops docs/run-anywhere.md): operator scripts on PowerShell 7 everywhere,
+          # the scripts that run inside Azure on Windows PowerShell 5.1.
+          $inAzure = 'scripts/image', 'scripts/sessionhost', 'scripts/ops/host', 'scripts/automation', 'scripts/jumpbox'
+          foreach ($f in Get-ChildItem scripts/ops -Recurse -File -Include *.ps1, *.psm1 | Where-Object { $_.FullName -notmatch '[\\/]host[\\/]' }) {
+            Invoke-ScriptAnalyzer -Path $f.FullName -Settings ./build/analyzer/Portable.psd1 -EnableExit
+          }
+          foreach ($p in $inAzure) { Invoke-ScriptAnalyzer -Path $p -Recurse -Settings ./build/analyzer/WindowsPowerShell.psd1 -EnableExit }
 
       # The offline scenarios and template guards compile the parameter files.
       - name: Install Bicep
@@ -126,6 +133,51 @@ jobs:
 
       - name: shellcheck (deploy script, session hook, pre-commit hook)
         run: shellcheck scripts/deploy/deploy.sh .claude/hooks/session-start.sh .githooks/pre-commit build/snapshot-diff.sh
+
+  # Runs anywhere (avd-ops docs/run-anywhere.md): deploy.sh against the fake az on macOS (Homebrew
+  # bash; stock /bin/bash 3.2 must stop with a clear message) and in Git Bash on Windows.
+  deploy-sh-other-os:
+    name: deploy.sh on ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: macOS, os: macos-latest }
+          - { name: Windows (Git Bash), os: windows-latest }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Stock macOS bash stops with a clear message
+        if: runner.os == 'macOS'
+        run: |
+          set +e
+          out=$(/bin/bash ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus 2>&1); code=$?
+          echo "$out"
+          [ "$code" -eq 1 ] && grep -q 'needs Bash 4 or later' <<<"$out"
+
+      - name: Pick the bash under test
+        shell: pwsh
+        run: |
+          if ($IsMacOS) {
+            if (-not (Test-Path "$(brew --prefix)/bin/bash")) { brew install bash }
+            "AVDLZ_TEST_BASH=$(brew --prefix)/bin/bash" >> $env:GITHUB_ENV
+          } else {
+            "AVDLZ_TEST_BASH=$env:ProgramFiles\Git\bin\bash.exe" >> $env:GITHUB_ENV
+          }
+
+      - name: deploy.sh offline scenario
+        shell: pwsh
+        run: |
+          & $env:AVDLZ_TEST_BASH --version | Select-Object -First 1
+          Install-Module Pester -RequiredVersion $env:PESTER_VERSION -Scope CurrentUser -Force -SkipPublisherCheck
+          Import-Module Pester -RequiredVersion $env:PESTER_VERSION
+          $c = New-PesterConfiguration
+          $c.Run.Path = './build/tests/OfflineScenarios.Tests.ps1'
+          $c.Filter.FullName = 'deploy.sh*'
+          $c.Run.Exit = $true
+          $c.Output.Verbosity = 'Detailed'
+          Invoke-Pester -Configuration $c
 
   portal:
     name: Deployment portal tests

@@ -245,6 +245,7 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     Get-StepExit $out 'stopped' | Should -Be 0
     Get-Result 'stopped-calls' | Should -Be 'group-exists,vm-list,vm-start,deployment-create,vm-deallocate'
     Get-Result 'stopped-ids' | Should -Be 'avdlzdsh-001,avdlzdsh-001'
+    Get-Result 'stopped-idpaths' | Should -Be 'True,True' -Because 'resource IDs reach az unchanged (Git Bash rewrites a leading / without MSYS_NO_PATHCONV)'
   }
   It 'deallocates it again when the deployment fails, and still fails' {
     Get-StepExit $out 'stopped-fails' | Should -Be 1
@@ -924,5 +925,75 @@ Describe 'Deployment portal published into the subscription (decision 0017)' {
   }
   It 'the scripts name the GitHub Pages portal unless AVD_PORTAL_URL is an https URL, and spell out an override (PH-5)' {
     $out | Should -Match 'RESULT portal-url default=True hostNamed=True override=True httpIgnored=True'
+  }
+}
+
+Describe 'Sandbox batches from Cloud Shell (decision 0020)' {
+  BeforeAll { $script:out = Invoke-OfflineScenario 'SandboxBatch' }
+
+  It 'builds a priced batch from item files, sharing one deployment between items with the same key' {
+    Get-StepExit $out 'build' | Should -Be 0
+    $out | Should -Match 'RESULT build groups=3 total=3.5 g1=1\+2 unattended=True md=True'
+  }
+  It 'runs nothing without a go, and refuses a go for the wrong amount' {
+    Get-StepExit $out 'no-approval' | Should -Be 2
+    Get-StepExit $out 'wrong-go' | Should -Be 1
+    $out | Should -Match 'REFUSED The go is for 0.01'
+    Get-StepExit $out 'approve' | Should -Be 0
+  }
+  It 'opens the spend run, deploys once, runs every test, tears down and closes, and reports a failed test' {
+    Get-StepExit $out 'g1' | Should -Be 3
+    $out | Should -Match 'RESULT g1 outcome=tests-failed steps=start:0,deploy:0,test:0,test:1,teardown:0,close:0 spend=True tests=11'
+  }
+  It 'never starts a group a second time on the same approval' {
+    Get-StepExit $out 'g1-again' | Should -Be 2
+    Get-StepExit $out 'g3-start-again' | Should -Be 2
+  }
+  It 'starts no later group after one stopped the batch, until the operator says it was dealt with' {
+    $out | Should -Match 'Not starting: group G2 stopped the batch\..*-ContinueAfterStop'
+  }
+  It 'prints blocks that run the same from Cloud Shell''s PowerShell or Bash prompt' {
+    $out | Should -Match "pwsh -NoLogo -Command 'if \(-not \(Test-Path ~/avd-landing-zone\)\).*\`$HOME/avd-landing-zone.*Invoke-AvdSandboxBatch\.ps1 -BatchId b20261021-0100 -Group G1 -MonthlyCap 150 -RunCap 25 -Local'"
+    $out | Should -Match "pwsh -NoLogo -Command 'Set-Location ~/avd-landing-zone; \./scripts/ops/Invoke-AvdSandboxBatch\.ps1 -BatchId b20261021-0100 -Group G3 -Resume'"
+  }
+  It 'stops the batch when the close finds a leftover, and closes clean after cleanup' {
+    Get-StepExit $out 'g2-leftover' | Should -Be 2
+    $out | Should -Match 'RESULT g2-leftover outcome=stop-batch'
+    Get-StepExit $out 'g2-cleaned' | Should -Be 0
+  }
+  It 'gives each spend run its own record, even when two start in the same minute' {
+    $ids = @([regex]::Matches($out, 'Run \*\*(\d{8}-\d{4}[b-z]?-avd)\*\* is open') | ForEach-Object { $_.Groups[1].Value })
+    $ids.Count | Should -BeGreaterOrEqual 3
+    @($ids | Select-Object -Unique).Count | Should -Be $ids.Count
+  }
+  It 'shows a group Cloud Shell dropped, and how to resume it, even after a stopped group' {
+    $out | Should -Match 'G3  #4 .* stopped part way: last step test \(#4\) was interrupted'
+    $out | Should -Match 'Invoke-AvdSandboxBatch\.ps1 -BatchId b20261021-0100 -Group G3 -Resume'
+    $out | Should -Match 'batch b20261021-0100 G3'
+  }
+  It 'resumes without deploying again, runs the interrupted test again, and closes' {
+    Get-StepExit $out 'g3-resume' | Should -Be 0
+    $out | Should -Match 'RESULT g3-resume outcome=passed deploys=1 tests=1 teardowns=1'
+  }
+  It 'does nothing in the safety net after a clean close' {
+    Get-StepExit $out 'g3-teardown-only' | Should -Be 0
+    $out | Should -Match 'RESULT g3-teardown-only teardowns=1'
+  }
+
+  It 'pins the run recorder in the batch, so the approval covers it' {
+    $out | Should -Match 'RESULT build2 recorder=contoso/avd-landing-zone@True'
+  }
+  It 'opens the recorded run before spending, exports logs before teardown, and closes it after' {
+    Get-StepExit $out 'recorded' | Should -Be 0
+    $out | Should -Match 'RESULT recorded outcome=passed runId=run-\d{8}-\d{4}-q001 steps=record-open,start,deploy,test,record-export,teardown,close,record-close'
+    $out | Should -Match 'RESULT recorded order=Start-AvdRunRecorder -RunId\|deploy rg-lz-d\|test 5\|Stop-AvdRunRecorder -RunId\|teardown rg-lz-d\|Stop-AvdRunRecorder -RunId'
+  }
+  It 'spends nothing when the recorder refuses the run' {
+    Get-StepExit $out 'recorder-refused' | Should -Be 2
+    $out | Should -Match 'RESULT recorder-refused outcome=stop-batch deploys=0'
+  }
+  It 'refuses to keep private output on Cloud Shell''s disk alone' {
+    Get-StepExit $out 'keep-local' | Should -Be 2
+    $out | Should -Match 'RESULT keep-local deploys=0'
   }
 }

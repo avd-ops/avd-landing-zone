@@ -12,6 +12,19 @@ BeforeAll {
   function Read-WdotProfile([string] $Name) { Get-Content (Join-Path $script:profileDir $Name) -Raw | ConvertFrom-Json }
 }
 
+Describe 'Every script parses' {
+  # The analyzer reports a parse error under its own severity, which a Severity filter can hide;
+  # two image scripts once shipped unparseable ("$path:" reads as a drive-qualified variable).
+  It 'has no parse errors in <file>' -ForEach @(
+    Get-ChildItem (Join-Path $PSScriptRoot '../../scripts') -Recurse -Include '*.ps1', '*.psm1' -File |
+      ForEach-Object { @{ file = [IO.Path]::GetRelativePath((Join-Path $PSScriptRoot '../..'), $_.FullName).Replace('\', '/') } }
+  ) {
+    $errors = $null
+    [void][System.Management.Automation.Language.Parser]::ParseFile((Join-Path $root $file), [ref]$null, [ref]$errors)
+    @($errors | ForEach-Object { "line $($_.Extent.StartLineNumber): $($_.Message)" }) | Should -BeNullOrEmpty
+  }
+}
+
 Describe 'WDOT lock' {
   It 'records the hash of the profile as it is' {
     $actual = Get-AvdWdotProfileHash -Path $profileDir
