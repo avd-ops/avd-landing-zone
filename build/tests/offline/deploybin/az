@@ -8,17 +8,31 @@
 #   FAKE_POOL_READ_ERROR  set: reading the host pool fails with this error (not a missing pool)
 #   FAKE_AZ_SUB           the subscription ID az has selected (default: the mock's)
 #   FAKE_AZ_SET_FAIL      set: 'az account set' fails
+#   FAKE_SUB_MISSING      set: 'az account show --subscription' fails (deploy.sh -s names no subscription)
+#   FAKE_SUB_TENANT       tenant of the subscription named by --subscription (default: the signed-in one)
 #   FAKE_DEPLOY_EXIT      exit code of 'az deployment sub create'
 #   FAKE_GROUP_OWNERS     owner object IDs of a group found by name, one per line (empty = no owners)
 #   FAKE_ADMIN_IDS        members of the Global Administrator role, one per line
 echo "az $*" >> "$FAKE_AZ_LOG"
 case "$1 $2" in
   "bicep version"|"provider register"|"feature register") exit 0 ;;
-  "account show") case "$*" in
-      *"--query name"*) echo "Fake subscription" ;;
-      *"--query id"*) echo "${FAKE_AZ_SUB:-00000000-aaaa-bbbb-cccc-000000000001}" ;;
-      *) echo '{}' ;;
-    esac ;;
+  "account show")
+    if [[ "$*" == *--subscription* ]]; then
+      [[ -n "${FAKE_SUB_MISSING:-}" ]] && { echo "ERROR: Subscription '${*##*--subscription }' not found." >&2; exit 1; }
+      case "$*" in
+        *"--query name"*) echo "Fake other subscription" ;;
+        *"--query id"*) echo 00000000-aaaa-bbbb-cccc-000000000002 ;;
+        *"--query tenantId"*) echo "${FAKE_SUB_TENANT:-00000000-0000-0000-0000-0000000000f1}" ;;
+        *) echo '{}' ;;
+      esac
+    else
+      case "$*" in
+        *"--query name"*) echo "Fake subscription" ;;
+        *"--query id"*) echo "${FAKE_AZ_SUB:-00000000-aaaa-bbbb-cccc-000000000001}" ;;
+        *"--query tenantId"*) echo 00000000-0000-0000-0000-0000000000f1 ;;
+        *) echo '{}' ;;
+      esac
+    fi ;;
   "account set") [[ -n "${FAKE_AZ_SET_FAIL:-}" ]] && { echo "ERROR: The subscription could not be found." >&2; exit 1; } ;;
   "provider show"|"feature show") echo Registered ;;
   "ad group") case "$3" in
