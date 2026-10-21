@@ -5,6 +5,7 @@
 .githooks/* text eol=lf
 build/tests/offline/bin/* text eol=lf
 build/tests/offline/deploybin/* text eol=lf
+*.cmd text eol=crlf
 
 # Vendored contract files are hashed byte for byte (contracts/PINS.json).
 contracts/schemas/*.json -text
