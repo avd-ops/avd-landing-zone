@@ -1,0 +1,177 @@
+/* avd-ops portal components v1.1.0 (https://avd-ops.dev/, nickprignano/avd-ops site/assets/avd-ops-portal.css). MIT.
+   Personal project, not for production, as is; not affiliated with the author's employer, Liquidware or Microsoft.
+   The pieces a guided, step-by-step portal page shares: the progress rail, one stage panel in view, the
+   "run in Cloud Shell, then paste the output" timeline, terminal blocks, the paste box, form fields, switches,
+   buttons, the sticky Back and Next bar, result chips, check outcome pills, a segmented choice and a file drop.
+   First drawn for the avd-landing-zone deployment portal, promoted here so every portal vendors one copy
+   (docs/design-system.md). Load it after avd-ops.css and put class="portal" on <body>: everything here is scoped
+   to it, so the avd-ops.dev pages are untouched. Colors come only from the avd-ops.css tokens. */
+
+/* Page */
+body.portal{font:16px/1.55 var(--body);-webkit-font-smoothing:antialiased}
+.portal main{max-width:980px;margin:0 auto;padding-block:0;
+  padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
+.portal h1{font-size:1.05rem;margin:0;letter-spacing:0}
+.portal h2{font-size:1.45rem;margin:0 0 var(--space-2);letter-spacing:-.01em}
+.portal h3{font-size:1.02rem;margin:0 0 var(--space-1);font-weight:600}
+.portal p{margin:0 0 var(--space-3)}
+.portal a{text-underline-offset:2px}
+.portal code{background:var(--sunken);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+.portal .muted{color:var(--muted)}
+.portal .hidden{display:none!important}
+.portal .lede{color:var(--muted);margin:0;max-width:62ch;font-size:1rem}
+
+/* Notice: the portal's research-only line before the first stage, and the footer. */
+.portal p.disclaimer{margin:0;background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--warn-fg);border-radius:var(--radius-sm);padding:9px 12px;line-height:1.45;font-size:.85rem}
+.portal p.disclaimer a{color:inherit}
+.portal footer.disclaimer{margin:28px 0 0;padding:var(--space-4) 0 calc(24px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);font-size:.85rem;color:var(--muted)}
+
+/* Panels: a stage, or a collapsible block such as Settings. */
+.portal .panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px;margin-bottom:var(--space-4);box-shadow:var(--shadow)}
+.portal details.panel>summary{cursor:pointer;font:600 1rem var(--display)}
+.portal details.panel[open]>summary{margin-bottom:var(--space-3)}
+.portal .panel.accent{border-color:var(--accent)}
+
+/* Forms */
+.portal .row{display:flex;flex-wrap:wrap;gap:var(--space-3) var(--space-4);align-items:flex-end}
+.portal .field{display:flex;flex-direction:column;align-items:stretch;gap:var(--space-1);flex:1 1 180px;min-width:0}
+.portal .field>span{font-size:.82rem;font-weight:600;color:var(--muted)}
+.portal .field>small{color:var(--muted);font-size:.8rem}
+.portal :is(input[type=text],input[type=number],input[type=time],select,textarea){font:inherit;color:var(--fg);background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius-sm);padding:7px 10px;width:100%}
+.portal :is(input[type=text],input[type=number],input[type=time],select,textarea):focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.portal :is(select,input):disabled{opacity:.55}
+.portal textarea{font:12.5px/1.55 var(--mono);min-height:120px;resize:vertical}
+.portal textarea.prose{font:inherit;min-height:96px}
+.portal fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);padding:var(--space-3) var(--space-4) var(--space-4);margin:0 0 var(--space-4);min-width:0}
+.portal legend{font:600 .95rem var(--display);padding:0 var(--space-1)}
+
+/* Buttons. A plain <button> is the primary action; .secondary and .linkbtn are the quieter ones. */
+.portal :is(button,a.btnlink){font:inherit;font-weight:600;border:1px solid var(--accent);border-radius:var(--radius-sm);padding:8px 16px;cursor:pointer;background:var(--accent);color:var(--on-accent);transition:background var(--fast) var(--ease),border-color var(--fast) var(--ease)}
+.portal :is(button:hover:not(:disabled),a.btnlink:hover){background:var(--accent-hover);border-color:var(--accent-hover);color:var(--on-accent)}
+.portal a.btnlink{display:inline-block;text-decoration:none}
+.portal :is(button,a.btnlink).secondary{background:var(--surface);color:var(--accent);border-color:var(--line-strong)}
+.portal :is(button,a.btnlink).secondary:hover:not(:disabled){background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.portal button.linkbtn{background:none;border:0;padding:4px 0;color:var(--accent);text-decoration:underline;text-underline-offset:2px}
+.portal button.linkbtn:hover:not(:disabled){background:none;color:var(--accent-hover)}
+.portal button:disabled{opacity:.45;cursor:default}
+
+/* Switch: a checkbox drawn as a toggle, with its label and hint beside it. */
+.portal label.switch{display:flex;gap:var(--space-3);align-items:flex-start;margin-bottom:var(--space-3)}
+.portal label.switch>input[type=checkbox]{appearance:none;-webkit-appearance:none;flex:0 0 auto;width:40px;height:24px;border-radius:12px;background:var(--line-strong);position:relative;cursor:pointer;margin-top:1px;transition:background var(--fast)}
+.portal label.switch>input[type=checkbox]::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--surface);box-shadow:var(--shadow);transition:left var(--fast)}
+.portal label.switch>input[type=checkbox]:checked{background:var(--accent)}
+.portal label.switch>input[type=checkbox]:checked::after{left:19px}
+.portal label.switch>input[type=checkbox]:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+
+/* Progress rail: one numbered stop per stage, optional phase labels (data-phase on the first li of a phase),
+   one row that scrolls sideways when narrow. li.done, li.current and li.locked set the state. */
+.portal ol.steps{list-style:none;display:flex;padding:26px 4px 6px;margin:14px 0;overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:none}
+.portal ol.steps::-webkit-scrollbar{display:none}
+.portal ol.steps li{flex:1 0 84px;scroll-snap-align:start;position:relative}
+.portal ol.steps li[data-phase]::after{content:attr(data-phase);position:absolute;top:-24px;left:6px;font:600 .68rem/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
+.portal ol.steps li+li::before{content:"";position:absolute;top:15px;left:calc(-50% + 16px);right:calc(50% + 16px);height:2px;background:var(--line-strong)}
+.portal ol.steps li.done+li::before{background:var(--good)}
+.portal ol.steps button{width:100%;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;background:none;color:var(--muted);border:0;font-size:.88rem;line-height:1.2;padding:0 2px 4px}
+.portal ol.steps button:hover:not(:disabled){background:none;color:var(--fg)}
+.portal ol.steps button:hover:not(:disabled) .n{border-color:var(--accent)}
+.portal ol.steps .n{display:grid;place-items:center;width:32px;height:32px;border-radius:50%;border:2px solid var(--line-strong);background:var(--surface);font:600 .82rem var(--mono);color:var(--muted);position:relative;z-index:1}
+.portal ol.steps li.done button{color:var(--fg)}
+.portal ol.steps li.done .n{border-color:var(--good);background:var(--good);color:var(--surface)}
+.portal ol.steps li.current button{color:var(--accent)}
+.portal ol.steps li.current .n{border-color:var(--accent);background:var(--accent);color:var(--on-accent);box-shadow:0 0 0 5px var(--accent-soft)}
+.portal ol.steps li.locked .n{border-style:dashed;background:transparent}
+@media (max-width:560px){
+  .portal ol.steps{padding-top:6px}
+  .portal ol.steps li{flex:1 0 40px}
+  .portal ol.steps li .lbl{display:none}
+  .portal ol.steps li.current{flex:0 0 auto;padding-inline:4px}
+  .portal ol.steps li.current .lbl{display:block;white-space:nowrap}
+  .portal ol.steps li[data-phase]::after{display:none}
+}
+
+/* Stage in view. A .stage is a .panel; only the current one shows. */
+.portal .stage{padding:24px 26px}
+.portal .stage>h2{display:flex;align-items:baseline;flex-wrap:wrap;gap:2px 10px}
+.portal .stage>h2>.muted{font:400 .95rem var(--body)}
+.portal .stage>.intro{max-width:76ch;margin-bottom:18px;color:var(--muted)}
+@media (max-width:560px){.portal :is(.stage,.panel){padding:var(--space-4)}.portal h2{font-size:1.25rem}}
+
+/* Command stage: "Run in Cloud Shell" then "Paste the output", numbered stops on one line. A stop takes
+   .good, .ok or .poor once its result is known. */
+.portal .slot{counter-reset:stop;margin-top:18px}
+.portal .slot>.stop{position:relative;padding:0 0 24px 46px;counter-increment:stop}
+.portal .slot>.stop:last-child{padding-bottom:0}
+.portal .slot>.stop::before{content:counter(stop);position:absolute;left:0;top:-2px;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font:600 .82rem var(--mono);background:var(--accent-soft);color:var(--accent);border:2px solid var(--accent)}
+.portal .slot>.stop:not(:last-child)::after{content:"";position:absolute;left:15px;top:32px;bottom:4px;width:2px;background:var(--line)}
+.portal .slot>.stop>.label{font:600 .74rem/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:6px 0 12px}
+.portal .slot>.stop.good::before{content:"\2713";background:var(--good);border-color:var(--good);color:var(--surface)}
+.portal .slot>.stop.ok::before{background:var(--caution-soft);border-color:var(--caution);color:var(--caution)}
+.portal .slot>.stop.poor::before{content:"!";background:var(--bad-soft);border-color:var(--bad);color:var(--bad)}
+@media (max-width:560px){
+  .portal .slot>.stop{padding-left:38px}
+  .portal .slot>.stop::before{width:26px;height:26px;font-size:.75rem}
+  .portal .slot>.stop:not(:last-child)::after{left:13px;top:28px}
+}
+
+/* Back and Next stay reachable at the bottom of the screen. */
+.portal .stepnav{position:sticky;bottom:0;z-index:5;display:flex;gap:var(--space-3);align-items:center;justify-content:space-between;margin:0 0 var(--space-4);padding:14px 0 calc(12px + env(safe-area-inset-bottom,0px));background:linear-gradient(to top,var(--bg) 72%,transparent)}
+.portal .stepnav button{min-width:7.5rem;box-shadow:var(--shadow)}
+.portal .stepnav .where{text-align:center;flex:1;min-width:0;font:.78rem var(--mono);letter-spacing:.02em;color:var(--muted)}
+@media (max-width:560px){.portal .stepnav .where{display:none}.portal .stepnav button{min-width:0;flex:1 1 0}}
+
+/* Terminal block: one Cloud Shell command with its own Copy button. */
+.portal .term{border:1px solid var(--term-border);border-radius:var(--radius-sm);background:var(--term-bg);overflow:hidden}
+.portal .term-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);padding:6px 8px 6px 12px;background:var(--term-head);border-bottom:1px solid var(--term-border)}
+.portal .term-label{font:600 .72rem/1 var(--mono);letter-spacing:.06em;color:var(--term-muted);text-transform:uppercase}
+.portal .term-label::before{content:"PS>";color:var(--prompt);margin-right:8px;letter-spacing:0}
+.portal .term-head button{padding:4px 12px;font-size:.85rem;background:transparent;color:var(--term-text);border-color:var(--term-border)}
+.portal .term-head button:hover:not(:disabled){background:var(--term-border);border-color:var(--term-muted);color:var(--term-text)}
+.portal .term pre{background:transparent;border:0;border-radius:0;color:var(--term-text);margin:0;padding:14px;overflow-x:auto;font:12.5px/1.65 var(--mono);white-space:pre;tab-size:4}
+
+/* Paste box: where the operator pastes a run's output. */
+.portal textarea.paste{border-style:dashed;border-width:2px;background:var(--sunken);min-height:140px}
+.portal textarea.paste:focus{border-style:solid}
+
+/* Result chip: a run's overall result, always with its word. */
+.portal .result{display:inline-block;font:600 .7rem/1.6 var(--mono);letter-spacing:.06em;text-transform:uppercase;border-radius:4px;padding:1px 8px;background:var(--accent-soft);color:var(--accent)}
+.portal .result.good{color:var(--good);background:var(--good-soft)}
+.portal .result.ok{color:var(--caution);background:var(--caution-soft)}
+.portal .result.poor{color:var(--bad);background:var(--bad-soft)}
+
+/* Check outcome pill: pass, warn, gap or unknown, always with its word, never color alone. */
+.portal .outcome{display:inline-block;font:600 .7rem/1.6 var(--mono);letter-spacing:.06em;text-transform:uppercase;border-radius:var(--pill);padding:1px 9px;border:1px solid transparent;white-space:nowrap}
+.portal .outcome.o-pass{color:var(--good);background:var(--good-soft)}
+.portal .outcome.o-warn{color:var(--caution);background:var(--caution-soft)}
+.portal .outcome.o-gap{color:var(--bad);background:var(--bad-soft)}
+.portal .outcome.o-unknown{color:var(--muted);background:var(--sunken);border-color:var(--line)}
+
+/* Segmented choice: a radio group drawn as joined buttons (Fix, Accept, Defer). Markup: a div.segmented with
+   role="radiogroup" and an aria-label, holding label>input[type=radio]+span; arrow keys move, as radios do. */
+.portal .segmented{display:inline-flex;border:1px solid var(--line-strong);border-radius:var(--radius-sm);overflow:hidden;background:var(--surface)}
+.portal .segmented label{position:relative;display:block;cursor:pointer}
+.portal .segmented label+label{border-left:1px solid var(--line-strong)}
+.portal .segmented input{position:absolute;opacity:0;inset:0;margin:0;cursor:pointer}
+.portal .segmented span{display:block;padding:5px 12px;font-weight:600;font-size:.88rem;color:var(--muted);transition:background var(--fast) var(--ease)}
+.portal .segmented label:hover span{color:var(--fg)}
+.portal .segmented input:checked+span{background:var(--accent-soft);color:var(--accent)}
+.portal .segmented input:focus-visible+span{outline:2px solid var(--focus);outline-offset:-2px}
+
+/* File drop: a labeled file input with a drop zone. The page fills .file with the name and size, and .error on
+   a schema mismatch. The file is read in the browser and never uploaded; the hint says so. */
+.portal .filedrop{display:block;position:relative;border:2px dashed var(--line-strong);border-radius:var(--radius);background:var(--sunken);padding:var(--space-5) var(--space-4);text-align:center;cursor:pointer;transition:border-color var(--fast) var(--ease),background var(--fast) var(--ease)}
+.portal .filedrop:hover,.portal .filedrop.over{border-color:var(--accent);background:var(--accent-soft)}
+.portal .filedrop:focus-within{border-style:solid;border-color:var(--accent)}
+.portal .filedrop input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
+.portal .filedrop .what{font-weight:600;display:block}
+.portal .filedrop .hint{display:block;color:var(--muted);font-size:.85rem}
+.portal .filedrop .file{display:block;margin-top:var(--space-2);font:.85rem var(--mono);color:var(--fg)}
+.portal .filedrop .error{display:block;margin-top:var(--space-2);color:var(--bad);font-weight:600}
+
+/* Key and value table, and a table that scrolls inside its own border. */
+.portal .table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface)}
+.portal .table-wrap th{font:600 .7rem var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);background:var(--sunken)}
+.portal .table-wrap tbody tr:last-child td{border-bottom:0}
+.portal table.kv td:first-child{color:var(--muted);width:40%}
+.portal td.num{text-align:right;font:.88rem var(--mono);font-variant-numeric:tabular-nums}
+
+@media (prefers-reduced-motion:reduce){.portal *,.portal *::before,.portal *::after{transition:none!important;animation:none!important}}

@@ -59,7 +59,7 @@ jobs:
         if: steps.gate.outputs.skip != 'true'
         run: |
           mkdir -p "$RUNNER_TEMP/bin"
-          curl -fsSL -o "$RUNNER_TEMP/bin/bicep" https://github.com/Azure/bicep/releases/latest/download/bicep-linux-x64
+          curl -fsSL -o "$RUNNER_TEMP/bin/bicep" https://github.com/Azure/bicep/releases/download/v0.48.1/bicep-linux-x64
           chmod +x "$RUNNER_TEMP/bin/bicep"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
