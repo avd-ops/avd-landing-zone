@@ -39,6 +39,7 @@
 
 .EXAMPLE
   ./scripts/ops/Remove-AvdDemo.ps1 -NamePrefix avdlz -Environment dev -IncludeLandingZone -WhatIf
+  (a real run with -IncludeLandingZone also needs -DiscardLastCopy)
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
@@ -49,7 +50,11 @@ param(
   [switch] $KeepDevices,
   [switch] $ResetDefender,
   # Skip confirmations (including the typed confirmation for -IncludeLandingZone).
-  [switch] $Force
+  [switch] $Force,
+  # -IncludeLandingZone: delete the profiles, their backups and the Log Analytics workspace although
+  # they hold the only copy of that data (never delete the last copy, avd-second-brain decision
+  # 0016). -Force never implies it.
+  [switch] $DiscardLastCopy
 )
 
 $ErrorActionPreference = 'Stop'
@@ -62,6 +67,10 @@ $sub = "/subscriptions/$($lz.SubscriptionId)"
 Clear-AvdCheckResult
 Write-Host "AVD cleanup - $($lz.BaseName) in '$($ctx.Subscription.Name)'$(if ($IncludeLandingZone) { ' (DEMO + LANDING ZONE)' } else { ' (demo only)' })" -ForegroundColor White
 
+if ($IncludeLandingZone -and -not $DiscardLastCopy -and -not $WhatIfPreference) {
+  Write-Host "The landing zone '$($lz.BaseName)' holds the only copy of its FSLogix profiles, their backup recovery points and its Log Analytics workspace (AVD diagnostics, host logs and the activity log export)." -ForegroundColor Red
+  throw 'Never delete the last copy: copy what you want to keep outside the landing zone and check the copy, then run again with -DiscardLastCopy. Nothing was removed.'
+}
 if ($IncludeLandingZone -and -not $Force -and -not $WhatIfPreference) {
   Write-Host "This permanently deletes the landing zone '$($lz.BaseName)', its profiles and their backups." -ForegroundColor Red
   $typed = Read-Host "Type '$($lz.BaseName)' to continue"

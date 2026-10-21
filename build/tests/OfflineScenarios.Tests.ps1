@@ -50,6 +50,7 @@ Describe 'Post-deployment: preflight, demo and cleanup' {
   }
   It 'keeps the demo record when the device cleanup fails, so a rerun finishes it (lesson 0029)' { $out | Should -Match 'RESULT device-retry kept=True named=True rerunDeleted=True recordGone=True' }
   It 'changes nothing when removing the landing zone with -WhatIf' { $out | Should -Match 'RESULT remove-lz-whatif changes=0' }
+  It 'refuses to remove the landing zone, the last copy of its profiles and logs, without -DiscardLastCopy, even with -Force (decision 0016)' { $out | Should -Match 'RESULT remove-lz-refused named=True changes=0' }
   It 'says the Key Vault will be soft-deleted under -WhatIf, and is soft-deleted after the real run' {
     $whatIf = $out.Substring($out.IndexOf('######## remove-lz-whatif'), $out.IndexOf('RESULT remove-lz-whatif EXIT') - $out.IndexOf('######## remove-lz-whatif'))
     $whatIf | Should -Match 'Key Vault kvavdlzdevabc will be soft-deleted with purge protection'
@@ -118,6 +119,7 @@ Describe 'Pre-deployment: empty subscription, then a blocked prod deployment' {
     $out | Should -Match '\[SKIP \] Recovery region\s+None set'
   }
   It 'reads the AVD host pool regions from the provider API' { $out | Should -Match '\[PASS \] AVD host pools offered in northcentralus' }
+  It 'warns when a dev landing zone has no budget backstop (avd-second-brain decision 0017)' { $out | Should -Match '\[WARN\s*\] Budget backstop' }
   It 'blocks prod on a soft-deleted, purge-protected Key Vault' {
     Get-StepExit $out 'prod-zone-and-vault' | Should -Be 1
     $out | Should -Match '\[FAIL \] No soft-deleted Key Vault blocking the vault name'
@@ -612,9 +614,13 @@ Describe 'Golden image build' {
     Get-StepExit $out 'failed-run' | Should -Be 1
     Get-BuildLine 'failed-run' | Should -Match 'status=failed .* runState=Failed validation=2 failedChecks=1 .* templatesLeft=0 log=True'
   }
-  It 'reports a failed run even when the customization log can''t be read' {
+  It 'reports a failed run even when the customization log can''t be read, and keeps the template, which holds the only copy of the log' {
     Get-StepExit $out 'log-unreadable' | Should -Be 1
-    Get-BuildLine 'log-unreadable' | Should -Match 'status=failed .* runState=Failed .* log=False'
+    Get-BuildLine 'log-unreadable' | Should -Match 'status=failed .* runState=Failed .* templatesLeft=1 log=False'
+    Get-BuildLine 'inconsistent' | Should -Match 'orphans=it-avdlz-\S+ .* templatesLeft=0'
+  }
+  It 'removes the template without its log only with -DiscardLastCopy' {
+    Get-BuildLine 'discard-last-copy' | Should -Match 'templatesLeft=0 log=False'
   }
   It 'fails safe when AIB reports success but a validation line failed, marks that version, and lets the same inputs be retried' {
     Get-StepExit $out 'inconsistent' | Should -Be 1

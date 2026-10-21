@@ -43,6 +43,9 @@ $im.logUnreadable = $true
 Invoke-ScenarioStep 'log-unreadable' { & ./scripts/ops/Start-AvdImageBuild.ps1 @p -Commit 'def5678' }
 Show-Build 'log-unreadable'
 $im.logUnreadable = $false; $im.runOutcome = 'Succeeded'
+# That template was kept: the staging account holds the only copy of its log (decision 0016). A day
+# later, with the log readable again, the next build saves the log and removes it.
+foreach ($k in @($im.templates.Keys)) { $im.templates[$k].created = (Get-Date).ToUniversalTime().AddDays(-2).ToString('o') }
 
 # AIB reports success, but the log has a failed validation line: inconsistent evidence fails safe.
 Invoke-ScenarioStep 'inconsistent' { & ./scripts/ops/Start-AvdImageBuild.ps1 @p -Commit 'eee5555' }
@@ -69,3 +72,9 @@ $global:St.dsLimit = $null
 $im.deployFails = $true
 Invoke-ScenarioStep 'deploy-fails' { & ./scripts/ops/Start-AvdImageBuild.ps1 @p -Commit 'ccc3333' }
 Show-Build 'deploy-fails'
+
+# -DiscardLastCopy removes the template even when its log can't be saved.
+$im.deployFails = $false; $im.logUnreadable = $true
+Invoke-ScenarioStep 'discard-last-copy' { & ./scripts/ops/Start-AvdImageBuild.ps1 @p -Commit 'ddd4444' -DiscardLastCopy }
+Show-Build 'discard-last-copy'
+$im.logUnreadable = $false

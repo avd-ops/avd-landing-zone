@@ -46,6 +46,8 @@ param avdServicePrincipalObjectId string
 @minValue(1)
 @maxValue(5)
 param sessionHostCount int = 1
+@description('Daily shutdown of the demo hosts (HHmm, Central time); empty keeps them running, an explicit opt-in (avd-second-brain decision 0017). The landing zone auto shutdown does not cover the demo host pool.')
+param autoShutdownTime string = '2000'
 param sessionHostVmSize string = 'Standard_E4as_v5'
 param availabilityZones int[] = []
 param enrollInIntune bool = true
@@ -126,6 +128,8 @@ module sessionHosts '../modules/sessionHosts.bicep' = {
     dataCollectionRuleResourceId: dataCollectionRuleResourceId
     profileShareUncPath: profileShareUncPath
     fslogixProfileSizeMiB: 30720
+    autoShutdownTime: autoShutdownTime
+    autoShutdownTimeZone: 'Central Standard Time'
     usersGroupObjectId: usersGroupObjectId
     adminsGroupObjectId: adminsGroupObjectId
     avdServicePrincipalObjectId: avdServicePrincipalObjectId

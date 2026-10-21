@@ -37,7 +37,10 @@ param(
   [string] $ParameterFile = 'parameters/images-build.bicepparam',
   [string] $SummaryPath,
   [string] $LogDirectory = (Join-Path ([IO.Path]::GetTempPath()) 'avdlz-image-build'),
-  [ValidateRange(0, 600)][int] $PollSeconds = 60
+  [ValidateRange(0, 600)][int] $PollSeconds = 60,
+  # Remove a template even when its customization log couldn't be saved: the staging account holds
+  # the only copy of that log (avd-second-brain decision 0016). -Force never implies it.
+  [switch] $DiscardLastCopy
 )
 
 $ErrorActionPreference = 'Stop'
@@ -105,6 +108,10 @@ foreach ($t in $existingTemplates | Where-Object { $_.name -like "it-$prefix-*" 
   if ($created -gt $cutoff) { continue }
   if ($PSCmdlet.ShouldProcess($t.name, 'Delete leftover image template')) {
     $log = Save-AvdImageBuildLog -Name $t.name
+    if (-not $log -and -not $DiscardLastCopy) {
+      Add-AvdCheckResult 'Image build' "Kept leftover template $($t.name)" 'Warn' -Detail 'Its customization log could not be saved, and the staging account holds the only copy.' -Remediation 'Fix access to the staging storage account and run again, or run again with -DiscardLastCopy to remove it without the log.'
+      continue
+    }
     Invoke-AvdArm -Method DELETE -Path "$templatesPath/$($t.name)?$aib" | Out-Null
     $summary.removedOrphans += $t.name
     Add-AvdCheckResult 'Image build' "Removed leftover template $($t.name)" 'Fixed' -Detail "created $($t.tags.'avdlz-created'); log: $(if ($log) { $log } else { 'not available' })"
@@ -276,15 +283,21 @@ else {
   else { Add-AvdCheckResult 'Image build' "Gallery version $version" 'Fail' -Detail "provisioningState=$(if ($published) { $published.properties.provisioningState } else { 'missing' })" }
 }
 
-# The template only exists for this build; deleting it also removes the staging resources.
-Write-Host "  Deleting $templateName ..." -ForegroundColor DarkGray
-Invoke-AvdArm -Method DELETE -Path "$templatesPath/$templateName`?$aib" | Out-Null
-$gone = $false
-for ($i = 0; $i -lt 40; $i++) {
-  if (-not (Invoke-AvdArm -Path "$templatesPath/$templateName`?$aib" -AllowNotFound)) { $gone = $true; break }
-  Start-Sleep -Seconds ([math]::Min($PollSeconds, 30))
+# The template only exists for this build; deleting it also removes the staging resources, and
+# with them the only copy of the customization log. Never delete the last copy (decision 0016).
+if (-not $log -and -not $DiscardLastCopy) {
+  Add-AvdCheckResult 'Image build' "Template $templateName kept" 'Warn' -Detail 'Its customization log could not be saved, and the staging account holds the only copy.' -Remediation 'Read the log from the packerlogs container in the staging resource group; the next build saves it and removes the template after 24 hours. -DiscardLastCopy removes it without the log.'
 }
-if ($gone) { Add-AvdCheckResult 'Image build' "Template $templateName removed" 'Pass' }
-else { Add-AvdCheckResult 'Image build' "Template $templateName removed" 'Warn' -Detail 'Still present; the next build removes it after 24 hours.' }
+else {
+  Write-Host "  Deleting $templateName ..." -ForegroundColor DarkGray
+  Invoke-AvdArm -Method DELETE -Path "$templatesPath/$templateName`?$aib" | Out-Null
+  $gone = $false
+  for ($i = 0; $i -lt 40; $i++) {
+    if (-not (Invoke-AvdArm -Path "$templatesPath/$templateName`?$aib" -AllowNotFound)) { $gone = $true; break }
+    Start-Sleep -Seconds ([math]::Min($PollSeconds, 30))
+  }
+  if ($gone) { Add-AvdCheckResult 'Image build' "Template $templateName removed" 'Pass' }
+  else { Add-AvdCheckResult 'Image build' "Template $templateName removed" 'Warn' -Detail 'Still present; the next build removes it after 24 hours.' }
+}
 
 Complete-AvdImageBuild $(if ($summary.status -eq 'succeeded') { 0 } else { 1 })

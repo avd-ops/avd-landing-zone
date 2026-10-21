@@ -15,3 +15,4 @@ Removes the demo host pool deployed by Deploy-AvdDemo.ps1, and optionally the wh
 | `-KeepDevices` | switch | no |  |  |
 | `-ResetDefender` | switch | no |  |  |
 | `-Force` | switch | no |  | Skip confirmations (including the typed confirmation for -IncludeLandingZone). |
+| `-DiscardLastCopy` | switch | no |  | -IncludeLandingZone: delete the profiles, their backups and the Log Analytics workspace although they hold the only copy of that data (never delete the last copy, avd-second-brain decision 0016). -Force never implies it. |

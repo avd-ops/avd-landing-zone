@@ -175,7 +175,7 @@ Group SIDs are the synced group's on-premises SID when it has one, otherwise the
 - Pooled host pool (validation ring), desktop app group, workspace.
 - `-SessionHostCount` hosts (default 1), built by the landing zone's own `controlPlane` and `sessionHosts` modules.
 - The existing spoke, profile share, Log Analytics, DCR, private DNS, groups and AVD service principal.
-- No scaling plan, so the host stays up while you test. The host pool private endpoint lives in the demo RG, so cleanup removes it.
+- No scaling plan, so the host stays up while you test, until 20:00 Central: the demo hosts have their own daily shutdown, since the landing zone's auto shutdown covers only its own host pool (never leave the meter running, [avd-second-brain decision 0017](https://github.com/nickprignano/avd-second-brain/blob/main/docs/knowledge/decisions/0017-never-leave-the-meter-running.md)). Start VM on Connect starts them again. The host pool private endpoint lives in the demo RG, so cleanup removes it.
 
 It then validates sign-in readiness:
 
@@ -200,7 +200,7 @@ If the Microsoft Graph sign-in times out, the script keeps the deployment record
 
 It supports `-WhatIf`.
 
-With `-IncludeLandingZone`, you must type the landing zone name to confirm (`-Force` skips this). It then removes:
+With `-IncludeLandingZone`, the landing zone holds the only copy of its FSLogix profiles, their backups and its Log Analytics workspace (AVD diagnostics, host logs and the activity log export). The script refuses unless you also pass `-DiscardLastCopy`, which `-Force` never implies: copy what you want to keep outside the landing zone first and check the copy ([never delete the last copy](https://github.com/nickprignano/avd-second-brain/blob/main/docs/knowledge/decisions/0016-never-delete-the-last-copy.md)). Then you type the landing zone name to confirm (`-Force` skips this). It then removes:
 1. **Profile backup.** It disables vault immutability and soft delete, which would otherwise block the delete. It stops protection, deletes the recovery points, and unregisters the storage account, which releases the backup delete lock.
 2. **The five landing zone resource groups**, in dependency order. First it deletes the Log Analytics workspace permanently. Deleting its resource group would only soft-delete it for 14 days, and the next deployment under the same name would recover it and fail on the AVD Insights data collection rule ([lesson 0023](../build/lessons/0023-log-analytics-soft-delete.md)).
 3. **Subscription-level resources:** `avdlz-*` policy assignments with their role assignments, the budget, the activity-log diagnostic setting, and deployment records.

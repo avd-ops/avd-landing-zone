@@ -51,6 +51,10 @@ Without Pester, run an offline scenario directly: `pwsh -File build/tests/offlin
 
 - **Auto shutdown (`scripts/automation/Invoke-AvdPowerAction.ps1`) is an Automation runbook: Windows PowerShell 5.1, no modules, ARM REST with the managed identity's token.** Lock must survive the next sign-in (drain, scaling plan exclusion tag, Start VM on Connect off); a new action or call gets a mock path in `AzMock.psm1` and an assertion in the AutoShutdown scenario. New role GUIDs come from Microsoft's built-in role reference and go into `PUBLIC_IDS`. (decision 0011)
 
+- **Never delete the last copy** (avd-second-brain decision 0016). A step that deletes data (logs, diagnostics, evidence, reports, backups, user data) first checks that a durable copy exists outside what it deletes, or the operator passes `-DiscardLastCopy`, which `-Force` never implies. Teardown separates disposable resources from evidence; old data moves to a colder tier, never deleted. Logs and teardown evidence go to one run store outside the deployment, kept by default (`-TeardownLogs Keep`; run recorder spec R9 is the reference). `Remove-AvdDemo.ps1 -IncludeLandingZone` and the image build's template delete need `-DiscardLastCopy` until those exports exist.
+
+- **Never leave the meter running** (avd-second-brain decision 0017). Anything that bills by time is removed, stopped or on a schedule at the end of a run unless the operator opts in with an expiry or a reason; the demo hosts carry their own daily shutdown, and the preflight warns when a dev or test landing zone has no budget.
+
 - **Personal project, not for production, as is, not affiliated with the author's employer.** The MIT `LICENSE`, the README warning, the portal's notice and footer, and the one-line notice at the top of entry-point code stay in place; a new entry-point script or template gets the notice (`build/tests/portal/disclaimer.test.mjs`).
 
 - **American English** in docs, script output, the portal and comments (a portal test fails on British spellings; recorded fixtures are exempt).
