@@ -21,7 +21,15 @@ zero=00000000-0000-0000-0000-000000000000
 args=(--subscription-id "$zero" --tenant-id "$zero" --location northcentralus --deployment-name avdlz)
 
 work="$(mktemp -d)"
-trap 'git -C "$repo" worktree remove --force "$work/base" >/dev/null 2>&1; rm -rf "$work"' EXIT
+mkdir -p "$work/kept"
+# A snapshot an operator already has beside a parameter file is set aside and put back on exit.
+# shellcheck disable=SC2317 # called by the EXIT trap
+cleanup() {
+  for k in "$work"/kept/*.snapshot.json; do [ -e "$k" ] && mv -f "$k" "$repo/parameters/"; done
+  git -C "$repo" worktree remove --force "$work/base" >/dev/null 2>&1
+  rm -rf "$work"
+}
+trap cleanup EXIT
 if ! git -C "$repo" worktree add --detach "$work/base" "$base" >/dev/null 2>&1; then
   echo "Can't check out base '$base'; no comparison." >&2
   exit 0
@@ -41,7 +49,7 @@ failed=0
 for f in "$repo"/parameters/*.bicepparam; do
   name="parameters/$(basename "$f")"
   snap="${f%.bicepparam}.snapshot.json"
-  rm -f "$snap"
+  if [ -e "$snap" ]; then mv "$snap" "$work/kept/"; fi
   if [ ! -f "$work/base/$name" ]; then
     if out=$("$bicep" snapshot "$f" "${args[@]}" 2>&1); then
       echo "### $name: new parameter file" >> "$summary"
@@ -61,7 +69,7 @@ for f in "$repo"/parameters/*.bicepparam; do
   rm -f "$snap"
   if [ "$rc" -eq 0 ]; then
     echo "### $name: no change" >> "$summary"
-  elif echo "$out" | grep -q 'Snapshot validation failed'; then
+  elif [[ $out == *'Snapshot validation failed'* ]]; then
     echo "### $name: changes" >> "$summary"
     block "$(echo "$out" | strip | sed -n '/Snapshot validation failed/,$p' | sed '1,2d')"
   else

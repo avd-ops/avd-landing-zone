@@ -33,7 +33,8 @@ fi
 [ -x "$tools/pwsh/pwsh" ] && ln -sf "$tools/pwsh/pwsh" "$tools/bin/pwsh"
 
 # Bicep CLI, same version as CI (validate.yml BICEP_VERSION)
-if [ ! -x "$tools/bin/bicep" ] && ! command -v bicep >/dev/null 2>&1; then
+# $tools/bin comes first on PATH, so the pinned binary wins over any other Bicep.
+if ! "$tools/bin/bicep" --version 2>/dev/null | grep -q 'version 0.48.1 '; then
   fetch https://github.com/Azure/bicep/releases/download/v0.48.1/bicep-linux-x64 "$tools/bin/bicep" && chmod +x "$tools/bin/bicep"
 fi
 
@@ -60,7 +61,7 @@ export PATH="$tools/bin:$PATH"
 export PSModulePath="$tools/modules${PSModulePath:+:$PSModulePath}"
 
 # Pester, same version as CI (Gallery only; skipped quietly when the Gallery is unreachable)
-if command -v pwsh >/dev/null 2>&1 && [ ! -d "$tools/modules/Pester" ]; then
+if command -v pwsh >/dev/null 2>&1 && [ ! -d "$tools/modules/Pester/6.2.0" ]; then
   timeout 120 pwsh -NoProfile -NonInteractive -Command \
     "Save-Module Pester -RequiredVersion 6.2.0 -Path '$tools/modules' -Repository PSGallery -Force -ErrorAction Stop" >>"$log" 2>&1 || true
 fi

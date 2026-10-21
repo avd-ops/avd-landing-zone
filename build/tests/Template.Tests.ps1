@@ -341,12 +341,16 @@ Describe 'Pinned tool versions' {
     $script:hook | Should -Match ([regex]::Escape("bicep/releases/download/$($script:pin.BICEP_VERSION)/"))
     $script:hook | Should -Match ([regex]::Escape("PSScriptAnalyzer/releases/download/$($script:pin.PSSCRIPTANALYZER_VERSION)/"))
     $script:hook | Should -Match ([regex]::Escape("Save-Module Pester -RequiredVersion $($script:pin.PESTER_VERSION) "))
+    # An older cached copy is replaced, not kept.
+    $script:hook | Should -Match ([regex]::Escape("grep -q 'version $($script:pin.BICEP_VERSION.TrimStart('v')) '"))
+    $script:hook | Should -Match ([regex]::Escape("modules/Pester/$($script:pin.PESTER_VERSION)"))
   }
   It 'builds images with the Bicep version CI checks' {
     Get-Content (Join-Path $PSScriptRoot '../../.github/workflows/image-build.yml') -Raw | Should -Match ([regex]::Escape("bicep/releases/download/$($script:pin.BICEP_VERSION)/"))
   }
   It 'runs the live PSRule review on the rules version CI uses' {
     $script:module | Should -Match ([regex]::Escape("`$script:PSRuleAzureVersion = '$($script:pin.PSRULE_AZURE_VERSION)'"))
+    $script:module | Should -Match ([regex]::Escape("`$script:PSRuleVersion = '$($script:pin.PSRULE_VERSION)'"))
     $rules = Get-Content (Join-Path $PSScriptRoot '../../ps-rule.yaml') -Raw
     $rules | Should -Match ([regex]::Escape("PSRule: '$($script:pin.PSRULE_VERSION)'"))
     $rules | Should -Match ([regex]::Escape("PSRule.Rules.Azure: '$($script:pin.PSRULE_AZURE_VERSION)'"))

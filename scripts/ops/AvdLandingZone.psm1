@@ -1579,8 +1579,10 @@ function Add-AvdWafResult {
   Add-AvdCheckResult $area $Check 'Warn' -Detail $Detail -Remediation $Remediation -Id "waf-$Key" -Data @{ pillar = $Pillar; accepted = [bool]$accepted }
 }
 
-# The PSRule for Azure version CI checks the templates with (validate.yml PSRULE_AZURE_VERSION;
-# Template.Tests.ps1 keeps them equal), so a finding here means the same as one in CI.
+# The PSRule engine and PSRule for Azure versions CI checks the templates with (validate.yml
+# PSRULE_VERSION, PSRULE_AZURE_VERSION; Template.Tests.ps1 keeps them equal), so a finding here
+# means the same as one in CI.
+$script:PSRuleVersion = '2.9.0'
 $script:PSRuleAzureVersion = '1.47.0'
 
 function Get-AvdPSRuleFinding {
@@ -1589,13 +1591,23 @@ function Get-AvdPSRuleFinding {
     with the repo's suppressions. Returns the failed rule records.
   #>
   param([Parameter(Mandatory)][string[]] $ResourceGroupName)
-  if (-not (Get-Command Export-AzRuleData -ErrorAction SilentlyContinue) -or -not (Get-Command Invoke-PSRule -ErrorAction SilentlyContinue)) {
-    $version = $script:PSRuleAzureVersion
-    if (-not (Get-Module -ListAvailable -Name PSRule.Rules.Azure | Where-Object { $_.Version -eq [version]$version })) {
-      Write-Host "          Installing PSRule.Rules.Azure $version from the PowerShell Gallery, the version CI uses (first run only) ..." -ForegroundColor DarkGray
-      Install-Module -Name PSRule.Rules.Azure -RequiredVersion $version -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+  # Load the pinned versions when the commands are missing or another version is loaded. Commands
+  # with no module behind them are the offline scenarios' stand-ins (AzMock.psm1).
+  $loaded = @(Get-Module PSRule, PSRule.Rules.Azure)
+  $pins = [ordered]@{ 'PSRule' = $script:PSRuleVersion; 'PSRule.Rules.Azure' = $script:PSRuleAzureVersion }
+  $commands = (Get-Command Export-AzRuleData -ErrorAction SilentlyContinue) -and (Get-Command Invoke-PSRule -ErrorAction SilentlyContinue)
+  $mismatch = @($loaded | Where-Object { $_.Version -ne [version]$pins[$_.Name] })
+  if (-not $commands -or $mismatch) {
+    foreach ($name in $pins.Keys) {
+      $version = $pins[$name]
+      if (-not (Get-Module -ListAvailable -Name $name | Where-Object { $_.Version -eq [version]$version })) {
+        Write-Host "          Installing $name $version from the PowerShell Gallery, the version CI uses (first run only) ..." -ForegroundColor DarkGray
+        Install-Module -Name $name -RequiredVersion $version -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
+      }
     }
-    Import-Module PSRule.Rules.Azure -RequiredVersion $version -ErrorAction Stop
+    if ($mismatch) { $mismatch | Remove-Module -Force -ErrorAction SilentlyContinue }
+    Import-Module PSRule -RequiredVersion $script:PSRuleVersion -Force -ErrorAction Stop
+    Import-Module PSRule.Rules.Azure -RequiredVersion $script:PSRuleAzureVersion -Force -ErrorAction Stop
   }
   $out = Join-Path ([IO.Path]::GetTempPath()) "avdlz-psrule-$([guid]::NewGuid().ToString('n'))"
   $suppressions = Join-Path $PSScriptRoot '../../.ps-rule'
