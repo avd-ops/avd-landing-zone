@@ -14,7 +14,12 @@
     - the subscription deployment record avdlz-demo-<prefix>-<env>
     - the demo hosts' Entra ID and Intune device objects (skip with -KeepDevices)
 
-  -IncludeLandingZone (everything; asks you to type the landing zone name)
+  -IncludeJumpbox (the operator jumpbox, decision 0019; needs -DiscardLastCopy)
+    - rg-<prefix>-<env>-jumpbox: the jumpbox VM, its disk and NIC
+    - the Bastion Developer host bas-<prefix>-<env> in the network resource group
+    The next landing zone deployment without --jumpbox then also removes the jumpbox subnet.
+
+  -IncludeLandingZone (everything, the jumpbox too; asks you to type the landing zone name)
     - profile backup: turns vault immutability and soft delete off, stops
       protection deleting recovery points, unregisters the storage account
       (which releases the AzureBackupProtectionLock)
@@ -41,6 +46,9 @@
 .EXAMPLE
   ./scripts/ops/Remove-AvdDemo.ps1 -NamePrefix avdlz -Environment dev -IncludeLandingZone -WhatIf
   (a real run with -IncludeLandingZone also needs -DiscardLastCopy)
+
+.EXAMPLE
+  ./scripts/ops/Remove-AvdDemo.ps1 -NamePrefix avdlz -Environment dev -IncludeJumpbox -DiscardLastCopy
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
@@ -48,11 +56,14 @@ param(
   [Parameter(Mandatory)][ValidateSet('dev', 'test', 'prod')][string] $Environment,
   [string] $SubscriptionId,
   [switch] $IncludeLandingZone,
+  # Remove the operator jumpbox and its Bastion Developer (decision 0019). Its disk may hold the only
+  # copy of what was run there (run journals in ~/avdlz-runs), so it needs -DiscardLastCopy too.
+  [switch] $IncludeJumpbox,
   [switch] $KeepDevices,
   [switch] $ResetDefender,
   # Skip confirmations (including the typed confirmation for -IncludeLandingZone).
   [switch] $Force,
-  # -IncludeLandingZone: delete the profiles, their backups and the Log Analytics workspace although
+  # -IncludeLandingZone / -IncludeJumpbox: delete the profiles, their backups and the Log Analytics workspace although
   # they hold the only copy of that data (never delete the last copy, avd-second-brain decision
   # 0016). -Force never implies it.
   [switch] $DiscardLastCopy
@@ -71,6 +82,10 @@ Write-Host "AVD cleanup - $($lz.BaseName) in '$($ctx.Subscription.Name)'$(if ($I
 if ($IncludeLandingZone -and -not $DiscardLastCopy -and -not $WhatIfPreference) {
   Write-Host "The landing zone '$($lz.BaseName)' holds the only copy of its FSLogix profiles, their backup recovery points and its Log Analytics workspace (AVD diagnostics, host logs and the activity log export)." -ForegroundColor Red
   throw 'Never delete the last copy: copy what you want to keep outside the landing zone and check the copy, then run again with -DiscardLastCopy. Nothing was removed.'
+}
+if ($IncludeJumpbox -and -not $IncludeLandingZone -and $lz.Jumpbox -and -not $DiscardLastCopy -and -not $WhatIfPreference) {
+  Write-Host "The jumpbox $($lz.Jumpbox.Name) may hold the only copy of what was run on it (run journals in ~/avdlz-runs, files in the home directory)." -ForegroundColor Red
+  throw 'Never delete the last copy: copy what you want to keep off the jumpbox (for example to the run store) and check the copy, then run again with -DiscardLastCopy. Nothing was removed.'
 }
 if ($IncludeLandingZone -and -not $Force -and -not $WhatIfPreference) {
   Write-Host "This permanently deletes the landing zone '$($lz.BaseName)', its profiles and their backups." -ForegroundColor Red
@@ -185,9 +200,25 @@ elseif ($demoRecord -and $PSCmdlet.ShouldProcess($demoDeployment, 'Delete deploy
   Add-AvdCheckResult 'Deployments' $demoDeployment 'Fixed' -Detail 'Deleted.'
 }
 
+function Remove-AvdJumpbox {
+  <# The jumpbox resource group and the Bastion Developer host beside the VNet (decision 0019). #>
+  [CmdletBinding(SupportsShouldProcess)]
+  param()
+  Write-AvdSection 'Jumpbox'
+  Remove-AvdResourceGroupIfPresent -Name $lz.ResourceGroups.Jumpbox
+  $bastionPath = "$($lz.ResourceGroupIds.Network)/providers/Microsoft.Network/bastionHosts/bas-$($lz.BaseName)?api-version=2024-07-01"
+  if (-not $lz.RgExists.Network -or -not (Invoke-AvdArm -Path $bastionPath -AllowNotFound)) { Add-AvdCheckResult 'Jumpbox' "Bastion bas-$($lz.BaseName)" 'Pass' -Detail 'Not present.'; return }
+  if ($PSCmdlet.ShouldProcess("bas-$($lz.BaseName)", 'Delete Bastion')) {
+    Write-Host '  deleting the Bastion host' -ForegroundColor DarkGray
+    Invoke-AvdArm -Method DELETE -Path $bastionPath | Out-Null
+    Add-AvdCheckResult 'Jumpbox' "Bastion bas-$($lz.BaseName)" 'Fixed' -Detail 'Deleted.'
+  }
+}
+
 if (-not $IncludeLandingZone) {
+  if ($IncludeJumpbox) { Remove-AvdJumpbox }
   Write-AvdSummary | Out-Null
-  if (-not $WhatIfPreference) { Write-AvdPortalState (Get-AvdPortalState -Stage cleanup -Context @{ namePrefix = $NamePrefix; environment = $Environment; includeLandingZone = [bool]$IncludeLandingZone }) }
+  if (-not $WhatIfPreference) { Write-AvdPortalState (Get-AvdPortalState -Stage cleanup -Context @{ namePrefix = $NamePrefix; environment = $Environment; includeLandingZone = [bool]$IncludeLandingZone; includeJumpbox = [bool]($IncludeJumpbox -or $IncludeLandingZone) }) }
   return
 }
 
@@ -240,7 +271,7 @@ if ($lz.LogAnalyticsId) {
 }
 
 Write-AvdSection 'Landing zone resource groups'
-foreach ($k in 'Portal', 'Hosts', 'ControlPlane', 'Storage', 'Management', 'Network') {
+foreach ($k in 'Portal', 'Jumpbox', 'Hosts', 'ControlPlane', 'Storage', 'Management', 'Network') {
   Remove-AvdResourceGroupIfPresent -Name $lz.ResourceGroups[$k]
 }
 
@@ -311,4 +342,4 @@ if ($lz.KeyVault) {
   Add-AvdCheckResult 'Subscription' "Key Vault $($lz.KeyVault.Name) $kvState with purge protection" 'Warn' -Detail 'Its name is reserved for 90 days after deletion.' -Remediation 'To redeploy with the same namePrefix, run the pre-deployment preflight with -Fix: it recovers the vault.'
 }
 Write-AvdSummary | Out-Null
-if (-not $WhatIfPreference) { Write-AvdPortalState (Get-AvdPortalState -Stage cleanup -Context @{ namePrefix = $NamePrefix; environment = $Environment; includeLandingZone = [bool]$IncludeLandingZone }) }
+if (-not $WhatIfPreference) { Write-AvdPortalState (Get-AvdPortalState -Stage cleanup -Context @{ namePrefix = $NamePrefix; environment = $Environment; includeLandingZone = [bool]$IncludeLandingZone; includeJumpbox = [bool]($IncludeJumpbox -or $IncludeLandingZone) }) }

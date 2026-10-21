@@ -19,6 +19,7 @@
 | `adminsGroupObjectId` | string |  |  |
 | `avdServicePrincipalObjectId` | string |  |  |
 | `sessionHostCount` | int | `1` |  |
+| `autoShutdownTime` | string | `'2000'` | Daily shutdown of the demo hosts (HHmm, Central time); empty keeps them running, an explicit opt-in (avd-second-brain decision 0017). The landing zone auto shutdown does not cover the demo host pool. |
 | `sessionHostVmSize` | string | `'Standard_E4as_v5'` |  |
 | `availabilityZones` | int[] | `[]` |  |
 | `enrollInIntune` | bool | `true` |  |

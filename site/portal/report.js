@@ -42,6 +42,7 @@
     'acdd72a7-3385-48ef-bd42-f606fba81ae7', // Reader
     '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1', // Storage Blob Data Reader
     'ba92f5b4-2d11-453d-a403-e96b0029c9fe', // Storage Blob Data Contributor (the self-hosted portal's uploader, decision 0017)
+    '9980e02c-c2be-4d73-94e8-173b1dc7cf3c', // Virtual Machine Contributor (operator jumpbox, decision 0019)
     // Entra directory role templates (group owner check in the preflight and deploy.sh)
     '62e90394-69f5-4237-9190-012177145e10', // Global Administrator
     'e8611ab8-c189-46e8-94e1-60213ab1f814', // Privileged Role Administrator

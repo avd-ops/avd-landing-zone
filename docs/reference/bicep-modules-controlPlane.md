@@ -8,6 +8,7 @@
 |---|---|---|---|
 | `location` | string |  |  |
 | `tags` | object |  |  |
+| `hostPoolStateTags` | object | `{}` | Rotation tags the host pool keeps across deployments (main.bicep hostPoolStateTags). |
 | `hostPoolName` | string |  |  |
 | `appGroupName` | string |  |  |
 | `workspaceName` | string |  |  |

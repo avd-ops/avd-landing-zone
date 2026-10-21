@@ -12,6 +12,8 @@
 | `storageAccountResourceId` | string |  |  |
 | `shareName` | string |  |  |
 | `retentionDays` | int |  |  |
+| `profileBackupTier` | string | `'Snapshot'` | Snapshot: share snapshots only (default). Vaulted: also an offsite copy in the vault, geo-redundant with Cross Region Restore (recovery tier R1). |
+| `vaultedSnapshotRetentionDays` | int | `7` | Vaulted tier only: days each daily snapshot stays on the share before only the vault copy remains (1 to 30). |
 | `logAnalyticsWorkspaceResourceId` | string |  |  |
 
 ## Outputs
@@ -19,3 +21,4 @@
 | Output | Type | What it is |
 |---|---|---|
 | `vaultResourceId` | string |  |
+| `profileBackupTier` | string |  |

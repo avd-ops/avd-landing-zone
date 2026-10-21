@@ -7,7 +7,8 @@ PowerShell scripts in [`scripts/ops/`](../scripts/ops) that run against a **depl
 | `Test-AvdLandingZoneReadiness.ps1 -PreDeployment` | Preflight **before** deploying: is this subscription and tenant ready for the landing zone your parameter file describes? Check mode by default; `-Fix` remediates. |
 | `Test-AvdLandingZoneReadiness.ps1` | Preflight **after** deploying: is the landing zone ready for session hosts and users, **including the three post-deployment tenant steps**? Check mode by default; `-Fix` remediates. |
 | `Deploy-AvdDemo.ps1` | Deploys a demo host pool and session host into the landing zone, then validates that a user can sign in. |
-| `Remove-AvdDemo.ps1` | Removes the demo. `-IncludeLandingZone` tears down the whole landing zone. |
+| `Remove-AvdDemo.ps1` | Removes the demo. `-IncludeJumpbox` removes the operator jumpbox; `-IncludeLandingZone` tears down the whole landing zone. |
+| `Connect-AvdJumpbox.ps1` | Optional operator jumpbox ([decision 0019](../build/decisions/0019-jumpbox-bastion-developer.md)): starts it, sets a one-time password and links to Connect > Bastion; `-Stop` deallocates it. See [Operator jumpbox](#operator-jumpbox). |
 | `Connect-AvdLandingZone.ps1` | Signs in to Microsoft Graph once for the whole Cloud Shell session; the other scripts reuse the sign-in ([decision 0016](../build/decisions/0016-graph-operator-app.md)). |
 | `Initialize-AvdGraphApp.ps1` | One-time, by an administrator: creates the avd-opsbot app, so operators sign in with no consent prompts. |
 | `Test-AvdUserConnection.ps1` | After you open the desktop: confirms from Azure telemetry that your sign-in reached it (Verified, Failed or Not verified). The deployment portal's Verify access step ([decision 0014](../build/decisions/0014-verify-access.md)). |
@@ -85,7 +86,57 @@ Required roles:
 | Well-Architected review (`-WellArchitected`) | Reader on the subscription | — (with `-SkipTenant`) |
 | Preflight `-Fix` | Owner, or Contributor + Role Based Access Control Administrator | Cloud Application Administrator **and** Conditional Access Administrator |
 | Demo deploy | Owner, or Contributor + Role Based Access Control Administrator | Global Reader (Cloud Application Administrator with `-FixNtfs`) |
+| Jumpbox connect (`Connect-AvdJumpbox.ps1`) | Reader and Virtual Machine Contributor on `rg-<prefix>-<env>-jumpbox`, Reader on the Bastion (the landing zone gives both to AVD Admins) | — |
 | Cleanup | Owner | Intune Administrator + Cloud Device Administrator (to remove device objects); Cloud Application Administrator (to purge the storage app from deleted items) |
+
+## Operator jumpbox
+
+Optional, off by default ([decision 0019](../build/decisions/0019-jumpbox-bastion-developer.md)): a small Linux VM (or Windows Server, with `--jumpbox-os windows`) inside the landing zone's VNet with the same tools as Cloud Shell (pwsh, the Azure CLI, Bicep, git, the Az and Graph modules), reached in the browser through **Azure Bastion Developer**. Developer has no hourly charge and needs no public IP, but connects one VM at a time, only in its own VNet, only from the Azure portal, and only in [some regions](https://learn.microsoft.com/azure/bastion/bastion-sku-comparison#regional-availability) (North Central US yes; East US and South Central US no). Use it for long runs that a Cloud Shell timeout would cut, and for anything that needs the private endpoints (the break-glass secret in the private Key Vault).
+
+**Linux or Windows.** Linux (Ubuntu 24.04, `Standard_B2als_v2`, Standard SSD E4) is the default and the cheapest. `--jumpbox-os windows` (preflight: `-JumpboxOs Windows`) gives Windows Server 2025 (`Standard_B2as_v2`, E10) with the same tools, for a Windows desktop, a browser to reach the deployment portal or an app console from inside the VNet, or Windows-only tools; it bills at the Windows rate. The choice is made when the jumpbox is created: to switch, remove it and deploy again.
+
+```powershell
+# Cloud Shell (PowerShell): preflight with the jumpbox (region, size, cost)
+if (Test-Path ~/avd-landing-zone) { Set-Location ~/avd-landing-zone; git pull -q } else { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone; Set-Location ~/avd-landing-zone }
+./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -PreDeployment -ParameterFile parameters/dev.bicepparam -Location northcentralus -UsersGroup 'AVD Users' -AdminsGroup 'AVD Admins' -Jumpbox
+```
+
+```bash
+# Cloud Shell (Bash): deploy (or update) the landing zone with the jumpbox
+cd ~/avd-landing-zone 2>/dev/null || { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone && cd ~/avd-landing-zone; }
+git pull -q
+bash ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus --users-group 'AVD Users' --admins-group 'AVD Admins' --jumpbox
+```
+
+```powershell
+# Cloud Shell (PowerShell): get a one-time password and the Connect > Bastion link
+if (Test-Path ~/avd-landing-zone) { Set-Location ~/avd-landing-zone; git pull -q } else { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone; Set-Location ~/avd-landing-zone }
+./scripts/ops/Connect-AvdJumpbox.ps1 -NamePrefix avdlz -Environment dev
+```
+
+Open the link, choose SSH with Authentication type Password (RDP on Windows), and paste the username and the password it printed. The password changes on every connect, so there is nothing to remember. Bastion Developer offers no Microsoft Entra sign-in (Basic or higher do, billed by the hour), so the OS account is local; your Azure and Graph sign-ins on the box are your own:
+
+```bash
+# On the jumpbox (Bash): the repo and the Azure CLI sign-in deploy.sh uses
+cd ~/avd-landing-zone 2>/dev/null || { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone && cd ~/avd-landing-zone; }
+git pull -q
+az login --use-device-code
+```
+
+```powershell
+# On the jumpbox (start pwsh): the Azure and Graph sign-ins the PowerShell scripts use
+if (Test-Path ~/avd-landing-zone) { Set-Location ~/avd-landing-zone; git pull -q } else { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone; Set-Location ~/avd-landing-zone }
+Connect-AzAccount -UseDeviceAuthentication
+./scripts/ops/Connect-AvdLandingZone.ps1
+```
+
+On Windows, open PowerShell 7 (`pwsh`) for the PowerShell block; Git Bash runs the Bash block.
+
+First boot installs the tools (a few minutes on Linux, longer on Windows; `/var/log/avdlz-jumpbox.log` or `C:\avdlz\jumpbox.log` ends with `ready`).
+
+**The meter.** The jumpbox stops itself daily at 20:00 (the landing zone's time zone). `--jumpbox-keep-running 2026-10-22T02:00Z` keeps it on until then (UTC, recorded on the VM's `avdlz-keep-running-until` tag); the next deployment without the flag restores the daily stop. Stop it when you are done: `./scripts/ops/Connect-AvdJumpbox.ps1 -NamePrefix avdlz -Environment dev -Stop` (a shutdown from inside the VM leaves compute billing). The post-deployment preflight reports the jumpbox's meter (`jumpbox-meter`). Bastion Developer itself costs nothing.
+
+**Teardown.** `./scripts/ops/Remove-AvdDemo.ps1 -NamePrefix avdlz -Environment dev -IncludeJumpbox -DiscardLastCopy` removes the jumpbox and its Bastion. Its disk goes with it, so copy anything you want to keep (run journals in `~/avdlz-runs`) to the run store first; that is why it needs `-DiscardLastCopy`. Once removed, the next deployment without `--jumpbox` also removes its subnet.
 
 ## Sizing and cost
 

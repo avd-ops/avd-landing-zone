@@ -419,3 +419,142 @@ Describe 'Pinned tool versions' {
     $rules | Should -Match ([regex]::Escape("PSRule.Rules.Azure: '$($script:pin.PSRULE_AZURE_VERSION)'"))
   }
 }
+
+Describe 'Operator jumpbox through Bastion Developer (decision 0019)' {
+  # Off by default, so the landing zone's default deployment is unchanged; on, it stops daily unless
+  # kept running until a time (avd-second-brain decision 0017), and has no public IP anywhere.
+  It 'is off unless AVD_DEPLOY_JUMPBOX=true (set-but-empty = off, lesson 0004), in every parameter file' {
+    foreach ($file in 'parameters/dev.bicepparam', 'parameters/test.bicepparam', 'parameters/prod.bicepparam') {
+      $read = { param($v, $until, $exists, $os) $env:AVD_DEPLOY_JUMPBOX = $v; $env:AVD_JUMPBOX_KEEP_RUNNING_UNTIL = $until; $env:AVD_JUMPBOX_EXISTS = $exists; $env:AVD_JUMPBOX_OS = $os
+        try { ((& $script:bicep build-params $file --stdout | ConvertFrom-Json).parametersJson | ConvertFrom-Json).parameters }
+        finally { $env:AVD_DEPLOY_JUMPBOX = ''; $env:AVD_JUMPBOX_KEEP_RUNNING_UNTIL = ''; $env:AVD_JUMPBOX_EXISTS = ''; $env:AVD_JUMPBOX_OS = '' } }
+      $off = & $read '' '' '' ''
+      $off.deployJumpbox.value | Should -BeFalse -Because $file
+      $off.jumpboxKeepRunningUntil.value | Should -Be '' -Because $file
+      $off.jumpboxExists.value | Should -BeFalse -Because $file
+      $off.jumpboxOs.value | Should -Be 'Linux' -Because $file
+      $on = & $read 'true' '2026-10-22T02:00Z' 'true' 'Windows'
+      $on.jumpboxOs.value | Should -Be 'Windows' -Because $file
+      $on.deployJumpbox.value | Should -BeTrue -Because $file
+      $on.jumpboxKeepRunningUntil.value | Should -Be '2026-10-22T02:00Z' -Because $file
+      $on.jumpboxExists.value | Should -BeTrue -Because $file
+    }
+  }
+
+  It 'deploys the jumpbox, its resource group, subnet and Bastion only when deployJumpbox is true' {
+    $t = Get-CompiledTemplate 'parameters/dev.bicepparam'
+    foreach ($name in 'avdlz-bastion', 'avdlz-jumpbox') {
+      (Find-Deployment $t $name)['condition'] | Should -Be "[parameters('deployJumpbox')]" -Because $name
+    }
+    $rg = @($t['resources'].Values | Where-Object { $_['type'] -eq 'Microsoft.Resources/resourceGroups' -and $_['name'] -eq "[variables('names').rgJumpbox]" })
+    $rg.Count | Should -Be 1
+    $rg[0]['condition'] | Should -Be "[parameters('deployJumpbox')]"
+    (Find-Deployment $t 'avdlz-network')['properties']['parameters']['deployJumpboxSubnet']['value'] | Should -Be "[parameters('deployJumpbox')]"
+    $t['parameters']['deployJumpbox']['defaultValue'] | Should -BeFalse
+  }
+
+  It 'uses the Developer SKU, attached to the VNet, with no subnet and no public IP' {
+    $raw = (& $script:bicep build 'bicep/modules/bastionDeveloper.bicep' --stdout) -join "`n"
+    $m = $raw | ConvertFrom-Json -Depth 50 -AsHashtable
+    $all = if ($m['resources'] -is [System.Collections.IDictionary]) { @($m['resources'].Values) } else { @($m['resources']) }
+    $b = @($all | Where-Object { $_['type'] -eq 'Microsoft.Network/bastionHosts' })[0]
+    $b['sku']['name'] | Should -Be 'Developer'
+    $b['properties']['virtualNetwork']['id'] | Should -Be "[parameters('vnetResourceId')]"
+    $b['properties'].Keys | Should -Not -Contain 'ipConfigurations'
+    $raw | Should -Not -Match 'Microsoft.Network/publicIPAddresses'
+  }
+
+  It 'builds a Linux Trusted Launch jumpbox with no public IP, a daily stop, and the stop off only when kept running' {
+    $raw = (& $script:bicep build 'bicep/modules/jumpbox.bicep' --stdout) -join "`n"
+    $m = $raw | ConvertFrom-Json -Depth 100 -AsHashtable
+    $all = if ($m['resources'] -is [System.Collections.IDictionary]) { @($m['resources'].Values) } else { @($m['resources']) }
+    $deployment = @($all | Where-Object { $_['type'] -eq 'Microsoft.Resources/deployments' })[0]
+    # An existing VM is never re-sent: Azure refuses a change to its custom data and admin password.
+    $deployment['condition'] | Should -Be "[not(parameters('vmExists'))]"
+    $vm = $deployment['properties']['parameters']
+    $vm['osType']['value'] | Should -Be "[parameters('osType')]"
+    $m['parameters']['osType']['defaultValue'] | Should -Be 'Linux'
+    $vm['securityType']['value'] | Should -Be 'TrustedLaunch'
+    $vm.Keys | Should -Not -Contain 'autoShutdownConfig'
+    # The daily stop is its own resource, always deployed: Disabled (not absent) while kept running,
+    # so a redeploy turns off a stop that exists.
+    $stop = @($all | Where-Object { $_['type'] -eq 'Microsoft.DevTestLab/schedules' })
+    $stop.Count | Should -Be 1
+    $stop[0].Keys | Should -Not -Contain 'condition'
+    $stop[0]['name'] | Should -Be "[format('shutdown-computevm-{0}', parameters('vmName'))]"
+    $stop[0]['properties']['status'] | Should -Be "[if(variables('keepRunning'), 'Disabled', 'Enabled')]"
+    $tags = @($all | Where-Object { $_['type'] -eq 'Microsoft.Resources/tags' })
+    $tags[0]['condition'] | Should -Be "[parameters('vmExists')]"
+    ($vm['nicConfigurations'] | ConvertTo-Json -Depth 20) | Should -Not -Match 'pipConfiguration|publicIP'
+    $m['variables']['vmTags'] | Should -Match 'avdlz-keep-running-until'
+    $t = Get-CompiledTemplate 'parameters/dev.bicepparam'
+    $t['parameters']['jumpboxAutoShutdownTime']['defaultValue'] | Should -Be '2000'
+    $t['parameters']['jumpboxVmSize']['defaultValue'] | Should -Be ''
+    $t['parameters']['jumpboxOs']['defaultValue'] | Should -Be 'Linux'
+    (Find-Deployment $t 'avdlz-jumpbox')['properties']['parameters']['vmSize'] | Should -Be "[if(not(empty(parameters('jumpboxVmSize'))), createObject('value', parameters('jumpboxVmSize')), if(equals(parameters('jumpboxOs'), 'Windows'), createObject('value', 'Standard_B2as_v2'), createObject('value', 'Standard_B2als_v2')))]"
+  }
+
+  It 'builds the Windows jumpbox from Windows Server 2025, with its first boot as a Run Command only when it is created' {
+    $raw = (& $script:bicep build 'bicep/modules/jumpbox.bicep' --stdout) -join "`n"
+    $m = $raw | ConvertFrom-Json -Depth 100 -AsHashtable
+    $m['variables']['images']['Windows']['sku'] | Should -Be '2025-datacenter-azure-edition'
+    $m['variables']['images']['Linux']['offer'] | Should -Be 'ubuntu-24_04-lts'
+    $all = if ($m['resources'] -is [System.Collections.IDictionary]) { @($m['resources'].Values) } else { @($m['resources']) }
+    $vm = @($all | Where-Object { $_['type'] -eq 'Microsoft.Resources/deployments' })[0]['properties']['parameters']
+    $vm['customData'] | Should -Match "^\[if\(variables\('windows'\), createObject\('value', ''\), "
+    $run = @($all | Where-Object { $_['type'] -eq 'Microsoft.Compute/virtualMachines/runCommands' })
+    $run.Count | Should -Be 1
+    $run[0]['condition'] | Should -Be "[and(variables('windows'), not(parameters('vmExists')))]"
+    $run[0]['properties']['asyncExecution'] | Should -BeTrue
+    $script = Get-Content 'scripts/jumpbox/Install-JumpboxTools.ps1' -Raw
+    $ref = [regex]::Match($run[0]['properties']['source']['script'], "^\[variables\('(.+)'\)\]$").Groups[1].Value
+    $m['variables'][$ref] | Should -Be $script
+    $pin = [regex]::Match((Get-Content '.github/workflows/validate.yml' -Raw), '(?m)^  BICEP_VERSION: (\S+)$').Groups[1].Value
+    $script | Should -Match ([regex]::Escape("bicep/releases/download/$pin/bicep-win-x64.exe"))
+    $script | Should -Not -Match 'releases/latest|(?i)git clone'
+    $script | Should -Match "Write-Step 'ready'"
+    # A 15-character computer name, the platform's patching without a customer schedule, no legacy antimalware extension.
+    $vm['computerName'] | Should -Be "[if(variables('windows'), createObject('value', 'jumpbox'), createObject('value', parameters('vmName')))]"
+    $vm['bypassPlatformSafetyChecksOnUserSchedule']['value'] | Should -BeFalse
+    $vm['extensionAntiMalwareConfig']['value']['enabled'] | Should -BeFalse
+  }
+
+  It 'keeps the per-OS size and disk the preflight prices in step with the template' {
+    Import-Module (Join-Path $PSScriptRoot '../../scripts/ops/AvdLandingZone.psm1') -Force
+    $t = Get-CompiledTemplate 'parameters/dev.bicepparam'
+    $size = (Find-Deployment $t 'avdlz-jumpbox')['properties']['parameters']['vmSize']
+    $m = (& $script:bicep build 'bicep/modules/jumpbox.bicep' --stdout) -join "`n" | ConvertFrom-Json -Depth 100 -AsHashtable
+    $all = if ($m['resources'] -is [System.Collections.IDictionary]) { @($m['resources'].Values) } else { @($m['resources']) }
+    $disk = @($all | Where-Object { $_['type'] -eq 'Microsoft.Resources/deployments' })[0]['properties']['parameters']['osDisk']['value']['diskSizeGB']
+    $tiers = @{ E4 = 32; E10 = 128 }
+    foreach ($os in 'Linux', 'Windows') {
+      $spec = Get-AvdJumpboxSpec -Plan @{ jumpboxOs = $os; jumpboxVmSize = '' }
+      $size | Should -Match ([regex]::Escape("'$($spec.VmSize)'")) -Because $os
+      $disk | Should -Match "$($tiers[$spec.Disk])" -Because $os
+    }
+    $disk | Should -Be "[if(variables('windows'), 128, 32)]"
+    $size | Should -Match "if\(equals\(parameters\('jumpboxOs'\), 'Windows'\), createObject\('value', 'Standard_B2as_v2'\), createObject\('value', 'Standard_B2als_v2'\)\)"
+  }
+
+  It 'gives the jumpbox subnet an NSG that denies the internet and onward RDP and SSH, and the hosts'' egress' {
+    $raw = (& $script:bicep build 'bicep/modules/network.bicep' --stdout) -join "`n"
+    $raw | Should -Match "'snet-jumpbox'"
+    $m = $raw | ConvertFrom-Json -Depth 100 -AsHashtable
+    $nsg = $m['resources']['jumpboxNsg']
+    $nsg['condition'] | Should -Be "[parameters('deployJumpboxSubnet')]"
+    $rules = $nsg['properties']['parameters']['securityRules']['value']
+    @($rules | Where-Object { $_['properties']['access'] -eq 'Allow' }).Count | Should -Be 0
+    ($rules | ForEach-Object { $_['name'] }) | Should -Be @('Deny-Internet-Inbound', 'Deny-VirtualNetwork-RDP-SSH-Outbound')
+    $m['parameters']['jumpboxSubnetPrefix']['defaultValue'] | Should -Be '10.100.2.32/28'
+  }
+
+  It 'installs the Bicep version CI pins, and no credentials, at first boot' {
+    $workflow = Get-Content '.github/workflows/validate.yml' -Raw
+    $pin = [regex]::Match($workflow, '(?m)^  BICEP_VERSION: (\S+)$').Groups[1].Value
+    $init = Get-Content 'scripts/jumpbox/cloud-init.yaml' -Raw
+    $init | Should -Match ([regex]::Escape("bicep/releases/download/$pin/"))
+    $init | Should -Not -Match 'releases/latest'
+    $init | Should -Not -Match '(?i)password|secret|token|git clone'
+    $init | Should -Match '^#cloud-config'
+  }
+}

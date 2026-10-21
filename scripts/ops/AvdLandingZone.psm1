@@ -510,6 +510,7 @@ function Get-AvdLandingZone {
     Demo         = "rg-$base-demo"
     # The deployment portal, when Publish-AvdPortal.ps1 put a copy in this subscription (decision 0017).
     Portal       = "rg-$base-portal"
+    Jumpbox      = "rg-$base-jumpbox"
   }
   $existingRgs = @(Get-AzResourceGroup -ErrorAction SilentlyContinue | Select-Object -ExpandProperty ResourceGroupName)
   $rgExists = @{}; foreach ($k in $rg.Keys) { $rgExists[$k] = $existingRgs -contains $rg[$k] }
@@ -542,6 +543,7 @@ function Get-AvdLandingZone {
     AdminsGroupId    = $null
     AvdServicePrincipalId = $null
     RecoveryVault    = $null
+    Jumpbox          = $null
   }
   foreach ($k in $rg.Keys) { $lz.ResourceGroupIds[$k] = "$sub/resourceGroups/$($rg[$k])" }
 
@@ -581,6 +583,9 @@ function Get-AvdLandingZone {
       $pe = Get-AvdPrivateEndpointDnsZoneId -SubscriptionId $lz.SubscriptionId -TargetResourceId $lz.HostPool.ResourceId
       if ($pe) { $lz.AvdDnsZoneId = $pe.DnsZoneId }
     }
+  }
+  if ($rgExists.Jumpbox) {
+    $lz.Jumpbox = Get-AzResource -ResourceGroupName $rg.Jumpbox -ResourceType Microsoft.Compute/virtualMachines -Name "vm-$base-jumpbox" -ErrorAction SilentlyContinue
   }
   if ($rgExists.Hosts) {
     $lz.AdminsGroupId = Get-AvdRoleAssigneeId -Scope $lz.ResourceGroupIds.Hosts -RoleName 'Virtual Machine Administrator Login' -ObjectType Group
@@ -818,6 +823,134 @@ function Test-AvdHostPoolRegion {
   else {
     Add-AvdCheckResult $area "AVD host pools offered in $Location" 'Fail' -Id 'hostpool-region' -Data @{ location = $Location; regions = @($regions | Sort-Object) } -Detail "Host pool regions: $(($regions | Sort-Object) -join ', ')" -Remediation 'The landing zone deploys the host pool in its own region: pick one of these (the deployment portal ranks them by latency).'
   }
+}
+
+# =====================================================================
+# Operator jumpbox through Azure Bastion Developer (decision 0019)
+# =====================================================================
+# Regions that offer Bastion Developer, from Microsoft Learn "Choose the right Azure Bastion SKU",
+# Regional availability (read 2026-10-21). scripts/deploy/deploy.sh keeps the same list (a test
+# checks they match). Update both when Microsoft adds regions.
+$script:BastionDeveloperRegions = @(
+  'brazilsouth', 'canadacentral', 'canadaeast', 'centralus', 'centraluseuap', 'eastus2', 'eastus2euap', 'mexicocentral', 'northcentralus', 'westcentralus', 'westus',
+  'francecentral', 'germanywestcentral', 'italynorth', 'northeurope', 'norwayeast', 'spaincentral', 'swedencentral', 'switzerlandnorth', 'uksouth', 'ukwest', 'westeurope',
+  'australiacentral', 'australiaeast', 'australiasoutheast', 'centralindia', 'eastasia', 'japaneast', 'japanwest', 'koreacentral', 'koreasouth', 'southindia', 'southeastasia',
+  'southafricanorth', 'uaenorth'
+)
+
+function Get-AvdBastionDeveloperRegion {
+  <# The regions that offer Azure Bastion Developer (Microsoft Learn, bastion-sku-comparison). #>
+  return , @($script:BastionDeveloperRegions)
+}
+
+function Get-AvdJumpboxSpec {
+  <# The jumpbox's OS, size and disk from a deployment plan: jumpboxVmSize, else the per-OS default bicep/main.bicep uses. #>
+  param([Parameter(Mandatory)][hashtable] $Plan)
+  $os = if ([string]$Plan.jumpboxOs -eq 'Windows') { 'Windows' } else { 'Linux' }
+  $size = if ($Plan.jumpboxVmSize) { [string]$Plan.jumpboxVmSize } elseif ($os -eq 'Windows') { 'Standard_B2as_v2' } else { 'Standard_B2als_v2' }
+  [pscustomobject]@{ Os = $os; VmSize = $size; Disk = $(if ($os -eq 'Windows') { 'E10' } else { 'E4' }) }
+}
+
+function Test-AvdJumpboxPlan {
+  <#
+    Pre-deployment checks for -deployJumpbox: the region offers Bastion Developer, the jumpbox size
+    is offered there, and what Bastion Developer cannot do in this landing zone's shape.
+  #>
+  param([Parameter(Mandatory)][hashtable] $Plan)
+  $area = 'Jumpbox'
+  $loc = ([string]$Plan.location).ToLower()
+  if ($script:BastionDeveloperRegions -contains $loc) { Add-AvdCheckResult $area "Azure Bastion Developer offered in $loc" 'Pass' }
+  else {
+    Add-AvdCheckResult $area "Azure Bastion Developer offered in $loc" 'Fail' -Id 'bastion-developer-region' -Data @{ location = $loc; regions = @($script:BastionDeveloperRegions) } `
+      -Detail "Bastion Developer regions (Microsoft Learn): $($script:BastionDeveloperRegions -join ', ')" `
+      -Remediation 'Deploy without --jumpbox, or in one of these regions. Basic and higher work everywhere but bill by the hour, and this landing zone does not deploy them.'
+  }
+  $size = (Get-AvdJumpboxSpec -Plan $Plan).VmSize
+  $sku = @(Get-AzComputeResourceSku -Location $loc -ErrorAction SilentlyContinue | Where-Object { $_.ResourceType -eq 'virtualMachines' -and $_.Name -eq $size }) | Select-Object -First 1
+  if (-not $sku) { Add-AvdCheckResult $area "Jumpbox size $size offered in $loc" 'Fail' -Remediation 'Set jumpboxVmSize to a size the region offers.' }
+  elseif (@($sku.Restrictions | Where-Object { $_.ReasonCode -eq 'NotAvailableForSubscription' -and $_.Type -eq 'Location' }).Count) {
+    Add-AvdCheckResult $area "Jumpbox size $size available to this subscription" 'Fail' -Remediation 'Request access to the size or set jumpboxVmSize to another.'
+  }
+  else { Add-AvdCheckResult $area "Jumpbox size $size offered in $loc" 'Pass' }
+  if ($Plan.connectivityMode -eq 'HubPeered') {
+    Add-AvdCheckResult $area 'Bastion Developer in a hub-peered spoke' 'Warn' -Detail 'Bastion Developer reaches only VMs in the spoke itself (no peering), and with the hub firewall route on the jumpbox subnet it is not tested yet.' -Remediation 'A hub usually has its own Bastion (Basic or higher reaches peered VNets); use that, or test the jumpbox in a sandbox first.'
+  }
+  if ($Plan.jumpboxKeepRunningUntil) {
+    Add-AvdCheckResult $area 'Jumpbox daily stop' 'Warn' -Detail "Kept running until $($Plan.jumpboxKeepRunningUntil) (UTC): no daily stop until then." -Remediation 'Stop it when you are done: ./scripts/ops/Connect-AvdJumpbox.ps1 -Stop.'
+  }
+}
+
+function Get-AvdJumpboxMeterState {
+  <#
+    Never leave the meter running (avd-second-brain decision 0017): is the jumpbox billing compute,
+    and is that covered? Pure: takes the VM's power state, tags and daily stop schedule as Azure
+    returns them (absent properties omitted, lesson 0021).
+  #>
+  param(
+    # The instance view's PowerState/... code, e.g. 'PowerState/running', 'PowerState/deallocated'.
+    [string] $PowerState,
+    $Tags,
+    # The Microsoft.DevTestLab/schedules shutdown-computevm-<vm> resource, or $null.
+    $Schedule,
+    [datetime] $Now = [datetime]::UtcNow
+  )
+  $code = ([string]$PowerState) -replace '^PowerState/', ''
+  $billing = $code -in @('running', 'starting', 'stopping', 'stopped')
+  $until = $null
+  $raw = if ($Tags) { if ($Tags -is [System.Collections.IDictionary]) { $Tags['avdlz-keep-running-until'] } else { $Tags.'avdlz-keep-running-until' } }
+  if ($raw) { $parsed = [datetime]::MinValue; if ([datetime]::TryParse([string]$raw, [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]'AdjustToUniversal, AssumeUniversal', [ref]$parsed)) { $until = $parsed } }
+  $scheduled = $Schedule -and $Schedule.properties -and $Schedule.properties.status -eq 'Enabled'
+  $state = [ordered]@{ PowerState = $code; Billing = $billing; KeepRunningUntil = $until; DailyStop = [bool]$scheduled; Status = 'Pass'; Detail = ''; Remediation = '' }
+  $at = if ($scheduled) { "$($Schedule.properties.dailyRecurrence.time) $($Schedule.properties.timeZoneId)" } else { '' }
+  if ($code -notin @('running', 'starting', 'stopping', 'stopped', 'deallocating', 'deallocated')) {
+    # No power state, or one this check doesn't know: never report it as not billing.
+    $state.Billing = $null; $state.Status = 'Warn'; $state.Detail = "Power state unknown ('$PowerState'): it may be billing."
+    $state.Remediation = 'Check it in the portal, or deallocate it: ./scripts/ops/Connect-AvdJumpbox.ps1 -Stop.'
+  }
+  elseif ($code -eq 'stopped') {
+    $state.Status = 'Warn'; $state.Detail = 'Stopped from inside the VM, not deallocated: compute still bills.'
+    $state.Remediation = 'Deallocate it: ./scripts/ops/Connect-AvdJumpbox.ps1 -Stop.'
+  }
+  elseif (-not $billing) { $state.Detail = "Deallocated: only its disk bills.$(if ($scheduled) { " Daily stop at $at." })" }
+  elseif ($until -and $until -lt $Now) {
+    $state.Status = 'Warn'; $state.Detail = "Running past its keep-running time ($($until.ToString('yyyy-MM-ddTHH:mmZ')))."
+    $state.Remediation = 'Stop it (./scripts/ops/Connect-AvdJumpbox.ps1 -Stop), or redeploy with a later --jumpbox-keep-running.'
+  }
+  elseif ($until) { $state.Detail = "Running, kept on until $($until.ToString('yyyy-MM-ddTHH:mmZ'))." }
+  elseif ($scheduled) { $state.Detail = "Running; stops daily at $at." }
+  else {
+    $state.Status = 'Warn'; $state.Detail = 'Running with no daily stop and no keep-running time.'
+    $state.Remediation = 'Redeploy (deploy.sh --jumpbox) to restore its daily stop, or stop it: ./scripts/ops/Connect-AvdJumpbox.ps1 -Stop.'
+  }
+  return [pscustomobject]$state
+}
+
+function Test-AvdJumpbox {
+  <# Post-deployment: the jumpbox, its Bastion, and whether its meter is covered (Get-AvdJumpboxMeterState). #>
+  param([Parameter(Mandatory)] $Lz)
+  $area = 'Jumpbox'
+  if (-not $Lz.Jumpbox) { Add-AvdCheckResult $area "Jumpbox VM in $($Lz.ResourceGroups.Jumpbox)" 'Fail' -Remediation 'Redeploy with deploy.sh --jumpbox, or remove it: Remove-AvdDemo.ps1 -IncludeJumpbox.'; return }
+  $vmId = $Lz.Jumpbox.ResourceId
+  $view = Invoke-AvdArm -Path "$vmId/instanceView?api-version=2024-07-01"
+  $power = @($view.statuses | Where-Object { $_.code -like 'PowerState/*' } | ForEach-Object code) | Select-Object -First 1
+  $vm = Invoke-AvdArm -Path "$($vmId)?api-version=2024-07-01"
+  $schedule = Invoke-AvdArm -Path "$($Lz.ResourceGroupIds.Jumpbox)/providers/Microsoft.DevTestLab/schedules/shutdown-computevm-$($Lz.Jumpbox.Name)?api-version=2018-09-15" -AllowNotFound
+  $meter = Get-AvdJumpboxMeterState -PowerState $power -Tags $vm.tags -Schedule $schedule
+  Add-AvdCheckResult $area "Jumpbox $($Lz.Jumpbox.Name) meter" $meter.Status -Id 'jumpbox-meter' -Detail $meter.Detail -Remediation $meter.Remediation -Data @{ powerState = $meter.PowerState; dailyStop = $meter.DailyStop }
+  # Windows first boot is a Run Command sent only when the VM is created: say when it didn't finish.
+  if ($vm.properties.storageProfile.osDisk.osType -eq 'Windows') {
+    $run = Invoke-AvdArm -Path "$vmId/runCommands/avdlz-jumpbox-tools?`$expand=instanceView&api-version=2024-07-01" -AllowNotFound
+    $state = if ($run) { [string]$run.properties.instanceView.executionState } else { 'missing' }
+    if ($state -eq 'Succeeded') { Add-AvdCheckResult $area 'Jumpbox tools installed (Windows first boot)' 'Pass' }
+    else {
+      Add-AvdCheckResult $area 'Jumpbox tools installed (Windows first boot)' 'Warn' -Id 'jumpbox-tools' -Detail ("Run Command avdlz-jumpbox-tools: $state. $([string]$run.properties.instanceView.error)".Trim()) `
+        -Remediation "Run it again: az vm run-command create -g $($Lz.ResourceGroups.Jumpbox) --vm-name $($Lz.Jumpbox.Name) --name avdlz-jumpbox-tools --script @scripts/jumpbox/Install-JumpboxTools.ps1 (C:\avdlz\jumpbox.log shows where it stopped)."
+    }
+  }
+  $bastion = Invoke-AvdArm -Path "$($Lz.ResourceGroupIds.Network)/providers/Microsoft.Network/bastionHosts/bas-$($Lz.BaseName)?api-version=2024-07-01" -AllowNotFound
+  if ($bastion -and $bastion.sku.name -eq 'Developer') { Add-AvdCheckResult $area "Bastion Developer bas-$($Lz.BaseName)" 'Pass' -Detail 'No hourly charge.' }
+  elseif ($bastion) { Add-AvdCheckResult $area "Bastion bas-$($Lz.BaseName) is the Developer SKU" 'Warn' -Detail "SKU $($bastion.sku.name) bills by the hour." -Remediation 'It was changed outside the landing zone; Bastion cannot be downgraded. Delete it and redeploy with --jumpbox.' }
+  else { Add-AvdCheckResult $area "Bastion Developer bas-$($Lz.BaseName)" 'Fail' -Remediation 'Redeploy with deploy.sh --jumpbox.' }
 }
 
 # =====================================================================
@@ -1997,6 +2130,7 @@ function Invoke-AvdReadinessCheck {
     return
   }
   Test-AvdLandingZoneResource -Lz $Lz
+  if ($Lz.RgExists.Jumpbox) { Write-AvdSection 'Jumpbox'; Test-AvdJumpbox -Lz $Lz }
   Write-AvdSection 'RBAC'
   Test-AvdLandingZoneRbac -Lz $Lz
   Write-AvdSection 'Recovery'
@@ -2077,8 +2211,9 @@ function Get-AvdDeploymentPlan {
     [string] $AvdServicePrincipalId,
     # Region override: the parameter files read it from AVD_LOCATION.
     [string] $Location,
-    # Sizing overrides (hosts, vmSize, maxSessions, profileQuotaGiB, and the power settings autoShutdownTime
-    # and startVmOnConnect): the parameter files read AVD_SESSION_HOST_COUNT etc.
+    # Sizing overrides (hosts, vmSize, maxSessions, profileQuotaGiB, the power settings autoShutdownTime
+    # and startVmOnConnect, and the jumpbox: jumpbox, jumpboxKeepRunningUntil): the parameter files read
+    # AVD_SESSION_HOST_COUNT etc.
     [hashtable] $Sizing = @{},
     # Recovery region override: the parameter files read it from AVD_RECOVERY_LOCATION.
     [string] $RecoveryLocation
@@ -2096,7 +2231,8 @@ function Get-AvdDeploymentPlan {
   if ($Location) { $vars.AVD_LOCATION = $Location }
   if ($RecoveryLocation) { $vars.AVD_RECOVERY_LOCATION = $RecoveryLocation }
   $sizingVars = @{ hosts = 'AVD_SESSION_HOST_COUNT'; vmSize = 'AVD_SESSION_HOST_VM_SIZE'; maxSessions = 'AVD_MAX_SESSION_LIMIT'; profileQuotaGiB = 'AVD_PROFILE_QUOTA_GIB'
-    autoShutdownTime = 'AVD_AUTO_SHUTDOWN_TIME'; startVmOnConnect = 'AVD_START_VM_ON_CONNECT' }
+    autoShutdownTime = 'AVD_AUTO_SHUTDOWN_TIME'; startVmOnConnect = 'AVD_START_VM_ON_CONNECT'
+    jumpbox = 'AVD_DEPLOY_JUMPBOX'; jumpboxKeepRunningUntil = 'AVD_JUMPBOX_KEEP_RUNNING_UNTIL'; jumpboxOs = 'AVD_JUMPBOX_OS' }
   foreach ($k in $sizingVars.Keys) { $vars[$sizingVars[$k]] = $(if ($Sizing[$k]) { [string]$Sizing[$k] } else { '' }) }
   $saved = @{}
   foreach ($k in $vars.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k); [Environment]::SetEnvironmentVariable($k, $vars[$k]) }
@@ -2286,7 +2422,30 @@ function Get-AvdCostEstimate {
       pick = { $_.skuName -eq 'Standard' -and $_.meterName -match 'Static Public IP' -and $_.meterName -notmatch 'IPv6' -and $_.unitOfMeasure -eq '1 Hour' } }
   }
 
-  $lines = @(); $unpriced = @(); $alwaysOnCompute = $null
+  # The operator jumpbox (decision 0019): Linux at the base compute rate, Windows Server at the Windows
+  # rate (the server license is in it); Bastion Developer is free.
+  $free = @()
+  $jumpboxAlwaysOn = [bool]$Plan.jumpboxKeepRunningUntil
+  if ($Plan.deployJumpbox) {
+    $jSpec = Get-AvdJumpboxSpec -Plan $Plan
+    $jSize = $jSpec.VmSize; $jDisk = $jSpec.Disk
+    $jHours = if ($jumpboxAlwaysOn) { $script:HoursPerMonth } else { [math]::Round($ActiveHoursPerWeek * 52 / 12, 1) }
+    $jPick = if ($jSpec.Os -eq 'Windows') {
+      { $_.productName -match '^Virtual Machines .* Windows$' -and $_.skuName -notmatch 'Spot|Low Priority' -and $_.unitOfMeasure -eq '1 Hour' }
+    }
+    else { { $_.productName -match '^Virtual Machines ' -and $_.productName -notmatch 'Windows' -and $_.skuName -notmatch 'Spot|Low Priority' -and $_.unitOfMeasure -eq '1 Hour' } }
+    $specs += @{ key = 'jumpbox'; item = "Jumpbox (1 x $jSize, $($jSpec.Os))"; quantity = $jHours; unit = 'hours'
+      note = $(if ($jumpboxAlwaysOn) { "kept running until $($Plan.jumpboxKeepRunningUntil)" } else { "$ActiveHoursPerWeek h/week; stopped daily at $($Plan.jumpboxAutoShutdownTime)" })
+      filter = "serviceName eq 'Virtual Machines' and armRegionName eq '$loc' and armSkuName eq '$jSize' and priceType eq 'Consumption'"
+      pick = $jPick }
+    $specs += @{ key = 'jumpboxdisk'; item = "Jumpbox OS disk (Standard SSD $jDisk)"; quantity = 1; unit = 'disks'
+      filter = "serviceName eq 'Storage' and armRegionName eq '$loc' and skuName eq '$jDisk LRS' and priceType eq 'Consumption'"
+      pick = { $_.productName -eq 'Standard SSD Managed Disks' -and $_.meterName -eq "$jDisk LRS Disk" -and $_.unitOfMeasure -match 'Month' } }
+    # No meter to match: Microsoft Learn (bastion-sku-comparison) lists no hourly or data charge.
+    $free += 'Azure Bastion Developer (no hourly or outbound data charge)'
+  }
+
+  $lines = @(); $unpriced = @(); $alwaysOnCompute = $null; $jumpboxAlwaysOnCompute = $null
   foreach ($s in $specs) {
     $items = @(Get-AvdRetailPrice -Filter $s.filter -Currency $Currency)
     # Exactly one meter must match (first price tier); several different ones means the pattern is too loose.
@@ -2305,18 +2464,21 @@ function Get-AvdCostEstimate {
       monthly = [math]::Round($price * $s.quantity, 2); meter = "$($hit.productName) / $($hit.meterName)" }
     if ($s.note) { $line.note = $s.note }
     if ($s.key -eq 'compute') { $alwaysOnCompute = [math]::Round($price * $hosts * $script:HoursPerMonth, 2) }
+    if ($s.key -eq 'jumpbox') { $jumpboxAlwaysOnCompute = [math]::Round($price * $script:HoursPerMonth, 2) }
     $lines += $line
   }
   $total = [math]::Round((($lines | ForEach-Object { $_.monthly }) | Measure-Object -Sum).Sum, 2)
   $computeLine = $lines | Where-Object { $_.key -eq 'compute' }
+  $jumpboxLine = $lines | Where-Object { $_.key -eq 'jumpbox' }
   [ordered]@{
     currency           = $Currency
     location           = $loc
     activeHoursPerWeek = $ActiveHoursPerWeek
     total              = $total
-    alwaysOnTotal      = $(if ($null -ne $alwaysOnCompute) { [math]::Round($total - $computeLine.monthly + $alwaysOnCompute, 2) } else { $null })
+    alwaysOnTotal      = $(if ($null -ne $alwaysOnCompute) { [math]::Round($total - $computeLine.monthly + $alwaysOnCompute + $(if ($null -ne $jumpboxAlwaysOnCompute) { $jumpboxAlwaysOnCompute - $jumpboxLine.monthly } else { 0 }), 2) } else { $null })
     lines              = @($lines)
     unpriced           = @($unpriced)
+    free               = @($free)
     excluded           = @('Log Analytics ingestion and retention (per GB)', 'NAT Gateway and private endpoint data processed (per GB)',
       'Azure Backup of the profile share (when enabled)', 'Defender for Cloud plans (when enabled)', 'Windows / Microsoft 365 licenses (per user)')
   }
@@ -2360,7 +2522,7 @@ function Test-AvdSizing {
   }
   $summary = '{0:N2} {1}/month at {2} h/week per host' -f $estimate.total, $estimate.currency, $ActiveHoursPerWeek
   if ($null -ne $estimate.alwaysOnTotal) { $summary += ('; {0:N2} if hosts run around the clock' -f $estimate.alwaysOnTotal) }
-  Add-AvdCheckResult 'Cost' 'Estimated monthly cost (list prices)' 'Pass' -Id 'cost-estimate' -Detail "$summary. Not included (usage-based): $($estimate.excluded -join '; ')."
+  Add-AvdCheckResult 'Cost' 'Estimated monthly cost (list prices)' 'Pass' -Id 'cost-estimate' -Detail "$summary.$(if ($estimate.free.Count) { " No charge: $($estimate.free -join '; ')." }) Not included (usage-based): $($estimate.excluded -join '; ')."
   return $estimate
 }
 
@@ -2513,6 +2675,7 @@ function Test-AvdPreDeployment {
   else { Add-AvdCheckResult 'Subscription' "$($plan.profileStorageSku) file shares available in $($plan.location)" 'Fail' -Remediation "Set profileStorageSku = 'Premium_LRS', or choose a region with Premium ZRS file shares." }
 
   Test-AvdDeletedKeyVault -Lz $lz -Location $plan.location -Fix:$Fix
+  if ($plan.deployJumpbox) { Write-AvdSection 'Jumpbox'; Test-AvdJumpboxPlan -Plan $plan }
 
   # Never leave the meter running (avd-second-brain decision 0017): a sandbox needs a budget backstop.
   if ($plan.monthlyBudgetAmount -le 0 -and $plan.environmentName -ne 'prod') {
