@@ -859,6 +859,10 @@ Describe 'Run recorder: run store and the cost gate' {
     Get-StepExit $out 'start-unpriced' | Should -Be 1
     $out | Should -Match 'RESULT start-unpriced gate=False unpriced=1 match=none noGuess=True localOnly=True'
   }
+  It 'prices the session host size the deploy uses (AVD_SESSION_HOST_VM_SIZE)' {
+    Get-StepExit $out 'start-sized' | Should -Be 0
+    $out | Should -Match 'RESULT start-sized hosts=Session hosts \(1 x Standard_D2as_v5\) envRestored=True'
+  }
 }
 
 Describe 'Same-tenant recovery (build/specs/recovery-spec.md)' {

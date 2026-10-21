@@ -54,6 +54,17 @@ $c2 = Get-Content (Join-Path (Join-Path (Join-Path $root 'avdlz-runs') 'run-2026
 $line = $c2.expected.lines | Where-Object { $null -eq $_.cost } | Select-Object -First 1
 Write-Host "RESULT start-unpriced gate=$($c2.gate.passed) unpriced=$($c2.expected.unpriced) match=$($line.match) noGuess=$($null -eq $line.cost) localOnly=$(-not $global:St.blobs.ContainsKey('runs/run-20261020-1805-t3st/cost.json'))"
 
+# The size the deploy uses (AVD_SESSION_HOST_VM_SIZE, set by the portal's record step and the batch
+# runner) is the size priced; it was the parameter file's default before (sandbox batch b20261021-0609).
+Invoke-ScenarioStep 'start-sized' {
+  $global:St.ipMeterRenamed = $false
+  $env:AVD_SESSION_HOST_VM_SIZE = 'Standard_D2as_v5'
+  try { & ./scripts/ops/Start-AvdRunRecorder.ps1 -RunId 'run-20261020-1810-s1ze' -Location northcentralus -LocalRoot $root -Local }
+  finally { Remove-Item Env:AVD_SESSION_HOST_VM_SIZE -ErrorAction SilentlyContinue }
+}
+$c3 = Get-Content (Join-Path (Join-Path (Join-Path $root 'avdlz-runs') 'run-20261020-1810-s1ze') 'cost.json') -Raw | ConvertFrom-Json
+Write-Host "RESULT start-sized hosts=$(@($c3.expected.lines | Where-Object { $_.item -like 'Session hosts*' })[0].item) envRestored=$([string]::IsNullOrEmpty($env:AVD_SESSION_HOST_VM_SIZE))"
+
 # Closing the run (Stop-AvdRunRecorder.ps1): export the landing zone's AVD logs before cleanup, then the
 # first actual cost reading, then a later reading Cost Management refuses, then a copy to a public repo.
 $lzArgs = @{ NamePrefix = 'avdlz'; Environment = 'dev'; RunId = $runId; LocalRoot = $root }
