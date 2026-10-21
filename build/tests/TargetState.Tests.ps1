@@ -26,7 +26,7 @@ BeforeAll {
 }
 
 Describe 'Vendored contracts' {
-  It '<_> is byte-identical to avd-second-brain at the pinned commit' -ForEach @(
+  It '<_> is byte-identical to its source repo at the pinned commit' -ForEach @(
     (Get-Content (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) 'contracts/PINS.json') -Raw | ConvertFrom-Json).files.PSObject.Properties.Name
   ) {
     $pins = Get-Content (Join-Path $script:contracts 'PINS.json') -Raw | ConvertFrom-Json

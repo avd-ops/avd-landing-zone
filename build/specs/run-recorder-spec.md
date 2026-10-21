@@ -86,6 +86,8 @@ Rules for the inference, each a Pester case:
 - Every command block the portal prints already ends with the state line; a short hint under each block says "If Cloud Shell resets, run *Where did I leave off?*".
 - Stage `resume` is added to `Get-AvdPortalState`'s `ValidateSet`, `portal-core.js`, `STAGE_LABEL`, the schema in `site/portal/README.md`, and their tests (R5).
 
+**Built in phase 2:** the header's **Where did I leave off?** button (and `#resume`) prints the `Get-AvdRunStatus.ps1` block, and the step's commands end with a one-line hint pointing to it. **Record this run** in Deployment settings generates a run ID (`newRunId`, UTC with a random suffix; **New run ID** replaces it), picks the mode (`azure` or `on`), adds the two variables to every block the portal prints, and lists the recorder's five steps: open the run, keep the logs before cleanup, close the run, copy it to the private repo, read the cost again. `build/tests/portal/browser/` checks both on a desktop in light mode and a phone in dark mode in Chromium (CI job `portal-browser`). Not built yet: the portal's local classification log (section 8.3) and `AVDLZ_PORTAL_STEP`.
+
 UI work follows the frontend design pass with the avd-ops design system, and is tested in a real browser with Playwright (webapp-testing), not only with Node tests.
 
 ## 5. Redaction: two levels, one implementation
@@ -154,7 +156,7 @@ The Azure store is **durable log storage for the sandbox**, set up once per subs
 
 ### 6.5 One schema for every kind of run (contract C17)
 
-*Added 2026-10-20 at the owner's request, before rollout.* The run folder's files follow avd-second-brain's contract C17, `avd-run-record/v1`, so the same record works for the landing zone today and for other use cases later (image builds, the Liquidware tier, the Stratusphere instrument, avd-swarm plans) without a new format each time. The brain's `contracts/schemas/` is the authority; this repo keeps byte-identical copies in `contracts/`, pinned in `contracts/PINS.json`.
+*Added 2026-10-20 at the owner's request, before rollout.* The run folder's files follow avd-second-brain's contract C17, `avd-run-record/v1`, so the same record works for the landing zone today and for other use cases later (image builds, the Liquidware tier, the Stratusphere instrument, avd-swarm plans) without a new format each time. avd-assess's `contracts/` is the authority since avd-second-brain decision 0021 moved C15 and C17 there (the bytes didn't change); this repo keeps byte-identical copies in `contracts/`, pinned in `contracts/PINS.json`.
 
 - `run.json`: the run ID, its use case (`landing-zone` here), the producing repo and commit, steps, region, status, the manifest of every file with its hashes and verified copies (§9.2), and how teardown ended.
 - `journal.jsonl`: the events in §6.2.
@@ -282,7 +284,7 @@ Prices above are from Microsoft's sample price tables (§12, F5). The real estim
 
 - **Expected,** written before anything is deployed: each line of the printed estimate (`Get-AvdCostEstimate` and the recorder's own meters, §9.1) with the retail meter it matched, unit price, currency, quantity and hours, when the prices were read, the cap, and the go/no-go rule's result (§13a). A line that matched no meter, or several, is kept as such (R7), never filled in with a guess.
 - **Actual,** read from Cost Management's query API for the run's resource groups and the run store over the run's window, by day and by meter. `Stop-AvdRunRecorder.ps1` writes the first reading at the end of the run, marked `settled: false`. `Stop-AvdRunRecorder.ps1 -UpdateCost <runId>` reads it again later, and after 72 hours with no change marks it `settled: true`. Each reading is appended with the time it was taken, so the record shows how the figure moved and nothing is overwritten.
-- **Compared:** total and per-line difference, any meter that appeared in the actuals but not in the estimate (the most useful finding: a cost the estimate doesn't know about), and anything still billing after teardown.
+- **Compared:** total and per-line difference, any meter that appeared in the actuals but not in the estimate (the most useful finding: a cost the estimate doesn't know about), and anything still billing after teardown: a second query over the landing zone's resource groups only (the run store stays on purpose), from the day after teardown. Cost Management dates are whole UTC days, so the teardown day holds the run's own spend and is never counted; a reading on that day can't tell yet.
 - **In the companion repo:** each update is a new commit on the `runs` branch, and `runs/costs.csv` keeps one row per run (run ID, date, region, sizing, cap, expected, latest actual, settled), so the history of expected against actual can be read at a glance and reconciled against the card statement.
 - **Shared:** the public report carries only the totals, the per-meter differences and the region and sizes (no subscription or resource names), so a gap between estimate and actual becomes a fix to `Get-AvdCostEstimate` that every operator gets.
 - **Permissions:** reading actuals needs Cost Management Reader (or Reader) on the subscription; without it the record says *actual unavailable: no access* rather than failing the run.

@@ -36,7 +36,7 @@
   $('issues-link').textContent = repoSlug;
 
   // Saved settings are checked like typed ones: an old or edited value that no longer fits is dropped.
-  var cfg = Object.assign({}, P.DEFAULTS, P.validSettings(load('config', {})).settings, { repoUrl: repoUrl, ref: site.ref, sizing: load('sizing', null), power: load('power', null), hoursWorkedPerWeek: load('hoursWorked', 50), launch: P.launchTarget(load('launch', null)) });
+  var cfg = Object.assign({}, P.DEFAULTS, P.validSettings(load('config', {})).settings, { repoUrl: repoUrl, ref: site.ref, sizing: load('sizing', null), power: load('power', null), hoursWorkedPerWeek: load('hoursWorked', 50), launch: P.launchTarget(load('launch', null)), record: load('record', null) });
   var step = load('step', null);
   // Furthest step reached, by id: later steps stay hidden until the deployment gets there. (Saved as an
   // index before the Cost step existed; those indexes are read against the old step list.)
@@ -188,8 +188,8 @@
   }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
 
-  function renderActions(actions) {
-    var box = $('actions'); box.textContent = '';
+  function renderActions(actions, box) {
+    box = box || $('actions'); box.textContent = '';
     actions.forEach(function (a, i) {
       var d = el('div', 'action');
       d.appendChild(el('h3', '', (actions.length > 1 ? (i + 1) + '. ' : '') + a.title));
@@ -202,7 +202,57 @@
       }
       box.appendChild(d);
     });
+    // Spec section 4.3: a reset loses the shell, not the deployment.
+    if (box === $('actions') && actions.some(function (a) { return /scripts\//.test(a.command || ''); })) {
+      var hint = el('p', 'muted resume-hint', 'If Cloud Shell resets, the deployment keeps running. Use ');
+      var link = el('a', '', 'Where did I leave off?'); link.href = '#resume';
+      link.addEventListener('click', function (e) { e.preventDefault(); showResume(true); });
+      hint.appendChild(link); hint.appendChild(document.createTextNode(' at the top to pick up from there.'));
+      box.appendChild(hint);
+    }
   }
+
+  // ---------------------------------------------------------------- where did I leave off (run recorder spec section 4)
+  function renderResume() {
+    if (!$('resume-panel').classList.contains('hidden')) renderActions([{ title: 'Read where the run stands', why: '', command: P.commands.runStatus(config()) }], $('resume-actions'));
+  }
+  function showResume(open) {
+    $('resume-panel').classList.toggle('hidden', !open);
+    $('resume-link').setAttribute('aria-expanded', String(open));
+    if (open) {
+      renderResume();
+      $('resume-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    else $('resume-link').focus({ preventScroll: true });
+  }
+  $('resume-link').addEventListener('click', function (e) { e.preventDefault(); showResume($('resume-panel').classList.contains('hidden')); });
+  $('resume-close').addEventListener('click', function () { showResume(false); });
+  if (location.hash === '#resume') showResume(true);
+
+  // ---------------------------------------------------------------- record this run (run recorder spec sections 5 and 6)
+  function renderRecord() {
+    var r = P.recording(cfg);
+    $('record-on').checked = !!r;
+    $('record-mode').value = r ? r.mode : (cfg.record && cfg.record.mode === 'on' ? 'on' : 'azure');
+    $('record-mode').disabled = !r;
+    $('record-panel').classList.toggle('hidden', !r);
+    if (!r) return;
+    $('record-id').textContent = r.runId;
+    $('record-note').textContent = 'Every command below sets this run ID, so it keeps recording after a Cloud Shell reset. Open the run before the pre-deployment preflight; the run folder is kept ' +
+      (r.mode === 'azure' ? 'in the run store (outside the landing zone, so cleanup never removes it) and in Cloud Shell.' : 'in Cloud Shell only (~/clouddrive/avdlz-runs when clouddrive is mounted).');
+    renderActions(P.recordActions(config()), $('record-actions'));
+  }
+  function setRecord(rec) {
+    cfg.record = rec; save('record', rec);
+    render();
+  }
+  $('record-on').addEventListener('change', function () {
+    var mode = $('record-mode').value === 'on' ? 'on' : 'azure';
+    setRecord($('record-on').checked ? { runId: P.newRunId(), mode: mode } : { mode: mode });
+    if (cfg.record) $('record-steps').open = true;
+  });
+  $('record-mode').addEventListener('change', function () { if (P.recording(cfg)) setRecord({ runId: cfg.record.runId, mode: $('record-mode').value === 'on' ? 'on' : 'azure' }); });
+  $('record-new').addEventListener('click', function () { if (P.recording(cfg)) setRecord({ runId: P.newRunId(), mode: P.recording(cfg).mode }); });
 
   function renderFindings(r) {
     var box = $('findings'); box.textContent = '';
@@ -224,7 +274,7 @@
   }
 
   function render() {
-    renderSteps(); renderSlides(); renderLaunch();
+    renderSteps(); renderSlides(); renderLaunch(); renderRecord(); renderResume();
     var chip = $('next-chip'), head = $('next-headline');
     if (lastAnalysis) {
       var r = lastAnalysis;
@@ -297,7 +347,10 @@
   $('clear-paste').addEventListener('click', function () { $('paste').value = ''; $('paste-status').textContent = ''; maskedCount = 0; showMasked(); lastAnalysis = null; render(); refreshReport(true); });
   $('reset').addEventListener('click', function () {
     try { Object.keys(localStorage).filter(function (k) { return k.indexOf('avdlz.portal.') === 0; }).forEach(function (k) { localStorage.removeItem(k); }); } catch (e) { /* storage unavailable */ }
-    cfg = Object.assign({}, P.DEFAULTS, { repoUrl: repoUrl, ref: site.ref, sizing: null, power: null, hoursWorkedPerWeek: 50, launch: null }); step = null; reached = 0; ranked = null; lastAnalysis = null; latency = [];
+    // A shell that ran a recorded block still has the run ID: the next blocks clear it.
+    var wasRecording = P.recording(cfg);
+    cfg = Object.assign({}, P.DEFAULTS, { repoUrl: repoUrl, ref: site.ref, sizing: null, power: null, hoursWorkedPerWeek: 50, launch: null, record: wasRecording ? { mode: wasRecording.mode } : null });
+    if (wasRecording) save('record', cfg.record); step = null; reached = 0; ranked = null; lastAnalysis = null; latency = [];
     pools = [Object.assign({}, P.HOST_POOL_DEFAULTS)]; estimate = null; renderPools(); renderCost();
     reach = null; $('reach-results').classList.add('hidden'); renderReachability();
     $('results').classList.add('hidden'); $('paste').value = ''; maskedCount = 0; showMasked(); setConfig({}); render(); showStep();

@@ -10,6 +10,8 @@ Subscription (dedicated AVD landing zone)
 │     vnet-<prefix>-<env>            10.100.0.0/22
 │       snet-session-hosts           10.100.0.0/23   NSG · NAT GW (standalone) or UDR→hub FW · no default outbound
 │       snet-private-endpoints       10.100.2.0/27   NSG enforced on PEs (445 from hosts, 443 from VNet)
+│       snet-jumpbox (opt-in)        10.100.2.32/28  NSG · same egress as the hosts · no public IP
+│     Bastion Developer bas-<prefix>-<env> (opt-in, no charge, decision 0019)
 │     private endpoints: file, vault, host pool (connection)
 │     privatelink zones: file, vaultcore, wvd       (standalone; hub mode can use central zones)
 │
@@ -24,10 +26,13 @@ Subscription (dedicated AVD landing zone)
 ├── rg-<prefix>-<env>-avd
 │     Host pool (pooled, Private Link) · Desktop app group · Workspace · Scaling plan
 │
-└── rg-<prefix>-<env>-hosts
-      Session hosts ×N (zones 1/2/3, Trusted Launch, encryption at host)
-        extensions: AADLoginForWindows (+Intune), AzureMonitorWindowsAgent, GuestConfiguration
-        run commands: Configure-FSLogix → Register-AvdAgent
+├── rg-<prefix>-<env>-hosts
+│     Session hosts ×N (zones 1/2/3, Trusted Launch, encryption at host)
+│       extensions: AADLoginForWindows (+Intune), AzureMonitorWindowsAgent, GuestConfiguration
+│       run commands: Configure-FSLogix → Register-AvdAgent
+│
+└── rg-<prefix>-<env>-jumpbox (opt-in, deploy.sh --jumpbox)
+      Operator jumpbox: Ubuntu (B2als_v2) or Windows Server 2025 (B2as_v2), Trusted Launch, daily stop, Cloud Shell's tools
 ```
 
 ## Traffic flows

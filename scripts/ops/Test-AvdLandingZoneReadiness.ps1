@@ -104,6 +104,11 @@ param(
   # the daily scheduled stop (HH:mm, or none) and Start VM on Connect. Empty = the parameter file's.
   [Parameter(ParameterSetName = 'PreDeployment')][ValidatePattern('^(none|([01][0-9]|2[0-3]):[0-5][0-9])$')][string] $AutoShutdownTime,
   [Parameter(ParameterSetName = 'PreDeployment')][ValidateSet('true', 'false')][string] $StartVmOnConnect,
+  # The operator jumpbox (deploy.sh --jumpbox / --jumpbox-keep-running, decision 0019): check its region
+  # and size, and price it.
+  [Parameter(ParameterSetName = 'PreDeployment')][switch] $Jumpbox,
+  [Parameter(ParameterSetName = 'PreDeployment')][ValidateSet('Linux', 'Windows')][string] $JumpboxOs,
+  [Parameter(ParameterSetName = 'PreDeployment')][ValidatePattern('^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z$')][string] $JumpboxKeepRunningUntil,
 
   # ---- Post-deployment ----
   [Parameter(Mandatory, ParameterSetName = 'PostDeployment')][ValidateLength(2, 8)][string] $NamePrefix,
@@ -151,6 +156,9 @@ if ($PreDeployment) {
       @('AutoShutdownTime', 'autoShutdownTime'), @('StartVmOnConnect', 'startVmOnConnect'))) {
     if ($PSBoundParameters.ContainsKey($p[0])) { $sizing[$p[1]] = $PSBoundParameters[$p[0]] }
   }
+  if ($Jumpbox) { $sizing.jumpbox = 'true' }
+  if ($JumpboxOs) { $sizing.jumpbox = 'true'; $sizing.jumpboxOs = $JumpboxOs }
+  if ($JumpboxKeepRunningUntil) { $sizing.jumpbox = 'true'; $sizing.jumpboxKeepRunningUntil = $JumpboxKeepRunningUntil }
   $pre = @{ ParameterFile = $ParameterFile; UsersGroup = $UsersGroup; AdminsGroup = $AdminsGroup; Location = $Location; Fix = $Fix; AddMeToGroups = $AddMeToGroups; SkipTenant = $SkipTenant; WhatIf = $WhatIfPreference; Sizing = $sizing; ActiveHoursPerWeek = $ActiveHoursPerWeek; RecoveryLocation = $RecoveryLocation }
   if ($Force) { $pre.Confirm = $false }
   $outcome = Test-AvdPreDeployment @pre

@@ -102,9 +102,10 @@
             "enum": [
               "C11",
               "C12",
+              "C19",
               null
             ],
-            "description": "null while a fact has no contract yet (intake, liquidware)"
+            "description": "null while a fact has no contract yet (liquidware)"
           },
           "path": {
             "type": [

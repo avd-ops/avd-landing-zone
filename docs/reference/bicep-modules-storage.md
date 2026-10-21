@@ -17,6 +17,7 @@
 | `logAnalyticsWorkspaceResourceId` | string |  |  |
 | `usersGroupObjectId` | string |  |  |
 | `adminsGroupObjectId` | string |  |  |
+| `allowSharedKeyAccess` | bool | `false` | Allow storage account key access. Only the vaulted profile backup tier needs it; SMB stays Kerberos-only, so a key cannot mount the share. |
 
 ## Outputs
 

@@ -1,17 +1,39 @@
 {
-  "description": "Vendored copies of avd-second-brain contracts C14, C15 and C17. Each must be byte-identical to the file at brainCommit; build/tests/TargetState.Tests.ps1 checks the hashes. To update: copy the files from avd-second-brain at a new commit, then update brainCommit and the hashes in the same PR.",
-  "source": "https://github.com/nickprignano/avd-second-brain",
-  "brainCommit": "d3a69460df36914fa4c47eb68a729d4aa1922739",
+  "description": "Vendored contracts, each byte-identical to its source repo at the pinned commit: C15 (fact register) and C17 (run records) from avd-assess, which authors them since avd-second-brain decision 0021; C14 (target state and approval) from avd-second-brain. build/tests/TargetState.Tests.ps1 checks the hashes. To update: copy the files from the source at a new commit, then update that source's commit and the hashes in the same PR.",
+  "sources": {
+    "avd-assess": {
+      "url": "https://github.com/nickprignano/avd-assess",
+      "commit": "b4209a753ef25b509b728f1e03be5d09c68e1842",
+      "files": [
+        "fact-register.json",
+        "run-use-cases.json",
+        "schemas/fact-register.schema.json",
+        "schemas/run-cost.schema.json",
+        "schemas/run-journal.schema.json",
+        "schemas/run-record.schema.json"
+      ]
+    },
+    "avd-second-brain": {
+      "url": "https://github.com/nickprignano/avd-second-brain",
+      "commit": "ddb84a24a4ae992efb4aa87dc514593e2e2b32bb",
+      "files": [
+        "examples/target-approval.example.json",
+        "examples/target-state.example.json",
+        "schemas/target-approval.schema.json",
+        "schemas/target-state.schema.json"
+      ]
+    }
+  },
   "files": {
-    "examples/target-approval.example.json": "992aed2c7fda851ee3ba9bc6e1603749c93d2b762ec12def042747660fbbc019",
-    "examples/target-state.example.json": "468c4759df2103e92bf69a49a0d6caf2738635512a0699b928033f99fdc80cb5",
-    "fact-register.json": "2f8caa73030fa194fafe2a9446f1ccf8a63c4d94c3be84e55765ee0a876a60d4",
-    "run-use-cases.json": "79ef51bfd86bc4959775ef9fdf92b89cfc88de7524c358672350096424d6060f",
-    "schemas/fact-register.schema.json": "32713dc5a8aa3f6ed808925e3357119638eb758b73798e0ad869f811c2fb6166",
+    "examples/target-approval.example.json": "0b65be5d679c4a6d599500764dd901c9f2f7e20402ee25dce9b65ce27c662b9e",
+    "examples/target-state.example.json": "6f76c725a6b5e5a2b7baf95908032009d37081af537fe977a224a72488744914",
+    "fact-register.json": "08049b1f60e694f9da9fc12adbc745f573ff3aef15d3b9588bd50100626252fc",
+    "run-use-cases.json": "e9d981d5584df77d3d806dcb248b0a1159c250af8a349a081288ad0e29ac6714",
+    "schemas/fact-register.schema.json": "ba7e188bcc8e252090f9645de06e1a9d315ce9331321608f3c30cc4f1c857f3a",
     "schemas/run-cost.schema.json": "79a277aef8d55a7aefc70ba2fa727e561bc771efaa83cc5dbd2f70c54d51a6ab",
     "schemas/run-journal.schema.json": "f64b75331f63e659babc87994cd8fbacbd74a3d6becb445a1bbda22fde4541ac",
     "schemas/run-record.schema.json": "11538708814a62b588090974657b758a62430ddf6ed2937a4d6e77239df945cf",
     "schemas/target-approval.schema.json": "02459b9471b00cc46a69afcbbfce20bf2a6b52d3d7269e63849b0b5267195277",
-    "schemas/target-state.schema.json": "0bb90df282f43e9ade372ddc6e404bb91c33218f0705899ca9a8efc9a60ee46f"
+    "schemas/target-state.schema.json": "ff6a3d5942e0028fec1e95e879ccd92ddf619ba27488b053151afe026a9d65eb"
   }
 }

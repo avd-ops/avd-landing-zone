@@ -76,7 +76,14 @@
           "c12.group.perUser.p95MemoryMiB@hp-ac5fc5e3",
           "c12.group.perUser.p95CpuPercentOfCore@hp-ac5fc5e3"
         ],
-        "confidence": "high"
+        "confidence": "high",
+        "alternatives": [
+          {
+            "value": "Standard_D8as_v5",
+            "whyNot": "capacity",
+            "note": "Memory binds before CPU at this tier"
+          }
+        ]
       },
       "maxSessions": {
         "value": 12,

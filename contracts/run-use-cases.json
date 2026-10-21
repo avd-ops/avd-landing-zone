@@ -6,6 +6,7 @@
     { "id": "image-build", "producer": "avd-landing-zone", "status": "proposed", "covers": "golden image builds" },
     { "id": "liquidware-tier", "producer": "avd-liquidware", "status": "proposed", "covers": "ProfileUnity, FlexApp and Stratusphere tier deployments and cleanup" },
     { "id": "stratusphere-instrument", "producer": "avd-liquidware", "status": "proposed", "covers": "Stratusphere appliance deployment and Connector ID Key rollout" },
+    { "id": "recovery", "producer": "avd-landing-zone", "status": "proposed", "covers": "configuration snapshots, backup checks, recovery tests, the verify routine and restores", "spec": "build/specs/recovery-spec.md" },
     { "id": "swarm-plan", "producer": "avd-swarm", "status": "proposed", "covers": "an approved plan's run through the approve environment" }
   ]
 }

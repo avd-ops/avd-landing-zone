@@ -29,6 +29,15 @@ param connectivityMode = 'Standalone'
 // Golden image build subnets (build/specs/image-pipeline-spec.md): only in the image build environment.
 // AVD_IMAGE_BUILD_SUBNETS=true adds them (empty = off).
 param deployImageBuildSubnets = empty(readEnvironmentVariable('AVD_IMAGE_BUILD_SUBNETS', '')) ? false : bool(readEnvironmentVariable('AVD_IMAGE_BUILD_SUBNETS', ''))
+// Operator jumpbox through Bastion Developer (decision 0019), off by default: deploy.sh --jumpbox sets
+// AVD_DEPLOY_JUMPBOX=true, and --jumpbox-keep-running <yyyy-MM-ddTHH:mmZ> skips its daily stop until then
+// (empty = off and the daily stop; lesson 0004).
+param deployJumpbox = empty(readEnvironmentVariable('AVD_DEPLOY_JUMPBOX', '')) ? false : bool(readEnvironmentVariable('AVD_DEPLOY_JUMPBOX', ''))
+param jumpboxKeepRunningUntil = readEnvironmentVariable('AVD_JUMPBOX_KEEP_RUNNING_UNTIL', '')
+// --jumpbox-os windows: Windows Server instead of Linux (AVD_JUMPBOX_OS)
+param jumpboxOs = toLower(readEnvironmentVariable('AVD_JUMPBOX_OS', '')) == 'windows' ? 'Windows' : 'Linux'
+// deploy.sh sets AVD_JUMPBOX_EXISTS when the VM already exists, so it isn't re-sent (decision 0019)
+param jumpboxExists = empty(readEnvironmentVariable('AVD_JUMPBOX_EXISTS', '')) ? false : bool(readEnvironmentVariable('AVD_JUMPBOX_EXISTS', ''))
 
 // ---- Session hosts ----
 // Regional hosts (no zones) work in every region, including those without

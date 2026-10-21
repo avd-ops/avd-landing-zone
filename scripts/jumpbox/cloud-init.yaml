@@ -1,0 +1,50 @@
+#cloud-config
+# Operator jumpbox (build/decisions/0019-jumpbox-bastion-developer.md): the Cloud Shell toolchain on a
+# small Linux VM inside the landing zone's VNet, so runs don't time out with a browser tab and can
+# reach the private endpoints (Key Vault, storage) that Cloud Shell can't.
+# Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE). Not affiliated with the author's employer or with Microsoft.
+#
+# Embedded in the VM's custom data by bicep/modules/jumpbox.bicep at compile time. It runs once, at
+# first boot, and downloads from Microsoft's package feeds, the PowerShell Gallery and the Bicep
+# release on GitHub (the version CI pins in validate.yml). It installs tools only: no credentials, no
+# repository checkout. The operator signs in as themselves (device code) in each session.
+package_update: true
+package_upgrade: true
+packages:
+  - git
+  - jq
+  - unzip
+  - curl
+  - ca-certificates
+  - apt-transport-https
+  - gnupg
+write_files:
+  - path: /etc/motd
+    permissions: '0644'
+    content: |
+
+      AVD landing zone jumpbox. Tools: pwsh, az, bicep, git (first boot installs them;
+      /var/log/avdlz-jumpbox.log shows progress, and a line 'ready' when it is done).
+      Sign in as yourself:  az login --use-device-code ; pwsh -c Connect-AzAccount -UseDeviceAuthentication
+      Keep run journals in the run store, not here: this disk is deleted with the jumpbox.
+      Stops daily on its own schedule; ./scripts/ops/Connect-AvdJumpbox.ps1 -Stop stops it now.
+
+runcmd:
+  - - bash
+    - -c
+    - |
+      set -euo pipefail
+      exec >>/var/log/avdlz-jumpbox.log 2>&1
+      echo "$(date -u +%FT%TZ) installing PowerShell"
+      . /etc/os-release
+      curl -fsSL --retry 3 -o /tmp/packages-microsoft-prod.deb "https://packages.microsoft.com/config/ubuntu/${VERSION_ID}/packages-microsoft-prod.deb"
+      dpkg -i /tmp/packages-microsoft-prod.deb && rm -f /tmp/packages-microsoft-prod.deb
+      apt-get update && apt-get install -y powershell
+      echo "$(date -u +%FT%TZ) installing the Azure CLI"
+      curl -fsSL --retry 3 https://aka.ms/InstallAzureCLIDeb | bash
+      echo "$(date -u +%FT%TZ) installing Bicep"
+      curl -fsSL --retry 3 -o /usr/local/bin/bicep https://github.com/Azure/bicep/releases/download/v0.48.1/bicep-linux-x64
+      chmod 0755 /usr/local/bin/bicep
+      echo "$(date -u +%FT%TZ) installing the Az and Microsoft Graph PowerShell modules the scripts use"
+      pwsh -NoProfile -NonInteractive -Command "Set-PSRepository PSGallery -InstallationPolicy Trusted; Install-Module -Scope AllUsers -Force -Name Az.Accounts, Az.Resources, Az.Compute, Az.Storage, Az.KeyVault, Az.RecoveryServices, Az.DesktopVirtualization, Microsoft.Graph.Authentication"
+      echo "$(date -u +%FT%TZ) ready"

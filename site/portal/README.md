@@ -71,6 +71,10 @@ The same value always gets the same placeholder. Reports carry `<!-- avdlz-porta
 
 `REACHABILITY_HOSTS` in `portal-core.js` lists the probed hosts: concrete names from Microsoft's [required endpoints for end-user devices](https://learn.microsoft.com/azure/virtual-desktop/required-fqdn-endpoint). Most of that list is wildcards, which a browser can't probe. `classifyReachability()` turns the page's medians into `reachable`, `partial`, `blocked` or `unknown`. Only every host reached is `reachable`, and an untested host never counts as reached. A resolved `no-cors` request means DNS, a connection and TLS succeeded. It says nothing about sign-in, the feed and gateway hosts, UDP or the session host, and a proxy's block page also resolves. The page shows that text (`limits`) beside the result.
 
+## Recording a run
+
+**Record this run** in Deployment settings turns on the run recorder ([spec](../../build/specs/run-recorder-spec.md) sections 5 and 6): the portal generates a run ID, adds `$env:AVDLZ_RECORD` and `$env:AVDLZ_RUN_ID` to every command it prints, and lists the recorder's steps (open the run before the preflight, keep the logs before cleanup, close the run, copy it to your private repo, read the cost again). The run ID is kept in this browser with the other settings; **Reset** clears it. **Where did I leave off?** at the top prints `Get-AvdRunStatus.ps1`; paste its output to pick up where Azure says the run stands.
+
 ## Changing it
 
 - **A script's output or parameters change:** run the portal tests. One of them checks that every parameter the portal puts in a command exists in the script.

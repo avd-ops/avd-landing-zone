@@ -748,6 +748,105 @@ Describe 'Deployment portal hosting (decision 0017)' {
   }
 }
 
+Describe 'Operator jumpbox (decision 0019)' {
+  It 'lists the same Bastion Developer regions as deploy.sh, northcentralus in and eastus out' {
+    $regions = Get-AvdBastionDeveloperRegion
+    $regions | Should -Contain 'northcentralus'
+    $regions | Should -Not -Contain 'eastus'
+    $regions | Should -Not -Contain 'southcentralus'
+    $sh = Get-Content (Join-Path $PSScriptRoot '../../scripts/deploy/deploy.sh') -Raw
+    $line = [regex]::Match($sh, 'BASTION_DEVELOPER_REGIONS=" ([a-z0-9 ]+) "').Groups[1].Value
+    @($line -split ' ' | Sort-Object) | Should -Be @($regions | Sort-Object)
+  }
+
+  Context 'Get-AvdJumpboxMeterState' {
+    # Fixtures omit empty properties the way ARM does (lesson 0021).
+    BeforeAll {
+      $now = [datetime]::Parse('2026-10-21T12:00:00Z').ToUniversalTime()
+      $daily = [pscustomobject]@{ properties = [pscustomobject]@{ status = 'Enabled'; timeZoneId = 'Central Standard Time'; dailyRecurrence = [pscustomobject]@{ time = '2000' } } }
+    }
+    It 'passes a deallocated jumpbox: only the disk bills' {
+      $m = Get-AvdJumpboxMeterState -PowerState 'PowerState/deallocated' -Schedule $daily -Now $now
+      $m.Status | Should -Be 'Pass'
+      $m.Billing | Should -BeFalse
+    }
+    It 'passes a running jumpbox with its daily stop' {
+      $m = Get-AvdJumpboxMeterState -PowerState 'PowerState/running' -Tags ([pscustomobject]@{ workload = 'avd' }) -Schedule $daily -Now $now
+      $m.Status | Should -Be 'Pass'
+      $m.Detail | Should -Match '2000 Central Standard Time'
+    }
+    It 'warns about a VM stopped from inside: compute still bills' {
+      (Get-AvdJumpboxMeterState -PowerState 'PowerState/stopped' -Schedule $daily -Now $now).Status | Should -Be 'Warn'
+    }
+    It 'never reports an unknown or missing power state as not billing' {
+      foreach ($p in @($null, '', 'PowerState/unknown')) {
+        $m = Get-AvdJumpboxMeterState -PowerState $p -Schedule $daily -Now $now
+        $m.Status | Should -Be 'Warn'
+        $m.Detail | Should -Not -Match 'Deallocated'
+      }
+    }
+    It 'treats a Disabled daily stop (kept running) as no daily stop' {
+      $off = [pscustomobject]@{ properties = [pscustomobject]@{ status = 'Disabled'; dailyRecurrence = [pscustomobject]@{ time = '2000' }; timeZoneId = 'Central Standard Time' } }
+      (Get-AvdJumpboxMeterState -PowerState 'PowerState/running' -Schedule $off -Now $now).Status | Should -Be 'Warn'
+    }
+    It 'passes a keep-running time in the future and warns once it is past' {
+      $tags = @{ 'avdlz-keep-running-until' = '2026-10-21T18:00Z' }
+      (Get-AvdJumpboxMeterState -PowerState 'PowerState/running' -Tags $tags -Now $now).Status | Should -Be 'Pass'
+      $late = Get-AvdJumpboxMeterState -PowerState 'PowerState/running' -Tags $tags -Now $now.AddHours(7)
+      $late.Status | Should -Be 'Warn'
+      $late.Remediation | Should -Match 'Connect-AvdJumpbox.ps1 -Stop'
+    }
+    It 'warns about a running jumpbox with no daily stop and no keep-running time (no schedule resource at all)' {
+      $m = Get-AvdJumpboxMeterState -PowerState 'PowerState/running' -Schedule $null -Now $now
+      $m.Status | Should -Be 'Warn'
+      $m.DailyStop | Should -BeFalse
+    }
+  }
+
+  It 'prices the jumpbox at the Linux rate and its Standard SSD, and lists Bastion Developer as free' {
+    Mock -ModuleName AvdLandingZone Get-AvdRetailPrice {
+      if ($Filter -like "*armSkuName eq 'Standard_B2als_v2'*") {
+        [pscustomobject]@{ productName = 'Virtual Machines Basv2 Series'; skuName = 'B2als v2'; meterName = 'B2als v2'; unitOfMeasure = '1 Hour'; retailPrice = 0.04 }
+        [pscustomobject]@{ productName = 'Virtual Machines Basv2 Series Windows'; skuName = 'B2als v2'; meterName = 'B2als v2'; unitOfMeasure = '1 Hour'; retailPrice = 0.08 }
+      }
+      elseif ($Filter -like "*E4 LRS*") { [pscustomobject]@{ productName = 'Standard SSD Managed Disks'; skuName = 'E4 LRS'; meterName = 'E4 LRS Disk'; unitOfMeasure = '1/Month'; retailPrice = 2.4 } }
+    }
+    $plan = @{ location = 'northcentralus'; sessionHostCount = 1; sessionHostVmSize = 'Standard_E4as_v5'; profileShareQuotaGiB = 100; profileStorageSku = 'Premium_LRS'; connectivityMode = 'HubPeered'; enableAvdPrivateLink = $false
+      deployJumpbox = $true; jumpboxVmSize = 'Standard_B2als_v2'; jumpboxAutoShutdownTime = '2000'; jumpboxKeepRunningUntil = '' }
+    $e = Get-AvdCostEstimate -Plan $plan -ActiveHoursPerWeek 10
+    $j = $e.lines | Where-Object key -eq 'jumpbox'
+    $j.unitPrice | Should -Be 0.04
+    $j.quantity | Should -Be ([math]::Round(10 * 52 / 12, 1))
+    ($e.lines | Where-Object key -eq 'jumpboxdisk').monthly | Should -Be 2.4
+    $e.free | Should -Match 'Bastion Developer'
+    $plan.jumpboxKeepRunningUntil = '2026-10-22T02:00Z'
+    ((Get-AvdCostEstimate -Plan $plan -ActiveHoursPerWeek 10).lines | Where-Object key -eq 'jumpbox').quantity | Should -Be 730
+    $plan.deployJumpbox = $false
+    $off = Get-AvdCostEstimate -Plan $plan -ActiveHoursPerWeek 10
+    ($off.lines + $off.unpriced | ForEach-Object key) | Should -Not -Contain 'jumpbox'
+    $off.free.Count | Should -Be 0
+  }
+
+  It 'prices a Windows jumpbox at the Windows rate on its default size, with a Standard SSD E10' {
+    Mock -ModuleName AvdLandingZone Get-AvdRetailPrice {
+      if ($Filter -like "*armSkuName eq 'Standard_B2as_v2'*") {
+        [pscustomobject]@{ productName = 'Virtual Machines Basv2 Series'; skuName = 'B2as v2'; meterName = 'B2as v2'; unitOfMeasure = '1 Hour'; retailPrice = 0.075 }
+        [pscustomobject]@{ productName = 'Virtual Machines Basv2 Series Windows'; skuName = 'B2as v2'; meterName = 'B2as v2'; unitOfMeasure = '1 Hour'; retailPrice = 0.084 }
+        [pscustomobject]@{ productName = 'Basv2 Series Cloud Services'; skuName = 'B2as v2'; meterName = 'B2as v2'; unitOfMeasure = '1 Hour'; retailPrice = 0.084 }
+      }
+      elseif ($Filter -like "*E10 LRS*") { [pscustomobject]@{ productName = 'Standard SSD Managed Disks'; skuName = 'E10 LRS'; meterName = 'E10 LRS Disk'; unitOfMeasure = '1/Month'; retailPrice = 9.6 } }
+    }
+    $plan = @{ location = 'northcentralus'; sessionHostCount = 1; sessionHostVmSize = 'Standard_E4as_v5'; profileShareQuotaGiB = 100; profileStorageSku = 'Premium_LRS'; connectivityMode = 'HubPeered'; enableAvdPrivateLink = $false
+      deployJumpbox = $true; jumpboxOs = 'Windows'; jumpboxVmSize = ''; jumpboxAutoShutdownTime = '2000'; jumpboxKeepRunningUntil = '' }
+    $e = Get-AvdCostEstimate -Plan $plan -ActiveHoursPerWeek 10
+    $j = $e.lines | Where-Object key -eq 'jumpbox'
+    $j.unitPrice | Should -Be 0.084
+    $j.item | Should -Match 'Standard_B2as_v2, Windows'
+    ($e.lines | Where-Object key -eq 'jumpboxdisk').monthly | Should -Be 9.6
+    (Get-AvdJumpboxSpec -Plan @{ jumpboxVmSize = '' }).VmSize | Should -Be 'Standard_B2als_v2'
+  }
+}
+
 Describe 'Host security baseline profile (decision 0018)' {
   BeforeAll {
     $script:baseline = Get-Content -Raw (Join-Path $PSScriptRoot '../../scripts/security/host-baseline.json') | ConvertFrom-Json

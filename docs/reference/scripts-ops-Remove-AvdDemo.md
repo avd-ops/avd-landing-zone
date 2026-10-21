@@ -12,7 +12,8 @@ Removes the demo host pool deployed by Deploy-AvdDemo.ps1, and optionally the wh
 | `-Environment` | string | yes |  |  |
 | `-SubscriptionId` | string | no |  |  |
 | `-IncludeLandingZone` | switch | no |  |  |
+| `-IncludeJumpbox` | switch | no |  | Remove the operator jumpbox and its Bastion Developer (decision 0019). Its disk may hold the only copy of what was run there (run journals in ~/avdlz-runs), so it needs -DiscardLastCopy too. |
 | `-KeepDevices` | switch | no |  |  |
 | `-ResetDefender` | switch | no |  |  |
 | `-Force` | switch | no |  | Skip confirmations (including the typed confirmation for -IncludeLandingZone). |
-| `-DiscardLastCopy` | switch | no |  | -IncludeLandingZone: delete the profiles, their backups and the Log Analytics workspace although they hold the only copy of that data (never delete the last copy, avd-second-brain decision 0016). -Force never implies it. |
+| `-DiscardLastCopy` | switch | no |  | -IncludeLandingZone / -IncludeJumpbox: delete the profiles, their backups and the Log Analytics workspace although they hold the only copy of that data (never delete the last copy, avd-second-brain decision 0016). -Force never implies it. |

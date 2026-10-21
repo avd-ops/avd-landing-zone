@@ -140,6 +140,22 @@ jobs:
       - name: node --test
         run: node --test "build/tests/portal/*.test.mjs"
 
+  portal-browser:
+    name: Deployment portal in a browser
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # Resume and Record this run on a desktop (light) and a phone (dark), in Chromium.
+      - name: Install Playwright and Chromium
+        run: |
+          npm install --no-save --no-package-lock playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: node --test (browser)
+        run: node --test "build/tests/portal/browser/*.test.mjs"
+
   psrule:
     name: PSRule for Azure (Well-Architected)
     runs-on: ubuntu-latest
