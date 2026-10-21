@@ -163,6 +163,8 @@ $env:GIT_DIR = $null
 git init -q $repo; git -C $repo -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m t
 git -C $repo remote add origin https://github.com/contoso/avd-landing-zone.git; git -C $repo update-ref refs/remotes/origin/master HEAD
 $env:GIT_DIR = Join-Path $repo '.git'; $script:pinnedSha = git -C $repo rev-parse HEAD
+# What git in bash sees, for a failure message on a platform where it differs.
+Write-Host "RESULT runbook-pinned-git $((& $bash -c 'git rev-parse HEAD; git remote get-url origin; git branch -r --contains HEAD' 2>&1 | Out-String) -replace '\s+', ' ')"
 Invoke-Deploy 'runbook-pinned'
 Write-Host "RESULT runbook-pinned-sha $script:pinnedSha"
 # A preset pin must be a raw URL at a commit or a v* tag, never a branch.

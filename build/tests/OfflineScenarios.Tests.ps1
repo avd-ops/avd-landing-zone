@@ -395,7 +395,7 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     $out | Should -Match 'A deployment would stop here'
   }
   It 'pins the runbook to the deployed commit when a remote has it' {
-    Get-StepExit $out 'runbook-pinned' | Should -Be 0
+    Get-StepExit $out 'runbook-pinned' | Should -Be 0 -Because "git in bash saw: $(Get-Result 'runbook-pinned-git'); deploy.sh said: $((($out -split '######## runbook-pinned')[1] -split 'RESULT runbook-pinned EXIT')[0])"
     Get-Result 'runbook-pinned-runbook' | Should -Be "https://raw.githubusercontent.com/contoso/avd-landing-zone/$(Get-Result 'runbook-pinned-sha')/scripts/automation/Invoke-AvdPowerAction.ps1"
   }
   It 'refuses an AVD_RUNBOOK_URI that names a branch' {
