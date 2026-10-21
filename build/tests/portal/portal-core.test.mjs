@@ -490,7 +490,8 @@ test('page: one slide per step, in order, and the latency check comes first', ()
 
 test('page: Deployment settings opens from a link in the header, above the steps', () => {
   const html = readFileSync(new URL('../../../site/portal/index.html', import.meta.url), 'utf8');
-  const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+  const top = html.indexOf('<header class="top"');                       // the page's own header, under the avd-ops shell bar
+  const header = html.slice(top, html.indexOf('</header>', top));
   assert.match(header, /id="settings-link"[^>]*aria-controls="settings-panel"/);
   assert.ok(html.indexOf('id="settings-panel"') < html.indexOf('id="steps"'), 'settings panel sits under the header');
   assert.ok(html.indexOf('id="settings-panel"') < html.indexOf('id="report-panel"'));
