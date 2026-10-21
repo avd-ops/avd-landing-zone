@@ -60,8 +60,8 @@
   ];
   // Values the repo ships with: not private, and keeping them keeps reports readable.
   var DEFAULT_VALUES = ['avdlz', 'avd users', 'avd admins', 'dev', 'test', 'prod', 'northcentralus'];
-  // Domains that are not the operator's (avd-ops.dev hosts this portal: the scripts print its URL).
-  var PUBLIC_DOMAINS = ['microsoft.com', 'windows.net', 'azure.com', 'azure.net', 'contoso.com', 'example.com', 'github.com', 'github.io', 'cloud.microsoft', 'microsoftonline.com', 'avd-ops.dev'];
+  // Domains that are not the operator's.
+  var PUBLIC_DOMAINS = ['microsoft.com', 'windows.net', 'azure.com', 'azure.net', 'contoso.com', 'example.com', 'github.com', 'github.io', 'cloud.microsoft', 'microsoftonline.com'];
 
   var LABELS = {
     secret: 'secret or token', email: 'email address / UPN', domain: 'domain', tenant: 'tenant name', id: 'ID',

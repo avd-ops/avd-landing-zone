@@ -287,7 +287,8 @@ DEPLOY_NAME="${DEPLOY_NAME:-avdlz-$(basename "$PARAM_FILE" .bicepparam)-$(date +
 
 # Machine-readable state for the deployment portal (site/portal). Schema: site/portal/README.md.
 # AVD_PORTAL_URL points at a copy published into the subscription (Publish-AvdPortal.ps1, decision 0017).
-PORTAL_URL="https://deploy.avd-ops.dev/portal/"
+DEFAULT_PORTAL_URL="https://deploy.avd-ops.dev/portal/"
+PORTAL_URL="$DEFAULT_PORTAL_URL"
 if [[ "${AVD_PORTAL_URL:-}" =~ ^https://[A-Za-z0-9.-]+(/[^[:space:]\"\'\<\>]*)?$ ]]; then PORTAL_URL="${AVD_PORTAL_URL%/}/"; fi
 json_str() { local s=${1//\\/\\\\}; s=${s//\"/\\\"}; printf '"%s"' "$s"; }
 # The commit these scripts run from, so the portal can tell when it is older than them (red team PH-8).
@@ -296,7 +297,7 @@ PORTAL_COMMIT=$(git -C "$(cd "$(dirname "$0")" && pwd)" rev-parse --short HEAD 2
 portal_state() {
   # $1 = status (started | succeeded | failed | whatif); $2 = extra context JSON members (optional)
   printf '\nDeployment portal: paste this output into %s for the next step.\n' "$PORTAL_URL"
-  if [[ "$PORTAL_URL" != "https://deploy.avd-ops.dev/portal/" ]]; then
+  if [[ "$PORTAL_URL" != "$DEFAULT_PORTAL_URL" ]]; then
     local portal_host=${PORTAL_URL#https://}; printf 'Portal host: %s, set by AVD_PORTAL_URL\n' "${portal_host%%/*}"
   fi
   local sizing=""

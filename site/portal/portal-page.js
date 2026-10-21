@@ -151,11 +151,12 @@
   function fitTrack() { var sl = currentSlide(); if (sl) track.style.height = sl.offsetHeight + 'px'; }
   if (window.ResizeObserver) { var ro = new ResizeObserver(fitTrack); slides().forEach(function (sl) { ro.observe(sl); }); }
   window.addEventListener('resize', function () { fitTrack(); showStep('instant'); });
+  var bar = document.querySelector('header.bar');
   function showStep(page) {
     var sl = currentSlide(); if (!sl) return;
     programmatic = Date.now();
     track.scrollTo({ left: sl.offsetLeft - track.offsetLeft, behavior: page === 'instant' ? 'auto' : 'smooth' });
-    if (page !== 'instant' && track.getBoundingClientRect().top < document.querySelector('header.bar').offsetHeight) $('steps').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (page !== 'instant' && track.getBoundingClientRect().top < (bar ? bar.getBoundingClientRect().bottom : 0)) $('steps').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   // Scrolling the track sideways (swipe, trackpad, keyboard) changes the step in view.
   var scrollTimer = null;
