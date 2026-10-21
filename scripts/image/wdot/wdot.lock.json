@@ -4,6 +4,7 @@
   "license": "MIT",
   "version": "v1.1",
   "commit": "f20d6b7748d01e6e6c55518e8a9496af2749ca41",
+  "toolVersion": "1.1.0.0",
   "archiveUrl": "https://github.com/The-Virtual-Desktop-Team/Windows-Desktop-Optimization-Tool/archive/f20d6b7748d01e6e6c55518e8a9496af2749ca41.zip",
   "archiveRoot": "Windows-Desktop-Optimization-Tool-f20d6b7748d01e6e6c55518e8a9496af2749ca41",
   "optimizations": [
@@ -12,6 +13,42 @@
     "Autologgers",
     "DefaultUserSettings"
   ],
+  "verify": {
+    "eventSources": [
+      "WDOT",
+      "WindowsMediaPlayer",
+      "AppxPackages",
+      "ScheduledTasks",
+      "DefaultUserSettings",
+      "Autologgers",
+      "Services",
+      "LocalPolicy",
+      "NetworkOptimizations",
+      "AdvancedOptimizations",
+      "DiskCleanup"
+    ],
+    "startEvent": {
+      "id": 1,
+      "message": "Starting WDOT*"
+    },
+    "endEvent": {
+      "id": 1,
+      "message": "WDOT Total Run Time*"
+    },
+    "fatalEventIds": [
+      100,
+      101
+    ],
+    "categoryEvents": {
+      "Services": 60,
+      "ScheduledTasks": 30,
+      "Autologgers": 50,
+      "DefaultUserSettings": 40
+    },
+    "knownErrors": {
+      "ParameterAlreadyBound,Microsoft.PowerShell.Commands.NewEventLogCommand": "v1.1 passes -Source twice to New-EventLog, which Windows PowerShell 5.1 refuses; the build creates the WDOT event log itself first"
+    }
+  },
   "profileSha256": "08092903f13f079100f4c242f3281446344567076a0a12f39627cae9ced87f74",
   "files": {
     "Windows_Optimization.ps1": "87fc0bb13d725150afa308b8e2210f42baa657ee2078b6f6e5719582c7dd67cc",
