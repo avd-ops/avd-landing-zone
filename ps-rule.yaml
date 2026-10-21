@@ -2,6 +2,12 @@
 # against the Azure Well-Architected Framework rules.
 # https://azure.github.io/PSRule.Rules.Azure/
 
+# The versions CI installs (validate.yml PSRULE_VERSION, PSRULE_AZURE_VERSION). A local run
+# with other versions stops here instead of reporting different findings.
+requires:
+  PSRule: '2.9.0'
+  PSRule.Rules.Azure: '1.47.0'
+
 configuration:
   AZURE_BICEP_FILE_EXPANSION: true
   AZURE_BICEP_PARAMS_FILE_EXPANSION: true
