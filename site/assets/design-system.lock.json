@@ -1,12 +1,12 @@
 {
   "$comment": "The avd-ops design system copy in this folder: the avd-ops tag and commit it came from and the SHA-256 of each file (its MANIFEST.json). Update it with the Cloud Shell block in avd-ops docs/design-system.md, never by hand.",
-  "tag": "ds-v2.0.1",
-  "commit": "d106eed35aced00f7292601b706e62f56a795446",
+  "tag": "ds-v2.1.0",
+  "commit": "753f62b60e808efcff5654a0c22b2ebbe3eb3676",
   "files": {
-    "avd-ops.css": "f8a763d9bb86a65d78911cd5770cb4ad5fe047917402897d4eba13b2b2181a8b",
-    "avd-ops-shell.css": "4ecfae2231489a2a96163df9d27b36f331f37f101d09ff1fd5408262879f1761",
-    "avd-ops-portal.css": "3bc34048abf27413c95f01490afc3fe501a1693173bde932d17a0c72f859fb6e",
-    "theme.js": "3798da13325bfc97b946e08dd05256f8705f98e3adeb99568fef3621fd242017",
+    "avd-ops.css": "e46e4d4bdfe3dcc51c9db1f79171ab3d5201990f39aa2919d82cf2a20ac08ce8",
+    "avd-ops-shell.css": "f3042c1a949f7b7b80be8ba3a65445ab257dc2a5250995eebe03e240727bc342",
+    "avd-ops-portal.css": "0040b1a93189034836c03e74232ed9f56b4b50856d8d82eb1531e1cedc91a65a",
+    "theme.js": "5008b69a725caec0dc61c97584423967ec412fe4c3a19c6aec21837b03f1625c",
     "fonts/LICENSE": "5340cc319ceeaba4bfeb4065c719457d8804fe53bbc65253e8fdd3c318dcc4fe",
     "fonts/jetbrains-mono-latin-500-normal.woff2": "cb182feeed4d798ff6961d3c79f7026279448fca0676438aaecb21f3fc39553a",
     "fonts/jetbrains-mono-latin-600-normal.woff2": "400c6bfda18d5d14acad1c15d6dcb9f8e13c015e7286317e0b9a482539bef147",

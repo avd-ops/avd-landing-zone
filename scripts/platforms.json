@@ -1,0 +1,108 @@
+{
+ "$comment": "Where each script the deployment portal runs works (avd-ops docs/design-system.md, Run in): tested (a real run proved it, see evidence), untested (should work, no real run yet; the portal marks it) or no (the portal hides it). Bash runs a .ps1 through pwsh unless twin names a bash script. windows means PowerShell 7. Scripts that run inside Azure (session hosts, image builds, runbooks on a schedule) are not listed. site/portal/portal-core.js carries a copy; a test keeps them equal.",
+ "version": 1,
+ "scripts": {
+  "scripts/ops/Connect-AvdLandingZone.ps1": {
+   "cloudshell-pwsh": "tested",
+   "cloudshell-bash": "untested",
+   "windows": "untested",
+   "macos": "untested",
+   "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules",
+   "evidence": "build/lessons/0030-graph-unlisted-delegated-scope.md"
+  },
+  "scripts/ops/Test-AvdLandingZoneReadiness.ps1": {
+   "cloudshell-pwsh": "tested",
+   "cloudshell-bash": "untested",
+   "windows": "untested",
+   "macos": "untested",
+   "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules",
+   "evidence": "build/tests/portal/fixtures/real-predeploy-ready.txt, real-postdeploy-ready.txt"
+  },
+  "scripts/deploy/deploy.sh": {
+   "cloudshell-pwsh": "tested",
+   "cloudshell-bash": "untested",
+   "windows": "no",
+   "macos": "untested",
+   "requires": "bash, the az CLI with Bicep",
+   "evidence": "build/tests/portal/fixtures/real-deploy-dcr-tables.txt, build/lessons/0006-provider-registration.md"
+  },
+  "scripts/ops/Deploy-AvdDemo.ps1": {
+   "cloudshell-pwsh": "untested",
+   "cloudshell-bash": "untested",
+   "windows": "untested",
+   "macos": "untested",
+   "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules"
+  },
+  "scripts/ops/Test-AvdUserConnection.ps1": {
+   "cloudshell-pwsh": "untested",
+   "cloudshell-bash": "untested",
+   "windows": "untested",
+   "macos": "untested",
+   "requires": "PowerShell 7.2 or later, the Az modules"
+  },
+  "scripts/ops/Get-AvdRunStatus.ps1": {
+   "cloudshell-pwsh": "untested",
+   "cloudshell-bash": "untested",
+   "windows": "untested",
+   "macos": "untested",
+   "requires": "PowerShell 7.2 or later, the Az modules"
+  },
+  "scripts/ops/Start-AvdRunRecorder.ps1": {
+   "cloudshell-pwsh": "untested",
+   "cloudshell-bash": "untested",
+   "windows": "untested",
+   "macos": "untested",
+   "requires": "PowerShell 7.2 or later, the Az modules"
+  },
+  "scripts/ops/Stop-AvdRunRecorder.ps1": {
+   "cloudshell-pwsh": "untested",
+   "cloudshell-bash": "untested",
+   "windows": "untested",
+   "macos": "untested",
+   "requires": "PowerShell 7.2 or later, the Az modules"
+  },
+  "scripts/ops/Get-AvdRecoveryStatus.ps1": {
+   "cloudshell-pwsh": "untested",
+   "cloudshell-bash": "untested",
+   "windows": "untested",
+   "macos": "untested",
+   "requires": "PowerShell 7.2 or later, the Az modules"
+  },
+  "scripts/ops/Export-AvdConfiguration.ps1": {
+   "cloudshell-pwsh": "untested",
+   "cloudshell-bash": "untested",
+   "windows": "untested",
+   "macos": "untested",
+   "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules"
+  },
+  "scripts/ops/Invoke-AvdHostRotation.ps1": {
+   "cloudshell-pwsh": "untested",
+   "cloudshell-bash": "untested",
+   "windows": "untested",
+   "macos": "untested",
+   "requires": "PowerShell 7.2 or later, the Az modules"
+  },
+  "scripts/ops/Start-AvdRecoveryTest.ps1": {
+   "cloudshell-pwsh": "untested",
+   "cloudshell-bash": "untested",
+   "windows": "untested",
+   "macos": "untested",
+   "requires": "PowerShell 7.2 or later, the Az modules"
+  },
+  "scripts/ops/Remove-AvdDemo.ps1": {
+   "cloudshell-pwsh": "tested",
+   "cloudshell-bash": "untested",
+   "windows": "untested",
+   "macos": "untested",
+   "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules",
+   "evidence": "build/lessons/0029-device-cleanup-rerun.md"
+  },
+  "scripts/automation/Invoke-AvdPowerAction.ps1": {
+   "cloudshell-pwsh": "untested",
+   "cloudshell-bash": "untested",
+   "windows": "untested",
+   "macos": "untested",
+   "requires": "PowerShell 7.2 or later, the Az modules"
+  }
+ }
+}

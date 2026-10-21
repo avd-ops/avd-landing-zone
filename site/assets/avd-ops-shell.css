@@ -1,9 +1,9 @@
-/* avd-ops app shell v2.0.1 (https://avd-ops.dev/, nickprignano/avd-ops site/assets/avd-ops-shell.css). MIT.
+/* avd-ops app shell v2.1.0 (https://avd-ops.dev/, nickprignano/avd-ops site/assets/avd-ops-shell.css). MIT.
    Personal project, not for production, as is; not affiliated with the author's employer or Microsoft.
    The frame every family page opens in: the brand bar (mark, word, the Docs, Deploy and Assess switcher, theme
    and menu buttons), the one-line research notice that opens to the full text, a side list that becomes a drawer
    below 64rem, the page column, and the footer with the credit line. Load it after avd-ops.css and put
-   class="shell" on <body>; every rule is scoped to .shell. theme.js wires the theme button and the drawer; without
+   class="shell" on <body>; every rule is scoped to .shell. theme.js wires the theme button and the drawer; on a portal, load it after avd-ops-portal.css so the bar's buttons keep their look; without
    it the side list sits below the page on narrow screens and the theme follows the system. */
 
 /* Brand bar: brand ink in both themes, so moving between the site and a portal keeps the same frame. */
@@ -19,9 +19,9 @@
 .shell .switcher a:hover{color:var(--shell-fg)}
 .shell .switcher a[aria-current]{background:var(--shell-fg);color:var(--shell)}
 .shell .tools{margin-left:auto;display:flex;gap:var(--space-2)}
-.shell .iconbtn{width:var(--tap);height:var(--tap);display:grid;place-items:center;border-radius:10px;border:1px solid var(--shell-line);background:transparent;color:var(--shell-fg);cursor:pointer;padding:0}
-.shell .iconbtn:hover{background:var(--shell-hover)}
-.shell .iconbtn svg{width:20px;height:20px}
+.shell header.bar .iconbtn{width:var(--tap);height:var(--tap);display:grid;place-items:center;border-radius:10px;border:1px solid var(--shell-line);background:transparent;color:var(--shell-fg);cursor:pointer;padding:0}
+.shell header.bar .iconbtn:hover{background:var(--shell-hover)}
+.shell header.bar .iconbtn svg{width:20px;height:20px}
 .shell header.bar :focus-visible{outline-color:var(--shell-fg)}
 .shell .menu{display:none}
 .shell .theme .moon{display:none}
