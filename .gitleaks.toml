@@ -1,0 +1,26 @@
+# gitleaks configuration: the default rules plus this repository's own.
+# Read by the pre-commit hook (.githooks/pre-commit) and the secret-scan workflow, which both run
+# gitleaks from the repository root. Known false positives stay in .gitleaksignore.
+
+[extend]
+useDefault = true
+
+# An Azure subscription ID names one person's or one organization's subscription. Nothing in this
+# repo needs one: Bicep reads subscription().subscriptionId, deploy.sh takes -s, and the PowerShell
+# scripts take -SubscriptionId. Built-in role definition IDs and first-party app IDs are the same in
+# every tenant and appear without these prefixes, so they don't match.
+[[rules]]
+id = "azure-subscription-id"
+description = "Azure subscription ID: pass it at run time (deploy.sh -s, -SubscriptionId), never commit it"
+regex = '''(?i)(?:/subscriptions/|subscription[_-]?id['"]?\s*[:=]\s*['"]?|--subscription[= ]['"]?|-SubscriptionId\s+['"]?)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})'''
+secretGroup = 1
+keywords = ["subscription"]
+
+# Test and documentation placeholders: an all-zero first group, or a group of one repeated character
+# (00000000-aaaa-bbbb-cccc-..., 3f2a1b4c-1111-2222-...). A real subscription ID almost never has one.
+[[rules.allowlists]]
+regexTarget = "secret"
+regexes = [
+  '''^0{8}-''',
+  '''-(0000|1111|2222|3333|4444|5555|6666|7777|8888|9999|aaaa|bbbb|cccc|dddd|eeee|ffff)-''',
+]

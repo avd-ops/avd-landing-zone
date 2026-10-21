@@ -126,7 +126,7 @@ avd-landing-zone/
 - [`docs/setup-azure-account.md`](docs/setup-azure-account.md): starting from zero on a personal card (lab use)
 - [`CHANGELOG.md`](CHANGELOG.md): what changed, from each merged PR's `Changelog:` line
 - [`releases/`](releases/README.md): released versions and how to pin one
-- [avd-second-brain](https://github.com/nickprignano/avd-second-brain): the second brain for the whole AVD lifecycle, shared with avd-current-state and avd-readiness-stratusphere. Its [operations spec](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md) is this landing zone's self-healing, self-learning brain (moved there; the runtime still deploys from here). What this repo exchanges with it: [`docs/second-brain.md`](docs/second-brain.md)
+- [avd-second-brain](https://github.com/nickprignano/avd-second-brain): the second brain for the whole AVD lifecycle, shared with avd-current-state and the assessment project. Its [operations spec](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md) is this landing zone's self-healing, self-learning brain (moved there; the runtime still deploys from here). What this repo exchanges with it: [`docs/second-brain.md`](docs/second-brain.md)
 
 **Building it**
 
@@ -154,8 +154,8 @@ Each links its reference page, generated from the script's help or the template'
 | [`scripts/image/Set-SessionTimeLimit.ps1`](docs/reference/scripts-image-Set-SessionTimeLimit.md) | Golden image: disconnected sessions end after a set time (build/specs/image-pipeline-spec.md section 5.7). |
 | [`scripts/image/Test-GoldenImage.ps1`](docs/reference/scripts-image-Test-GoldenImage.md) | Golden image: build-time validation (build/specs/image-pipeline-spec.md section 5.4). |
 | [`scripts/image/Update-DefenderSignature.ps1`](docs/reference/scripts-image-Update-DefenderSignature.md) | Golden image: Defender starts with current signatures (build/specs/image-pipeline-spec.md section 5.3). |
-| [`scripts/jumpbox/Install-JumpboxTools.ps1`](docs/reference/scripts-jumpbox-Install-JumpboxTools.md) | First boot of the Windows operator jumpbox (build/decisions/0018-jumpbox-bastion-developer.md): installs the Cloud Shell toolchain, the same tools scripts/jumpbox/cloud-init.yaml installs on Linux. |
-| [`scripts/ops/Connect-AvdJumpbox.ps1`](docs/reference/scripts-ops-Connect-AvdJumpbox.md) | Gets the operator jumpbox ready to connect to through Azure Bastion Developer, or stops it (build/decisions/0018-jumpbox-bastion-developer.md). |
+| [`scripts/jumpbox/Install-JumpboxTools.ps1`](docs/reference/scripts-jumpbox-Install-JumpboxTools.md) | First boot of the Windows operator jumpbox (build/decisions/0019-jumpbox-bastion-developer.md): installs the Cloud Shell toolchain, the same tools scripts/jumpbox/cloud-init.yaml installs on Linux. |
+| [`scripts/ops/Connect-AvdJumpbox.ps1`](docs/reference/scripts-ops-Connect-AvdJumpbox.md) | Gets the operator jumpbox ready to connect to through Azure Bastion Developer, or stops it (build/decisions/0019-jumpbox-bastion-developer.md). |
 | [`scripts/ops/Connect-AvdLandingZone.ps1`](docs/reference/scripts-ops-Connect-AvdLandingZone.md) | Signs in to Microsoft Graph once for the whole Cloud Shell session, so the preflight, -Fix, the demo and the cleanup don't each ask for a device code. |
 | [`scripts/ops/ConvertFrom-AvdTargetState.ps1`](docs/reference/scripts-ops-ConvertFrom-AvdTargetState.md) | Turns an approved target-state manifest from the migration factory into the preflight and deploy.sh commands for one host pool. |
 | [`scripts/ops/Deploy-AvdDemo.ps1`](docs/reference/scripts-ops-Deploy-AvdDemo.md) | Deploys a demo host pool and session host into an existing landing zone, then validates that a user can sign in. |

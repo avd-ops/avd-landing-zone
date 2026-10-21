@@ -14,7 +14,7 @@
     - the subscription deployment record avdlz-demo-<prefix>-<env>
     - the demo hosts' Entra ID and Intune device objects (skip with -KeepDevices)
 
-  -IncludeJumpbox (the operator jumpbox, decision 0018; needs -DiscardLastCopy)
+  -IncludeJumpbox (the operator jumpbox, decision 0019; needs -DiscardLastCopy)
     - rg-<prefix>-<env>-jumpbox: the jumpbox VM, its disk and NIC
     - the Bastion Developer host bas-<prefix>-<env> in the network resource group
     The next landing zone deployment without --jumpbox then also removes the jumpbox subnet.
@@ -56,7 +56,7 @@ param(
   [Parameter(Mandatory)][ValidateSet('dev', 'test', 'prod')][string] $Environment,
   [string] $SubscriptionId,
   [switch] $IncludeLandingZone,
-  # Remove the operator jumpbox and its Bastion Developer (decision 0018). Its disk may hold the only
+  # Remove the operator jumpbox and its Bastion Developer (decision 0019). Its disk may hold the only
   # copy of what was run there (run journals in ~/avdlz-runs), so it needs -DiscardLastCopy too.
   [switch] $IncludeJumpbox,
   [switch] $KeepDevices,
@@ -201,7 +201,7 @@ elseif ($demoRecord -and $PSCmdlet.ShouldProcess($demoDeployment, 'Delete deploy
 }
 
 function Remove-AvdJumpbox {
-  <# The jumpbox resource group and the Bastion Developer host beside the VNet (decision 0018). #>
+  <# The jumpbox resource group and the Bastion Developer host beside the VNet (decision 0019). #>
   [CmdletBinding(SupportsShouldProcess)]
   param()
   Write-AvdSection 'Jumpbox'

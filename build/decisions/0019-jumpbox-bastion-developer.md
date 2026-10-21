@@ -1,4 +1,4 @@
-# 0018. An opt-in operator jumpbox, reached through Azure Bastion Developer
+# 0019. An opt-in operator jumpbox, reached through Azure Bastion Developer
 
 - **Status:** Proposed (accepted once a sandbox run confirms the connection; see "To confirm" below)
 

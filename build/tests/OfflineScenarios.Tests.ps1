@@ -48,6 +48,13 @@ Describe 'Post-deployment: preflight, demo and cleanup' {
     Get-StepExit $out 'demo' | Should -Be 0
     Get-StepExit $out 'remove-demo' | Should -Be 0
   }
+  It 'checks the demo hosts against the host security baseline, as warnings (decision 0018)' {
+    $demo = (Get-PortalState $out)[3]
+    (@($demo.warnings | Where-Object { $_.id -like 'host-baseline-*' }) | ForEach-Object { "$($_.id)=$($_.data.outcome)" } | Sort-Object) -join ',' |
+      Should -Be 'host-baseline-app-control=departure,host-baseline-defender-tamper=departure,host-baseline-idle-limit=departure,host-baseline-lsa-protection=unknown,host-baseline-screen-capture-protection=departure,host-baseline-screen-lock=departure'
+    $out | Should -Match '\[PASS \] avdlzddemo-001 Credential Guard running'
+    $out | Should -Match 'RESULT host-baseline-drift host-baseline-local-admins=unknown,host-baseline-vbs-running=gap named=True failures=0'
+  }
   It 'keeps the demo record when the device cleanup fails, so a rerun finishes it (lesson 0029)' { $out | Should -Match 'RESULT device-retry kept=True named=True rerunDeleted=True recordGone=True' }
   It 'changes nothing when removing the landing zone with -WhatIf' { $out | Should -Match 'RESULT remove-lz-whatif changes=0' }
   It 'refuses to remove the landing zone, the last copy of its profiles and logs, without -DiscardLastCopy, even with -Force (decision 0016)' { $out | Should -Match 'RESULT remove-lz-refused named=True changes=0' }
@@ -292,7 +299,7 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     Get-StepExit $out 'pool-rotation-deploy' | Should -Be 0
     Get-Result 'pool-rotation-deploy-env' | Should -Match 'image=\S+/versions/2026\.1101\.1 gen=b tags=.*"avdlz-rotation":"\{\\"phase\\":\\"Deploy\\"\}"'
   }
-  It 'adds, keeps and never re-sends the operator jumpbox (decision 0018)' {
+  It 'adds, keeps and never re-sends the operator jumpbox (decision 0019)' {
     Get-StepExit $out 'jumpbox-new' | Should -Be 0
     Get-Result 'jumpbox-new-jumpbox' | Should -Be 'jumpbox-env deploy=true exists= until= os='
     Get-StepExit $out 'jumpbox-keep-alone' | Should -Be 1
@@ -348,7 +355,32 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     $out | Should -Match '--image-id takes a Compute Gallery image version resource ID'
   }
   It 'makes no az call the fake does not know' {
-    foreach ($s in 'stopped', 'stopped-fails', 'whatif', 'running', 'first', 'locked', 'locked-whatif', 'locked-unlock', 'owned-group', 'admin-owned-group', 'group-by-id') { Get-Result "$s-unmocked" | Should -Be 'False' }
+    foreach ($s in 'stopped', 'stopped-fails', 'whatif', 'running', 'first', 'locked', 'locked-whatif', 'locked-unlock', 'owned-group', 'admin-owned-group', 'group-by-id', 'subscription', 'subscription-whatif', 'no-subscription') { Get-Result "$s-unmocked" | Should -Be 'False' }
+  }
+  It 'deploys to the subscription -s names, without changing the one az has selected' {
+    foreach ($s in 'subscription', 'subscription-whatif') {
+      Get-StepExit $out $s | Should -Be 0
+      Get-Result "$s-arm-without-s" | Should -Be '0' -Because "${s}: every Resource Manager call names the subscription"
+      [int](Get-Result "$s-arm-with-s") | Should -BeGreaterThan 5
+      Get-Result "$s-graph-with-s" | Should -Be '0' -Because 'az ad and az rest read the tenant, and reject --subscription'
+      Get-Result "$s-account-set" | Should -Be '0'
+    }
+    Get-Result 'subscription-calls' | Should -Be 'group-exists,vm-list,vm-start,deployment-create,vm-deallocate'
+    $out | Should -Match 'Subscription: Fake other subscription \(00000000-aaaa-bbbb-cccc-000000000002\)'
+    $out | Should -Match '-SubscriptionId 00000000-aaaa-bbbb-cccc-000000000002 -Fix'
+  }
+  It 'says which subscription it uses without -s' {
+    Get-StepExit $out 'no-subscription' | Should -Be 0
+    Get-Result 'no-subscription-arm-with-s' | Should -Be '0'
+    $out | Should -Match 'Subscription: Fake subscription \(00000000-aaaa-bbbb-cccc-000000000001\)\s+\(the one az has selected; pass -s to choose\)'
+  }
+  It 'refuses a subscription it cannot find, or one in another tenant, before reading or changing anything' {
+    Get-StepExit $out 'subscription-missing' | Should -Be 1
+    Get-Result 'subscription-missing-calls' | Should -Be ''
+    $out | Should -Match 'Subscription not found, or not one this account can use: other-sub'
+    Get-StepExit $out 'subscription-other-tenant' | Should -Be 1
+    Get-Result 'subscription-other-tenant-calls' | Should -Be ''
+    $out | Should -Match "Run 'az login --tenant 00000000-0000-0000-0000-0000000000f2' first"
   }
 }
 
@@ -462,6 +494,12 @@ Describe 'Well-Architected review of the deployed landing zone' {
     ($s[0].warnings | Where-Object { $_.detail -match 'Azure.VM.AMA' }) | Should -BeNullOrEmpty
     ($s[3].warnings | Where-Object id -eq 'waf-monitor-agent').detail | Should -Match 'avdlzdsh-001'
     ($s[3].warnings | Where-Object id -eq 'waf-psrule-operational-excellence').detail | Should -Match 'Azure.VM.AMA on avdlzdsh-001'
+  }
+  It 'flags a host without vTPM and a host pool that redirects drives' {
+    $s = Get-PortalState $out
+    ($s[3].warnings | Where-Object id -eq 'waf-host-security').detail | Should -Match 'avdlzdsh-001'
+    ($s[3].warnings | Where-Object id -eq 'waf-redirection').detail | Should -Be 'Not turned off: drives'
+    ($s[0].warnings | Where-Object id -eq 'waf-redirection') | Should -BeNullOrEmpty
   }
   It 'flags a session host whose OS disk is not Premium SSD' {
     $s = Get-PortalState $out
@@ -599,6 +637,18 @@ Describe 'Blue/green host rotation (image pipeline spec section 6.5)' {
     Get-RotationLine 'back-finish' | Should -Match '^phase= image=2026\.1004\.1 gen=b next= previous=2026\.1101\.1 hosts=avdlzdshb-001:open,avdlzdshb-002:open .* gallery=Merge 2026\.1004\.1,Delete 2026\.1101\.1$'
   }
   It 'rolls back before Remove: the original hosts take sessions again and the new ones are removed; a preview writes nothing' {
+    # Paused before Drain by the pause the first run recorded: the new hosts are ready, the pool's image and
+    # generation are unchanged, nothing drains, and the pause is spent.
+    $states[22].warnings[0].id | Should -Be 'rotation-paused'
+    $states[22].context.stopBefore | Should -Be 'Drain'
+    Get-RotationLine 'rb-paused' | Should -Match '^phase=Deploy image=2026\.1004\.1 gen= .*hosts=avdlzdsh-001:open,avdlzdsh-002:open,avdlzdsha-001:open,avdlzdsha-002:open vmsGone= '
+    Get-RotationLine 'rb-paused' 'stop' | Should -BeNullOrEmpty
+    # Paused before Remove: drained and empty, but kept for a rollback.
+    $states[23].warnings[-1].id | Should -Be 'rotation-paused'
+    $states[23].context.phase | Should -Be 'Wait'
+    $states[23].warnings[-1].remediation | Should -Match 'or with -Rollback to undo'
+    Get-RotationLine 'rb-drain' | Should -Match '^phase=Wait .*hosts=avdlzdsh-001:drain,avdlzdsh-002:drain,avdlzdsha-001:open,avdlzdsha-002:open vmsGone= '
+    @($states[24].failures.id) | Should -Be @('rotation-stop')
     Get-RotationLine 'rb-drain' | Should -Match 'hosts=avdlzdsh-001:drain,avdlzdsh-002:drain,avdlzdsha-001:open,avdlzdsha-002:open'
     Get-RotationLine 'rb-drain' 'excluded' | Should -Be 'avdlzdsh-001,avdlzdsh-002'
     Get-RotationLine 'rollback' 'excluded' | Should -Be 'avdlzdsha-001,avdlzdsha-002'
@@ -620,7 +670,7 @@ Describe 'Blue/green host rotation (image pipeline spec section 6.5)' {
     $states[-1].failures[0].remediation | Should -Match 'Nothing to roll back to'
   }
   It 'prints a portal state line for every run, with the parameter file' {
-    ($states | ForEach-Object status) -join ' ' | Should -Be 'refused refused refused refused waiting waiting waiting waiting waiting waiting refused waiting waiting waiting waiting waiting waiting done waiting done waiting waiting waiting waiting waiting done refused'
+    ($states | ForEach-Object status) -join ' ' | Should -Be 'refused refused refused refused waiting waiting waiting waiting waiting waiting refused waiting waiting waiting waiting waiting waiting done waiting done waiting waiting waiting waiting refused waiting waiting done refused'
     @($states | Where-Object { $_.context.parameterFile -ne 'parameters/dev.bicepparam' }).context.parameterFile | Should -Be 'parameters/test.bicepparam'
   }
 }

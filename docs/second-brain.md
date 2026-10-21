@@ -1,6 +1,6 @@
 # This repo and avd-second-brain
 
-**[avd-second-brain](https://github.com/nickprignano/avd-second-brain)** is the second brain for the whole AVD lifecycle: assess (avd-readiness-stratusphere), inventory (avd-current-state), deploy and operate (this repo). Its [architecture](https://github.com/nickprignano/avd-second-brain/blob/main/docs/architecture.md) and [contracts](https://github.com/nickprignano/avd-second-brain/blob/main/docs/contracts.md) are the source of truth; this page lists this repo's part.
+**[avd-second-brain](https://github.com/nickprignano/avd-second-brain)** is the second brain for the whole AVD lifecycle: assess (a separate assessment project), inventory (avd-current-state), deploy and operate (this repo). Its [architecture](https://github.com/nickprignano/avd-second-brain/blob/main/docs/architecture.md) and [contracts](https://github.com/nickprignano/avd-second-brain/blob/main/docs/contracts.md) are the source of truth; this page lists this repo's part.
 
 | What | Where | Status |
 |---|---|---|

@@ -420,7 +420,7 @@ Describe 'Pinned tool versions' {
   }
 }
 
-Describe 'Operator jumpbox through Bastion Developer (decision 0018)' {
+Describe 'Operator jumpbox through Bastion Developer (decision 0019)' {
   # Off by default, so the landing zone's default deployment is unchanged; on, it stops daily unless
   # kept running until a time (avd-second-brain decision 0017), and has no public IP anywhere.
   It 'is off unless AVD_DEPLOY_JUMPBOX=true (set-but-empty = off, lesson 0004), in every parameter file' {

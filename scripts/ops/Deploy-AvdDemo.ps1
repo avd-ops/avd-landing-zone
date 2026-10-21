@@ -21,6 +21,9 @@
        - on the host: Entra joined, Intune enrolled, agent registered, FSLogix
          and Entra Kerberos configured, profile share resolves privately and
          answers on 445
+       - host security baseline (scripts/security/host-baseline.json), as
+         warnings only: VBS, Credential Guard, Defender, LSA protection,
+         SMB 1.0, session and screen locks, extra local administrators
        - RBAC: app group, VM User Login, SMB share role
        - tenant steps 1-3 (admin consent, CA exclusion, NTFS from the demo host)
        - optional -TestUserUpn: enabled, in the AVD Users group, licensed
@@ -196,6 +199,27 @@ foreach ($vmName in $hostNames) {
   if ($EnrollInIntune) {
     if ($h.intuneEnrolled) { Add-AvdCheckResult 'Host config' "$vmName Intune enrolled" 'Pass' }
     else { Add-AvdCheckResult 'Host config' "$vmName Intune enrolled" 'Warn' -Detail 'Enrollment can lag the join by several minutes.' -Remediation 'Recheck in Intune; confirm the tenant is licensed for Intune.' }
+  }
+}
+
+# Host security baseline (scripts/security/host-baseline.json): warnings, never failures, since
+# the demo still works; departures say who owns the control, drift says nobody recorded why.
+Write-AvdSection 'Host security baseline'
+$baseline = Get-Content -Raw -Path (Join-Path $PSScriptRoot '../security/host-baseline.json') | ConvertFrom-Json
+foreach ($vmName in $hostNames) {
+  Write-Host "  reading security settings on $vmName (Run Command, about a minute)" -ForegroundColor DarkGray
+  try { $observed = Invoke-AvdHostScript -ResourceGroupName $demoRg -VMName $vmName -ScriptName 'Get-SessionHostSecurity.ps1' }
+  catch {
+    Add-AvdCheckResult 'Host security' "$vmName security settings read" 'Warn' -Detail $_.Exception.Message -Remediation 'Run the demo again; check the VM agent if Run Command keeps failing.' -Id 'host-baseline-read' -Data @{ host = $vmName; outcome = 'unknown' }
+    continue
+  }
+  # What the host couldn't read, and why (lesson 0012: report what the call returned).
+  $readErrors = @($observed.readErrors | Where-Object { $_ })
+  foreach ($b in Get-AvdHostBaselineResult -Baseline $baseline -Observed $observed) {
+    if ($b.Outcome -eq 'pass') { Add-AvdCheckResult 'Host security' "$vmName $($b.Title)" 'Pass'; continue }
+    $detail = "${vmName}: $($b.Detail)"
+    if ($b.Outcome -eq 'unknown' -and $readErrors.Count) { $detail += " Host errors: $($readErrors -join '; ')" }
+    Add-AvdCheckResult 'Host security' "$vmName $($b.Title)" 'Warn' -Detail $detail -Remediation $b.Remediation -Id "host-baseline-$($b.Id)" -Data @{ host = $vmName; outcome = $b.Outcome }
   }
 }
 

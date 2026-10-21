@@ -658,6 +658,12 @@
           note('Roll back once the deployment ends', ((wait || {}).detail || '') + ' Run the rollback again then.', cmd.rotation(cfg, { rollback: true }));
           return { step: 'postdeploy', actions: a };
         }
+        var paused = byId(warnings, 'rotation-paused')[0];
+        if (paused) {
+          note('The rotation is paused before ' + (ro.stopBefore || 'the next phase'), (paused.detail || '') + ' Run it again to continue from phase ' + (ro.phase || 'Deploy') + '.', cmd.rotation(cfg));
+          if (!ro.rollback) note('Or roll back', 'The original hosts take every session again and the new ones are removed.', cmd.rotation(cfg, { rollback: true }));
+          return { step: 'postdeploy', actions: a };
+        }
         note(ro.phase === 'Wait' ? 'Users are moving to the new hosts' : 'Run the rotation again', ((wait || {}).detail || '') + ' It continues from phase ' + (ro.phase || 'Deploy') + '.', cmd.rotation(cfg, { logOff: afterDeadline }));
         if (!ro.rollback && ro.phase !== 'Remove') note('Or roll back', 'Before the old hosts are removed, a rollback puts users back on them and removes the new ones.', cmd.rotation(cfg, { rollback: true }));
         return { step: 'postdeploy', actions: a };

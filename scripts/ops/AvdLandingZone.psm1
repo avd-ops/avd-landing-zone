@@ -826,7 +826,7 @@ function Test-AvdHostPoolRegion {
 }
 
 # =====================================================================
-# Operator jumpbox through Azure Bastion Developer (decision 0018)
+# Operator jumpbox through Azure Bastion Developer (decision 0019)
 # =====================================================================
 # Regions that offer Bastion Developer, from Microsoft Learn "Choose the right Azure Bastion SKU",
 # Regional availability (read 2026-10-21). scripts/deploy/deploy.sh keeps the same list (a test
@@ -1700,6 +1700,64 @@ function Get-AvdUserConnectionOutcome {
   [pscustomobject]@{ Status = $status; Connections = $connections; Connected = $connected; Errored = $errored }
 }
 
+function Get-AvdHostBaselineResult {
+  <#
+    Compares what Get-SessionHostSecurity.ps1 read on a host with the reviewed host security
+    baseline profile (scripts/security/host-baseline.json; avd-assess gap host-baseline-profile).
+    One result per control, Outcome:
+      pass       the host matches the profile
+      departure  it doesn't, and the profile records why the landing zone leaves it to someone else
+      gap        it doesn't, and nothing records why (drift)
+      unknown    the host didn't report the value
+  #>
+  param([Parameter(Mandatory)] $Baseline, [Parameter(Mandatory)] $Observed)
+  foreach ($c in $Baseline.controls) {
+    $value = $Observed.($c.observed)
+    $t = $c.test
+    $outcome = if ($null -eq $value) { 'unknown' }
+    else {
+      # eq, in, min and max compare one value; on an array PowerShell would filter instead of compare.
+      $ok = -not ($value -is [array]) -or ($null -eq $t.eq -and $null -eq $t.in -and $null -eq $t.min -and $null -eq $t.max)
+      if ($null -ne $t.eq) { $ok = $ok -and ($value -eq $t.eq) }
+      if ($null -ne $t.in) { $ok = $ok -and (@($t.in) -contains $value) }
+      if ($null -ne $t.contains) { $ok = $ok -and (@($value) -contains $t.contains) }
+      if ($null -ne $t.min) { $ok = $ok -and ($value -ge $t.min) }
+      if ($null -ne $t.max) { $ok = $ok -and ($value -le $t.max) }
+      if ($ok) { 'pass' } elseif ($c.departure) { 'departure' } else { 'gap' }
+    }
+    $shown = if ($null -eq $value) { 'not reported' } else { @($value) -join ',' }
+    [pscustomobject]@{
+      Id          = $c.id
+      Title       = $c.title
+      Outcome     = $outcome
+      Value       = $shown
+      Detail      = switch ($outcome) {
+        'pass' { '' }
+        'departure' { "$($c.observed)=$shown. Departure: $($c.departure)" }
+        'gap' { "$($c.observed)=$shown, which the profile doesn't expect and no departure explains." }
+        'unknown' { "The host didn't report $($c.observed)." }
+      }
+      Remediation = $c.remediation
+    }
+  }
+}
+
+function Get-AvdRdpRedirectionOff {
+  <#
+    The redirections a host pool's custom RDP properties turn off. A device kind is off only when
+    its property is set to nothing (drivestoredirect:s:;) or 0 (redirectcomports:i:0); a property
+    that isn't set leaves the client default.
+  #>
+  param([string] $CustomRdpProperty)
+  $set = @{}
+  foreach ($pair in ($CustomRdpProperty -split ';')) {
+    $parts = $pair -split ':', 3
+    if ($parts.Count -eq 3) { $set[$parts[0].Trim().ToLowerInvariant()] = $parts[2].Trim() }
+  }
+  $kinds = [ordered]@{ drives = 'drivestoredirect'; usb = 'usbdevicestoredirect'; comPorts = 'redirectcomports' }
+  @($kinds.Keys | Where-Object { $set.ContainsKey($kinds[$_]) -and $set[$kinds[$_]] -in '', '0' })
+}
+
 function Add-AvdWafResult {
   <#
     One Well-Architected finding: Pass, or Warn with id waf-<Key> and data { pillar, accepted }.
@@ -1887,8 +1945,12 @@ function Test-AvdWellArchitected {
   if ($vms.Count) {
     $slowDisk = @($vms | Where-Object { $_.properties.storageProfile.osDisk.managedDisk.storageAccountType -notmatch '^Premium' } | ForEach-Object name)
     & $waf 'Performance Efficiency' 'os-disk' 'Session host OS disks on Premium SSD' (-not $slowDisk.Count) $(if ($slowDisk.Count) { "Not Premium: $($slowDisk -join ', ')" } else { "$($vms.Count) host(s)" }) 'Redeploy the hosts (bicep/modules/sessionHosts.bicep uses Premium SSD): multi-session hosts page, sign in and update many users at once.'
-    $weak = @($vms | Where-Object { $_.properties.securityProfile.securityType -ne 'TrustedLaunch' -or -not $_.properties.securityProfile.encryptionAtHost } | ForEach-Object name)
-    & $waf 'Security' 'host-security' 'Session hosts: Trusted Launch and encryption at host' (-not $weak.Count) $(if ($weak.Count) { "Not on: $($weak -join ', ')" } else { "$($vms.Count) host(s)" }) 'Redeploy the hosts with encryptionAtHost = true (Trusted Launch is always on in bicep/modules/sessionHosts.bicep).'
+    # Trusted Launch without Secure Boot or vTPM gives up measured boot and VBS (avd-assess ref:avd-security-guide#trusted-launch).
+    $weak = @($vms | Where-Object {
+        $sp = $_.properties.securityProfile
+        $sp.securityType -ne 'TrustedLaunch' -or -not $sp.encryptionAtHost -or -not $sp.uefiSettings.secureBootEnabled -or -not $sp.uefiSettings.vTpmEnabled
+      } | ForEach-Object name)
+    & $waf 'Security' 'host-security' 'Session hosts: Trusted Launch with Secure Boot and vTPM, encryption at host' (-not $weak.Count) $(if ($weak.Count) { "Not on: $($weak -join ', ')" } else { "$($vms.Count) host(s)" }) 'Redeploy the hosts with encryptionAtHost = true (bicep/modules/sessionHosts.bicep always turns on Trusted Launch, Secure Boot and vTPM).'
   }
 
   if ($Lz.KeyVault) {
@@ -1907,6 +1969,12 @@ function Test-AvdWellArchitected {
     & $waf 'Cost Optimization' 'budget' 'A cost budget with alerts' ([bool]$budgets.Count) $(if ($budgets.Count) { ($budgets | ForEach-Object name) -join ', ' } else { 'No budget on the subscription.' }) 'Set AVD_MONTHLY_BUDGET (and alert emails) before deploy.sh, or create a budget in Cost Management.' -tradeOff
   }
   if ($Lz.HostPool) {
+    & $read 'Security' 'host pool RDP properties' {
+      $rdp = (Invoke-AvdArm -Path "$($Lz.HostPool.ResourceId)?api-version=2024-04-03").properties.customRdpProperty
+      $off = @(Get-AvdRdpRedirectionOff -CustomRdpProperty $rdp)
+      $on = @('drives', 'usb' | Where-Object { $_ -notin $off })
+      & $waf 'Security' 'redirection' 'Drive and USB redirection off on the host pool' (-not $on.Count) $(if ($on.Count) { "Not turned off: $($on -join ', ')" } else { 'drivestoredirect and usbdevicestoredirect set to nothing' }) 'Keep the rdpProperties default in bicep/main.bicep, or record why the estate needs drives or USB devices (avd-assess check asm-drive-usb-redirection-off).'
+    }
     & $read 'Cost Optimization' 'scaling plans' {
       $plans = @(Get-AvdArmList -Path "$($Lz.ResourceGroupIds.ControlPlane)/providers/Microsoft.DesktopVirtualization/scalingPlans?api-version=2024-04-03")
       $on = $plans | Where-Object { $_.properties.hostPoolReferences | Where-Object { $_.hostPoolArmPath -eq $Lz.HostPool.ResourceId -and $_.scalingPlanEnabled } }
@@ -2354,7 +2422,7 @@ function Get-AvdCostEstimate {
       pick = { $_.skuName -eq 'Standard' -and $_.meterName -match 'Static Public IP' -and $_.meterName -notmatch 'IPv6' -and $_.unitOfMeasure -eq '1 Hour' } }
   }
 
-  # The operator jumpbox (decision 0018): Linux at the base compute rate, Windows Server at the Windows
+  # The operator jumpbox (decision 0019): Linux at the base compute rate, Windows Server at the Windows
   # rate (the server license is in it); Bastion Developer is free.
   $free = @()
   $jumpboxAlwaysOn = [bool]$Plan.jumpboxKeepRunningUntil

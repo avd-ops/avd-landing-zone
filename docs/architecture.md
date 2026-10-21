@@ -11,7 +11,7 @@ Subscription (dedicated AVD landing zone)
 │       snet-session-hosts           10.100.0.0/23   NSG · NAT GW (standalone) or UDR→hub FW · no default outbound
 │       snet-private-endpoints       10.100.2.0/27   NSG enforced on PEs (445 from hosts, 443 from VNet)
 │       snet-jumpbox (opt-in)        10.100.2.32/28  NSG · same egress as the hosts · no public IP
-│     Bastion Developer bas-<prefix>-<env> (opt-in, no charge, decision 0018)
+│     Bastion Developer bas-<prefix>-<env> (opt-in, no charge, decision 0019)
 │     private endpoints: file, vault, host pool (connection)
 │     privatelink zones: file, vaultcore, wvd       (standalone; hub mode can use central zones)
 │

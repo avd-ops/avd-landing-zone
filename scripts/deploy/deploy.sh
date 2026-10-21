@@ -4,12 +4,15 @@
 #
 # Usage:
 #   ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus \
-#       --users-group "AVD Users" --admins-group "AVD Admins" [--what-if] \
+#       --users-group "AVD Users" --admins-group "AVD Admins" [-s <subscription>] [--what-if] \
 #       [--hosts 3 --vm-size Standard_D8as_v5 --max-sessions 16 --profile-quota 600] \
 #       [--auto-shutdown 20:00|none --start-vm-on-connect true|false] [--unlock] \
 #       [--image-id <gallery image version ID> [--generation a|b]] \
 #       [--jumpbox [--jumpbox-os linux|windows] [--jumpbox-keep-running <yyyy-MM-ddTHH:mmZ>]]
 #
+# -s is the subscription (ID or name) to deploy to. Without it, the subscription az has
+# selected. Either way the target is printed before anything changes, and -s never changes
+# az's selected subscription. It must be in the tenant az is signed in to.
 # -l is the region the landing zone is deployed to (it sets AVD_LOCATION, which
 # the parameter files read). The sizing flags (from the deployment portal's sizing
 # step) override the parameter file's session hosts and profile share the same way;
@@ -20,7 +23,7 @@
 # that the host pool's avdlz-image and avdlz-generation tags decide, and only host rotation
 # (build/specs/image-pipeline-spec.md section 6.5) changes them: deploy.sh never replaces software.
 # The rotation script alone passes --rotation and --deployment-name (the name it then looks up).
-# --jumpbox adds the operator jumpbox and Bastion Developer (build/decisions/0018); once it exists,
+# --jumpbox adds the operator jumpbox and Bastion Developer (build/decisions/0019); once it exists,
 # later deployments keep it. --jumpbox-os windows makes it Windows Server instead of Linux (only when
 # it is created). --jumpbox-keep-running skips its daily stop until that UTC time.
 #
@@ -33,6 +36,7 @@ set -euo pipefail
 
 PARAM_FILE=""
 LOCATION=""
+SUBSCRIPTION=""
 USERS_GROUP=""
 ADMINS_GROUP=""
 WHATIF=false
@@ -55,7 +59,7 @@ JUMPBOX_OS="${AVD_JUMPBOX_OS:-}"
 AVD_APP_ID="9cdead84-a844-4324-93f2-b2e6bb768d07"   # Azure Virtual Desktop first-party app
 
 usage() {
-  sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,31p' "$0" | sed 's/^# \{0,1\}//'
   exit 1
 }
 
@@ -63,6 +67,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -p) PARAM_FILE="$2"; shift 2 ;;
     -l) LOCATION="$2"; shift 2 ;;
+    -s|--subscription) SUBSCRIPTION="$2"; shift 2 ;;
     --users-group) USERS_GROUP="$2"; shift 2 ;;
     --admins-group) ADMINS_GROUP="$2"; shift 2 ;;
     --what-if) WHATIF=true; shift ;;
@@ -121,33 +126,51 @@ fi
 
 echo "==> Checking az and Bicep"
 az bicep version >/dev/null 2>&1 || az bicep install
-az account show >/dev/null 2>&1 || { echo "Run 'az login' and 'az account set --subscription <id>' first."; exit 1; }
-SUB_NAME=$(az account show --query name -o tsv)
-echo "    Subscription: $SUB_NAME"
+az account show >/dev/null 2>&1 || { echo "Run 'az login' first."; exit 1; }
+# Azure Resource Manager calls go through arm, which adds -s to each one, so deploying to another
+# subscription never changes the one az has selected. Graph calls (az ad, az rest) read the tenant,
+# and a call given resource --ids already names its subscription.
+arm() {
+  if [[ -n "$SUBSCRIPTION" ]]; then az "$@" --subscription "$SUBSCRIPTION"; else az "$@"; fi
+}
+if ! SUB_ID=$(arm account show --query id -o tsv 2>/dev/null) || [[ -z "$SUB_ID" ]]; then
+  echo "Subscription not found, or not one this account can use: $SUBSCRIPTION (az account list shows them)." >&2; exit 1
+fi
+SUB_NAME=$(arm account show --query name -o tsv)
+echo "    Subscription: $SUB_NAME ($SUB_ID)"
+[[ -n "$SUBSCRIPTION" ]] || echo "    (the one az has selected; pass -s to choose)"
+# Entra lookups below read the signed-in tenant: groups and the AVD service principal from another
+# tenant would be the wrong objects.
+SUB_TENANT=$(arm account show --query tenantId -o tsv)
+AZ_TENANT=$(az account show --query tenantId -o tsv)
+if [[ "$SUB_TENANT" != "$AZ_TENANT" ]]; then
+  echo "Subscription $SUB_ID is in tenant $SUB_TENANT, but az is signed in to $AZ_TENANT." >&2
+  echo "Run 'az login --tenant $SUB_TENANT' first." >&2; exit 1
+fi
 
 # --- Resource providers + features (idempotent; a fresh subscription has none) ---
 echo "==> Registering resource providers"
 for ns in Microsoft.DesktopVirtualization Microsoft.Compute Microsoft.Storage Microsoft.Network \
           Microsoft.Insights Microsoft.OperationalInsights Microsoft.KeyVault Microsoft.RecoveryServices \
           Microsoft.Security Microsoft.PolicyInsights Microsoft.GuestConfiguration Microsoft.Consumption; do
-  state=$(az provider show -n "$ns" --query registrationState -o tsv 2>/dev/null || echo NotRegistered)
+  state=$(arm provider show -n "$ns" --query registrationState -o tsv 2>/dev/null || echo NotRegistered)
   if [[ "$state" != "Registered" ]]; then
     echo "    $ns"
-    az provider register -n "$ns" --wait >/dev/null
+    arm provider register -n "$ns" --wait >/dev/null
   fi
 done
 
 echo "==> Ensuring the EncryptionAtHost feature is registered"
-feature_state=$(az feature show --namespace Microsoft.Compute --name EncryptionAtHost --query properties.state -o tsv 2>/dev/null || echo NotRegistered)
+feature_state=$(arm feature show --namespace Microsoft.Compute --name EncryptionAtHost --query properties.state -o tsv 2>/dev/null || echo NotRegistered)
 if [[ "$feature_state" != "Registered" ]]; then
-  az feature register --namespace Microsoft.Compute --name EncryptionAtHost >/dev/null
-  until [[ "$(az feature show --namespace Microsoft.Compute --name EncryptionAtHost --query properties.state -o tsv)" == "Registered" ]]; do
+  arm feature register --namespace Microsoft.Compute --name EncryptionAtHost >/dev/null
+  until [[ "$(arm feature show --namespace Microsoft.Compute --name EncryptionAtHost --query properties.state -o tsv)" == "Registered" ]]; do
     echo "    waiting for EncryptionAtHost ..."; sleep 20
   done
 fi
 # Re-register Compute every time: the feature only takes effect after a
 # provider re-registration, even when it was registered in an earlier run.
-az provider register -n Microsoft.Compute >/dev/null
+arm provider register -n Microsoft.Compute >/dev/null
 
 # --- Entra ID lookups ---
 # A group given by name must not be one an ordinary user created with that name: it would get VM
@@ -275,7 +298,7 @@ if [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]]; then
   # Only a pool that doesn't exist counts as having no tags: any other read error stops here, because
   # deploying on a guess could change the hosts' image or names (lesson 0012: report what Azure said).
   POOL_ERR=$(mktemp)
-  if ! POOL_STATE=$(az resource show -g "rg-$NAME_PREFIX-$ENV_NAME-avd" -n "vdpool-$NAME_PREFIX-$ENV_NAME" \
+  if ! POOL_STATE=$(arm resource show -g "rg-$NAME_PREFIX-$ENV_NAME-avd" -n "vdpool-$NAME_PREFIX-$ENV_NAME" \
     --resource-type Microsoft.DesktopVirtualization/hostPools \
     --query '{"avdlz-image": tags."avdlz-image", "avdlz-generation": tags."avdlz-generation", "avdlz-image-next": tags."avdlz-image-next", "avdlz-image-previous": tags."avdlz-image-previous", "avdlz-rotation": tags."avdlz-rotation"}' \
     -o json 2>"$POOL_ERR"); then
@@ -317,12 +340,12 @@ if [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]]; then
     fi
   fi
 fi
-if [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(az group exists -n "$HOSTS_RG")" == "true" ]]; then
+if [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(arm group exists -n "$HOSTS_RG")" == "true" ]]; then
   # --- Hosts locked by auto shutdown (decision 0011) ---
   # Lock tags the host pool, drains and tags the hosts and turns Start VM on Connect off. A
   # deployment would start every host, replace the tags and turn Start VM on Connect back on,
   # silently undoing what the budget alert bought. So it is refused until Resume has run.
-  POWER_LOCK=$(az resource show -g "rg-$NAME_PREFIX-$ENV_NAME-avd" -n "vdpool-$NAME_PREFIX-$ENV_NAME" \
+  POWER_LOCK=$(arm resource show -g "rg-$NAME_PREFIX-$ENV_NAME-avd" -n "vdpool-$NAME_PREFIX-$ENV_NAME" \
     --resource-type Microsoft.DesktopVirtualization/hostPools --query 'tags."avdlz-power-lock"' -o tsv 2>/dev/null || true)
   if [[ -n "$POWER_LOCK" ]]; then
     if $WHATIF; then
@@ -339,7 +362,7 @@ if [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(az group exists -n "$HOSTS
     fi
   fi
   echo "==> Checking the session hosts' power state in $HOSTS_RG"
-  mapfile -t STOPPED_HOSTS < <(az vm list -d -g "$HOSTS_RG" --query "[?powerState!='VM running'].id" -o tsv)
+  mapfile -t STOPPED_HOSTS < <(arm vm list -d -g "$HOSTS_RG" --query "[?powerState!='VM running'].id" -o tsv)
   if $ROTATION && ((${#STOPPED_HOSTS[@]})); then
     # A rotation deploys only the new generation, so only its VMs are started and deallocated: starting
     # a retiring host would let users onto it, and deallocating it after would end their sessions.
@@ -361,10 +384,10 @@ if ! ${POOL_FOUND:-false} && [[ -n "$IMAGE_ID$GENERATION" ]]; then
   [[ -n "$GENERATION" ]] && first+=("\"avdlz-generation\":$(json_str "$GENERATION")")
   AVD_HOST_POOL_STATE_TAGS="{$(IFS=,; echo "${first[*]}")}"
 fi
-# --- Operator jumpbox (decision 0018) ---
+# --- Operator jumpbox (decision 0019) ---
 # Once the jumpbox exists, a deployment without --jumpbox would try to remove its subnet while the VM
 # is in it, and fail: keep it. Remove-AvdDemo.ps1 -IncludeJumpbox removes it.
-if ! $JUMPBOX && [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(az group exists -n "rg-$NAME_PREFIX-$ENV_NAME-jumpbox")" == "true" ]]; then
+if ! $JUMPBOX && [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(arm group exists -n "rg-$NAME_PREFIX-$ENV_NAME-jumpbox")" == "true" ]]; then
   JUMPBOX=true
   echo "==> Keeping the jumpbox in rg-$NAME_PREFIX-$ENV_NAME-jumpbox (Remove-AvdDemo.ps1 -IncludeJumpbox removes it)."
 fi
@@ -376,7 +399,7 @@ fi
 JUMPBOX_EXISTS=''
 if $JUMPBOX && [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]]; then
   jumpbox_err=$(mktemp)
-  if existing_os=$(az vm show -g "rg-$NAME_PREFIX-$ENV_NAME-jumpbox" -n "vm-$NAME_PREFIX-$ENV_NAME-jumpbox" --query storageProfile.osDisk.osType -o tsv 2>"$jumpbox_err"); then
+  if existing_os=$(arm vm show -g "rg-$NAME_PREFIX-$ENV_NAME-jumpbox" -n "vm-$NAME_PREFIX-$ENV_NAME-jumpbox" --query storageProfile.osDisk.osType -o tsv 2>"$jumpbox_err"); then
     JUMPBOX_EXISTS=true
     if [[ -n "$JUMPBOX_OS" && "$JUMPBOX_OS" != "$existing_os" ]]; then
       echo "The jumpbox runs $existing_os; --jumpbox-os can't change it. Remove it first (Remove-AvdDemo.ps1 -IncludeJumpbox -DiscardLastCopy)."
@@ -414,7 +437,7 @@ if $WHATIF; then
     echo "    Not running: ${STOPPED_HOSTS[*]##*/}. The deployment starts them first and deallocates them after."
   fi
   echo "==> What-if ($DEPLOY_NAME) — no changes applied"
-  az deployment sub what-if -n "$DEPLOY_NAME" -l "$LOCATION" -p "$PARAM_FILE"
+  arm deployment sub what-if -n "$DEPLOY_NAME" -l "$LOCATION" -p "$PARAM_FILE"
   portal_state whatif
   exit 0
 fi
@@ -428,7 +451,7 @@ fi
 echo "==> Deploying ($DEPLOY_NAME). A first deployment takes 30-45 minutes."
 echo "    If Cloud Shell disconnects, the deployment keeps running in Azure."
 portal_state started
-if ! az deployment sub create -n "$DEPLOY_NAME" -l "$LOCATION" -p "$PARAM_FILE" \
+if ! arm deployment sub create -n "$DEPLOY_NAME" -l "$LOCATION" -p "$PARAM_FILE" \
   --query properties.outputs -o jsonc; then
   restore_hosts
   portal_state failed
@@ -436,9 +459,9 @@ if ! az deployment sub create -n "$DEPLOY_NAME" -l "$LOCATION" -p "$PARAM_FILE" 
 fi
 restore_hosts
 
-STORAGE_NAME=$(az deployment sub show -n "$DEPLOY_NAME" --query properties.outputs.storageAccountName.value -o tsv)
+STORAGE_NAME=$(arm deployment sub show -n "$DEPLOY_NAME" --query properties.outputs.storageAccountName.value -o tsv)
 # rg-<prefix>-<env>-avd -> <prefix> and <env>, for the post-deployment command.
-BASE_NAME=$(az deployment sub show -n "$DEPLOY_NAME" --query properties.outputs.resourceGroups.value.controlPlane -o tsv)
+BASE_NAME=$(arm deployment sub show -n "$DEPLOY_NAME" --query properties.outputs.resourceGroups.value.controlPlane -o tsv)
 BASE_NAME=${BASE_NAME#rg-}; BASE_NAME=${BASE_NAME%-avd}
 
 cat <<EOF
@@ -450,7 +473,7 @@ storage account's Entra app, excluding it from MFA Conditional Access policies,
 and the profile share permissions. The post-deployment preflight checks and
 applies all three. From Azure Cloud Shell (PowerShell):
 
-  ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -NamePrefix ${BASE_NAME%-*} -Environment ${BASE_NAME##*-} -Fix -AllowHostStart
+  ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -NamePrefix ${BASE_NAME%-*} -Environment ${BASE_NAME##*-} -SubscriptionId $SUB_ID -Fix -AllowHostStart
 
 To do them by hand instead (storage account $STORAGE_NAME), see docs/deploy.md#5-post-deployment.
 EOF

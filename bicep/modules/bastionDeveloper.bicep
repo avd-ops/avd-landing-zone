@@ -1,4 +1,4 @@
-// Azure Bastion Developer (build/decisions/0018-jumpbox-bastion-developer.md): browser RDP/SSH to the
+// Azure Bastion Developer (build/decisions/0019-jumpbox-bastion-developer.md): browser RDP/SSH to the
 // jumpbox at no charge. Facts from Microsoft Learn (bastion-sku-comparison, configuration-settings):
 // no AzureBastionSubnet and no public IP; a shared pool, one VM connection at a time; only VMs in this
 // VNet (no peering); only in the regions listed there (Get-AvdBastionDeveloperRegion); no Entra

@@ -1,5 +1,5 @@
 #cloud-config
-# Operator jumpbox (build/decisions/0018-jumpbox-bastion-developer.md): the Cloud Shell toolchain on a
+# Operator jumpbox (build/decisions/0019-jumpbox-bastion-developer.md): the Cloud Shell toolchain on a
 # small Linux VM inside the landing zone's VNet, so runs don't time out with a browser tab and can
 # reach the private endpoints (Key Vault, storage) that Cloud Shell can't.
 # Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE). Not affiliated with the author's employer or with Microsoft.

@@ -104,7 +104,7 @@ param(
   # the daily scheduled stop (HH:mm, or none) and Start VM on Connect. Empty = the parameter file's.
   [Parameter(ParameterSetName = 'PreDeployment')][ValidatePattern('^(none|([01][0-9]|2[0-3]):[0-5][0-9])$')][string] $AutoShutdownTime,
   [Parameter(ParameterSetName = 'PreDeployment')][ValidateSet('true', 'false')][string] $StartVmOnConnect,
-  # The operator jumpbox (deploy.sh --jumpbox / --jumpbox-keep-running, decision 0018): check its region
+  # The operator jumpbox (deploy.sh --jumpbox / --jumpbox-keep-running, decision 0019): check its region
   # and size, and price it.
   [Parameter(ParameterSetName = 'PreDeployment')][switch] $Jumpbox,
   [Parameter(ParameterSetName = 'PreDeployment')][ValidateSet('Linux', 'Windows')][string] $JumpboxOs,

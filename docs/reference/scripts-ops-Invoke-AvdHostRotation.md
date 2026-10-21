@@ -15,4 +15,5 @@ Replaces the landing zone's session hosts blue/green with a new image version (b
 | `-DeadlineHours` | int | no | `72` |  |
 | `-LogOffAtDeadline` | switch | no |  |  |
 | `-Rollback` | switch | no |  |  |
+| `-StopBefore` | string | no |  | Pause once before the old hosts drain, or before they are removed; the next run after the pause continues. |
 | `-SubscriptionId` | string | no |  |  |

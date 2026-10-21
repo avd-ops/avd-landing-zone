@@ -3,7 +3,7 @@
 <#
 .SYNOPSIS
   Gets the operator jumpbox ready to connect to through Azure Bastion Developer, or stops it
-  (build/decisions/0018-jumpbox-bastion-developer.md).
+  (build/decisions/0019-jumpbox-bastion-developer.md).
 
 .DESCRIPTION
   Run from Azure Cloud Shell (PowerShell), or any PowerShell signed in to Azure as an AVD operator

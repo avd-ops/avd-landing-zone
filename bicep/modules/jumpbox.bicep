@@ -1,4 +1,4 @@
-// Operator jumpbox (build/decisions/0018-jumpbox-bastion-developer.md): a small Linux or Windows Server
+// Operator jumpbox (build/decisions/0019-jumpbox-bastion-developer.md): a small Linux or Windows Server
 // VM in the landing zone's spoke with Cloud Shell's toolchain (Linux: scripts/jumpbox/cloud-init.yaml at
 // first boot; Windows: scripts/jumpbox/Install-JumpboxTools.ps1 as a Run Command when it is created),
 // reached only through Azure Bastion Developer in the browser (SSH or RDP). No public IP.

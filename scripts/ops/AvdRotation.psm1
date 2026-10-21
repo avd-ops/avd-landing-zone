@@ -64,7 +64,7 @@ function ConvertTo-AvdRotationTag {
   [CmdletBinding()]
   param([Parameter(Mandatory)] $State)
   $o = [ordered]@{}
-  foreach ($k in 'phase', 'from', 'to', 'version', 'deadline', 'notice', 'deploy', 'hours', 'prefix', 'rollback', 'by') {
+  foreach ($k in 'phase', 'from', 'to', 'version', 'deadline', 'notice', 'deploy', 'hours', 'prefix', 'stop', 'rollback', 'by') {
     $v = if ($State -is [System.Collections.IDictionary]) { $State[$k] } else { $State.$k }
     # The deployment's name is only needed while deploying; dropping it later keeps room for the notice.
     if ($k -eq 'deploy' -and "$(if ($State -is [System.Collections.IDictionary]) { $State['phase'] } else { $State.phase })" -ne 'Deploy') { continue }
@@ -265,6 +265,25 @@ function Get-AvdRotationStep {
   }
 }
 
+function Test-AvdRotationPause {
+  <#
+    True when the step about to run crosses the cutover point the rotation was asked to stop before
+    (State.stop: Drain or Remove): Deploy to Drain, or Wait to Remove. Once in Remove, finishing it is no pause.
+  #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)] $State, [Parameter(Mandatory)] $Step)
+  if (-not $State.stop -or "$($Step.Phase)" -ne "$($State.stop)") { return $false }
+  ("$($State.phase)" -eq 'Deploy' -and $Step.Action -eq 'drain') -or ("$($State.phase)" -eq 'Wait' -and $Step.Action -eq 'remove')
+}
+
+function Test-AvdRotationPastStop {
+  <# True when a rotation is already past the point -StopBefore names: nothing left to pause before. #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)] $State, [Parameter(Mandatory)][ValidateSet('Drain', 'Remove')][string] $StopBefore)
+  $order = @('Check', 'Deploy', 'Drain', 'Wait', 'Remove', 'Done')
+  $order.IndexOf("$($State.phase)") -ge $order.IndexOf($StopBefore)
+}
+
 function Get-AvdRotationRollback {
   <#
     The state that rolls a rotation back before Remove: the generations swap, so the new hosts drain and
@@ -281,6 +300,6 @@ function Get-AvdRotationRollback {
   }
 }
 
-Export-ModuleMember -Function Get-AvdImageLabel, Get-AvdNextHostGeneration, Get-AvdGenerationPrefix, Test-AvdGenerationNameClash,
+Export-ModuleMember -Function Test-AvdRotationPause, Test-AvdRotationPastStop, Get-AvdImageLabel, Get-AvdNextHostGeneration, Get-AvdGenerationPrefix, Test-AvdGenerationNameClash,
   Get-AvdHostGeneration, ConvertTo-AvdRotationTag, ConvertFrom-AvdRotationTag, Get-AvdRotationDeployArgument, Get-AvdRotationEnvironment, Get-AvdRotationCheck,
   Get-AvdRotationStep, Get-AvdRotationRollback

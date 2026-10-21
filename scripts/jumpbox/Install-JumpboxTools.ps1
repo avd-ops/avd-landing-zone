@@ -1,7 +1,7 @@
 # Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE). Not affiliated with the author's employer or with Microsoft.
 <#
 .SYNOPSIS
-  First boot of the Windows operator jumpbox (build/decisions/0018-jumpbox-bastion-developer.md):
+  First boot of the Windows operator jumpbox (build/decisions/0019-jumpbox-bastion-developer.md):
   installs the Cloud Shell toolchain, the same tools scripts/jumpbox/cloud-init.yaml installs on Linux.
 
 .DESCRIPTION

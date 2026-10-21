@@ -9,7 +9,7 @@
 // Optionally (deployImageBuildSubnets), two subnets for the golden image build
 // (build/specs/image-pipeline-spec.md): the Azure Image Builder build VM, and the
 // container instance that drives an isolated build. Same egress as the hosts.
-// Optionally (deployJumpboxSubnet), the operator jumpbox's subnet (decision 0018): reached only
+// Optionally (deployJumpboxSubnet), the operator jumpbox's subnet (decision 0019): reached only
 // through Azure Bastion Developer, which needs the jumpbox in this VNet. Same egress as the hosts.
 
 param location string
@@ -42,7 +42,7 @@ param imageBuildSubnetPrefix string = '10.100.2.128/27'
 @description('Image build container subnet, delegated to Azure Container Instances (a /27).')
 param imageBuildAciSubnetPrefix string = '10.100.2.160/27'
 
-@description('Add the operator jumpbox subnet (snet-jumpbox, decision 0018).')
+@description('Add the operator jumpbox subnet (snet-jumpbox, decision 0019).')
 param deployJumpboxSubnet bool = false
 
 @description('Jumpbox subnet (a /28 in the spoke\'s free range).')
@@ -211,7 +211,7 @@ module imageBuildNsg 'br/public:avm/res/network/network-security-group:0.5.3' = 
   }
 }
 
-// Jumpbox subnet (decision 0018): no public IP and nothing from the internet. Bastion Developer
+// Jumpbox subnet (decision 0019): no public IP and nothing from the internet. Bastion Developer
 // reaches the jumpbox over the VNet (the default AllowVnetInBound rule), so the subnet needs no
 // rule of its own for it. Like the hosts, the jumpbox may not RDP or SSH onward (it manages the
 // hosts through Azure: Run Command, not a session).

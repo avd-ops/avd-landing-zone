@@ -94,7 +94,7 @@ $env:FAKE_HOSTS_RG_EXISTS = 'false'
 Invoke-Deploy 'first-image' @('--image-id', $v1, '--generation', 'a')
 Invoke-Deploy 'bad-image' @('--image-id', '/subscriptions/0000/resourceGroups/rg-avdlz-images/providers/Microsoft.Compute/galleries/galavdlz/images/win11-avd')
 
-# Operator jumpbox (decision 0018). --jumpbox-keep-running alone needs a jumpbox; one that exists is
+# Operator jumpbox (decision 0019). --jumpbox-keep-running alone needs a jumpbox; one that exists is
 # kept without --jumpbox, accepts --jumpbox-keep-running, and its VM is marked existing so it isn't re-sent.
 $soon = [datetime]::UtcNow.AddHours(4).ToString('yyyy-MM-ddTHH:mmZ')
 Invoke-Deploy 'jumpbox-new' @('--jumpbox')
@@ -118,4 +118,29 @@ $env:AVD_JUMPBOX_OS = ''
 $env:FAKE_JUMPBOX_VM_ERROR = '(AuthorizationFailed) The client does not have authorization to perform action Microsoft.Compute/virtualMachines/read.'
 Invoke-Deploy 'jumpbox-unreadable' @('--jumpbox')
 $env:FAKE_JUMPBOX_VM_ERROR = ''
+# -s: every Resource Manager call names the subscription, Graph calls (az ad, az rest) and calls by
+# --ids don't, and az's selected subscription is never changed.
+function Write-SubscriptionCalls([string] $Step) {
+  $lines = @(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -like 'az *' })
+  $arm = @($lines | Where-Object { $_ -notmatch '^az (bicep|ad|rest) ' -and $_ -notmatch ' --ids ' -and $_ -notmatch '^az account show( --query (name|id|tenantId) -o tsv)?$' })
+  Write-Host "RESULT $Step-arm-without-s $(@($arm | Where-Object { $_ -notmatch ' --subscription other-sub$' }).Count)"
+  Write-Host "RESULT $Step-arm-with-s $(@($arm | Where-Object { $_ -match ' --subscription other-sub$' }).Count)"
+  Write-Host "RESULT $Step-graph-with-s $(@($lines | Where-Object { $_ -match '^az (ad|rest) ' -and $_ -match '--subscription' }).Count)"
+  Write-Host "RESULT $Step-account-set $(@($lines | Where-Object { $_ -like 'az account set*' }).Count)"
+}
+$env:FAKE_HOSTS_RG_EXISTS = 'true'; $env:FAKE_NOT_RUNNING = $stopped
+Invoke-Deploy 'subscription' @('-s', 'other-sub')
+Write-SubscriptionCalls 'subscription'
+Invoke-Deploy 'subscription-whatif' @('--subscription', 'other-sub', '--what-if')
+Write-SubscriptionCalls 'subscription-whatif'
+$env:FAKE_NOT_RUNNING = ''
+# Without -s: az's selected subscription, said so.
+Invoke-Deploy 'no-subscription'
+Write-SubscriptionCalls 'no-subscription'
+# A subscription that isn't there, or is in another tenant: refused before anything is read or changed.
+$env:FAKE_SUB_MISSING = '1'
+Invoke-Deploy 'subscription-missing' @('-s', 'other-sub')
+$env:FAKE_SUB_MISSING = ''; $env:FAKE_SUB_TENANT = '00000000-0000-0000-0000-0000000000f2'
+Invoke-Deploy 'subscription-other-tenant' @('-s', 'other-sub')
+$env:FAKE_SUB_TENANT = ''
 Remove-Item $log -ErrorAction SilentlyContinue

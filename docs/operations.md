@@ -8,7 +8,7 @@ PowerShell scripts in [`scripts/ops/`](../scripts/ops) that run against a **depl
 | `Test-AvdLandingZoneReadiness.ps1` | Preflight **after** deploying: is the landing zone ready for session hosts and users, **including the three post-deployment tenant steps**? Check mode by default; `-Fix` remediates. |
 | `Deploy-AvdDemo.ps1` | Deploys a demo host pool and session host into the landing zone, then validates that a user can sign in. |
 | `Remove-AvdDemo.ps1` | Removes the demo. `-IncludeJumpbox` removes the operator jumpbox; `-IncludeLandingZone` tears down the whole landing zone. |
-| `Connect-AvdJumpbox.ps1` | Optional operator jumpbox ([decision 0018](../build/decisions/0018-jumpbox-bastion-developer.md)): starts it, sets a one-time password and links to Connect > Bastion; `-Stop` deallocates it. See [Operator jumpbox](#operator-jumpbox). |
+| `Connect-AvdJumpbox.ps1` | Optional operator jumpbox ([decision 0019](../build/decisions/0019-jumpbox-bastion-developer.md)): starts it, sets a one-time password and links to Connect > Bastion; `-Stop` deallocates it. See [Operator jumpbox](#operator-jumpbox). |
 | `Connect-AvdLandingZone.ps1` | Signs in to Microsoft Graph once for the whole Cloud Shell session; the other scripts reuse the sign-in ([decision 0016](../build/decisions/0016-graph-operator-app.md)). |
 | `Initialize-AvdGraphApp.ps1` | One-time, by an administrator: creates the avd-opsbot app, so operators sign in with no consent prompts. |
 | `Test-AvdUserConnection.ps1` | After you open the desktop: confirms from Azure telemetry that your sign-in reached it (Verified, Failed or Not verified). The deployment portal's Verify access step ([decision 0014](../build/decisions/0014-verify-access.md)). |
@@ -91,7 +91,7 @@ Required roles:
 
 ## Operator jumpbox
 
-Optional, off by default ([decision 0018](../build/decisions/0018-jumpbox-bastion-developer.md)): a small Linux VM (or Windows Server, with `--jumpbox-os windows`) inside the landing zone's VNet with the same tools as Cloud Shell (pwsh, the Azure CLI, Bicep, git, the Az and Graph modules), reached in the browser through **Azure Bastion Developer**. Developer has no hourly charge and needs no public IP, but connects one VM at a time, only in its own VNet, only from the Azure portal, and only in [some regions](https://learn.microsoft.com/azure/bastion/bastion-sku-comparison#regional-availability) (North Central US yes; East US and South Central US no). Use it for long runs that a Cloud Shell timeout would cut, and for anything that needs the private endpoints (the break-glass secret in the private Key Vault).
+Optional, off by default ([decision 0019](../build/decisions/0019-jumpbox-bastion-developer.md)): a small Linux VM (or Windows Server, with `--jumpbox-os windows`) inside the landing zone's VNet with the same tools as Cloud Shell (pwsh, the Azure CLI, Bicep, git, the Az and Graph modules), reached in the browser through **Azure Bastion Developer**. Developer has no hourly charge and needs no public IP, but connects one VM at a time, only in its own VNet, only from the Azure portal, and only in [some regions](https://learn.microsoft.com/azure/bastion/bastion-sku-comparison#regional-availability) (North Central US yes; East US and South Central US no). Use it for long runs that a Cloud Shell timeout would cut, and for anything that needs the private endpoints (the break-glass secret in the private Key Vault).
 
 **Linux or Windows.** Linux (Ubuntu 24.04, `Standard_B2als_v2`, Standard SSD E4) is the default and the cheapest. `--jumpbox-os windows` (preflight: `-JumpboxOs Windows`) gives Windows Server 2025 (`Standard_B2as_v2`, E10) with the same tools, for a Windows desktop, a browser to reach the deployment portal or an app console from inside the VNet, or Windows-only tools; it bills at the Windows rate. The choice is made when the jumpbox is created: to switch, remove it and deploy again.
 
@@ -234,6 +234,7 @@ It then validates sign-in readiness:
 |---|---|
 | Host pool | Every host **Available**, accepting new sessions, all AVD health checks passing (waits up to `-TimeoutMinutes`) |
 | Host configuration | `Configure-FSLogix` and `Register-AvdAgent` run commands succeeded; on the host: Entra joined, Intune enrolled, agent registered, FSLogix and Entra Kerberos configured, profile share resolves to a private IP and answers on TCP 445 |
+| Host security baseline | Each host against the reviewed profile in [`scripts/security`](../scripts/security/README.md): VBS, Credential Guard, memory integrity, Defender, LSA protection, SMB 1.0, session and screen locks, extra local administrators. **Warnings, never failures**: a control the landing zone leaves to the organization says why, and drift nobody recorded says so ([decision 0018](../build/decisions/0018-host-security-baseline.md)) |
 | Access | AVD Users hold Desktop Virtualization User on the demo app group, VM User Login on the demo RG, and SMB Share Contributor on the storage |
 | Tenant | Steps 1–3 as above (check only; `-FixNtfs` applies the ACL) |
 | Test user | With `-TestUserUpn`: enabled, a member of AVD Users (including nested groups), licensed |
@@ -302,7 +303,7 @@ Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 | Pillar | Checks |
 |---|---|
 | Reliability | At least two session hosts; hosts in availability zones (and whether the region has any); zone-redundant profile storage; share soft delete; profile share backup; Azure Advisor reliability recommendations |
-| Security | Defender for Cloud plans for servers, storage and Key Vault; Trusted Launch and encryption at host; storage TLS 1.2, HTTPS only and no shared keys; Key Vault purge protection, RBAC and private access; open Defender for Cloud recommendations on landing zone resources |
+| Security | Defender for Cloud plans for servers, storage and Key Vault; Trusted Launch with Secure Boot and vTPM, and encryption at host; drive and USB redirection off on the host pool; storage TLS 1.2, HTTPS only and no shared keys; Key Vault purge protection, RBAC and private access; open Defender for Cloud recommendations on landing zone resources |
 | Cost Optimization | A budget; a scaling plan enabled on the host pool; Advisor cost recommendations |
 | Operational Excellence | Azure Monitor Agent on every session host; host pool diagnostics to Log Analytics; log retention of 90 days or more; Azure Policy compliance of the landing zone resource groups; Advisor recommendations |
 | Performance Efficiency | Accelerated networking on the session hosts; Advisor recommendations |

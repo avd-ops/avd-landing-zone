@@ -21,4 +21,5 @@ Short records of choices that shape this repo, so they are not reopened without 
 | 0015 | An optional computer-use agent on an isolated VM (never built; moved out of this repo 2026-10-20) | Withdrawn |
 | 0016 | [One delegated Microsoft Graph sign-in per session, through a dedicated public client app](0016-graph-operator-app.md) | Accepted |
 | 0017 | [The portal runs from GitHub Pages by default, or from a copy you publish into your own subscription](0017-portal-hosting.md) | Proposed |
-| 0018 | [An opt-in operator jumpbox, reached through Azure Bastion Developer](0018-jumpbox-bastion-developer.md) | Proposed |
+| 0018 | [Check session hosts against a reviewed security baseline profile, as warnings](0018-host-security-baseline.md) | Proposed |
+| 0019 | [An opt-in operator jumpbox, reached through Azure Bastion Developer](0019-jumpbox-bastion-developer.md) | Proposed |

@@ -40,7 +40,7 @@ The host pool is deployed in the same region, so the region must offer AVD host 
 | `AVD_RECOVERY_LOCATION` | no | you, or the preflight's `-RecoveryLocation`: a second region the policy guardrail also allows, for restores and recovery tests ([recovery spec](../build/specs/recovery-spec.md)). The preflight checks policy and quota there. Empty = none |
 | `AVD_RUNBOOK_URI` | no | `deploy.sh`: the auto-shutdown runbook at the commit being deployed. Defaults to the repo's `master` |
 | `AVD_SESSION_HOST_COUNT`, `AVD_SESSION_HOST_VM_SIZE`, `AVD_MAX_SESSION_LIMIT`, `AVD_PROFILE_QUOTA_GIB` | no | `deploy.sh --hosts --vm-size --max-sessions --profile-quota`, or the preflight's `-SessionHostCount -SessionHostVmSize -MaxSessionLimit -ProfileShareQuotaGiB`; the [deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/)'s sizing step fills them in. Empty = the file's values |
-| `AVD_DEPLOY_JUMPBOX`, `AVD_JUMPBOX_OS`, `AVD_JUMPBOX_KEEP_RUNNING_UNTIL` | no | `deploy.sh --jumpbox [--jumpbox-os linux\|windows] [--jumpbox-keep-running <yyyy-MM-ddTHH:mmZ>]`: the optional operator jumpbox through Bastion Developer ([decision 0018](../build/decisions/0018-jumpbox-bastion-developer.md), [operations](operations.md#operator-jumpbox)). Empty = no jumpbox (once deployed, `deploy.sh` keeps it), and its daily stop |
+| `AVD_DEPLOY_JUMPBOX`, `AVD_JUMPBOX_OS`, `AVD_JUMPBOX_KEEP_RUNNING_UNTIL` | no | `deploy.sh --jumpbox [--jumpbox-os linux\|windows] [--jumpbox-keep-running <yyyy-MM-ddTHH:mmZ>]`: the optional operator jumpbox through Bastion Developer ([decision 0019](../build/decisions/0019-jumpbox-bastion-developer.md), [operations](operations.md#operator-jumpbox)). Empty = no jumpbox (once deployed, `deploy.sh` keeps it), and its daily stop |
 | `AVD_AUTO_SHUTDOWN_TIME`, `AVD_START_VM_ON_CONNECT` | no | `deploy.sh --auto-shutdown HH:mm\|none --start-vm-on-connect true\|false`, or the preflight's `-AutoShutdownTime -StartVmOnConnect`; the portal's Cost step fills them in. Empty = the file's values; `none` = no scheduled stop |
 
 Things you'll most likely change in the file: `namePrefix`, address ranges, `scalingTimeZone`, and for hub-peered mode the hub settings (examples are in `prod.bicepparam`).
@@ -55,14 +55,15 @@ Run the pre-deployment preflight first, and repeat it until it comes back clean.
 
 ```bash
 az login
-az account set --subscription "<subscription-id>"
 
-./scripts/deploy/deploy.sh -p parameters/prod.bicepparam -l northcentralus \
+./scripts/deploy/deploy.sh -p parameters/prod.bicepparam -l northcentralus -s "<subscription-id>" \
   --users-group "AVD Users" --admins-group "AVD Admins" --what-if
 
-./scripts/deploy/deploy.sh -p parameters/prod.bicepparam -l northcentralus \
+./scripts/deploy/deploy.sh -p parameters/prod.bicepparam -l northcentralus -s "<subscription-id>" \
   --users-group "AVD Users" --admins-group "AVD Admins"
 ```
+
+`-s` names the subscription for this run only: az's selected subscription doesn't change, and without `-s` the script uses that one. Either way it prints the subscription's name and ID before it changes anything, and it refuses a subscription in a different tenant from the one az is signed in to. Never commit a subscription ID: the secret scan fails on one ([CONTRIBUTING.md](../CONTRIBUTING.md#secret-scanning)).
 
 To size the host pool, use the portal's **Size the host pool** step, then its **Cost** step for Start VM on Connect and the scheduled stop. They add their flags to both commands, and the preflight checks quota for that size and prices it at Azure list prices for the region (see [operations.md](operations.md#sizing-and-cost)).
 
@@ -70,7 +71,7 @@ To size the host pool, use the portal's **Size the host pool** step, then its **
 
 ### From a migration factory manifest
 
-When the design comes from an assessment ([avd-readiness-stratusphere](https://github.com/nickprignano/avd-readiness-stratusphere)), it arrives as an approved target-state manifest (`avd-target-state/v1`, contract C14 in [avd-second-brain](https://github.com/nickprignano/avd-second-brain/blob/main/docs/contracts.md)) with its approval file next to it. The reader turns one host pool of it into the two commands above, with the sizing and power settings as flags, and changes nothing in Azure:
+When the design comes from an assessment, it arrives as an approved target-state manifest (`avd-target-state/v1`, contract C14 in [avd-second-brain](https://github.com/nickprignano/avd-second-brain/blob/main/docs/contracts.md)) with its approval file next to it. The reader turns one host pool of it into the two commands above, with the sizing and power settings as flags, and changes nothing in Azure:
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
