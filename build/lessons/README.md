@@ -38,7 +38,7 @@ Add a lesson whenever a real run fails for a reason the tests didn't catch. The 
 | 0030 | [Microsoft Graph's service principal doesn't list every delegated permission it issues](0030-graph-unlisted-delegated-scope.md) | Ops scripts | #47 | Offline scenario: GraphSignIn (setup, default-to-operator) |
 | 0031 | [WDOT returns without an error when it skips work, so its return is never proof it ran](0031-wdot-returns-without-error.md) | Image pipeline | #98 | Pester: WDOT run verification |
 | 0032 | [Every field of a pasted state line is input, not only its settings](0032-pasted-state-line-fields.md) | Deployment portal | #111 | Portal test: crafted paste (every field of every state fixture) |
-| 0033 | [The run recorder prices the parameter file's default size unless sizing reaches the plan through -Sizing](0033-recorder-prices-deploy-size.md) | Run recorder | #<n> | Offline scenario: RunRecorder `start-sized` |
+| 0033 | [The run recorder prices the parameter file's default size unless sizing reaches the plan through -Sizing](0033-recorder-prices-deploy-size.md) | Run recorder | #114 | Offline scenario: RunRecorder `start-sized` |
 
 ## Template
 

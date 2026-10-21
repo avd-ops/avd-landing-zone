@@ -1,7 +1,7 @@
 # 0033. The run recorder prices the parameter file's default size unless sizing reaches the plan through -Sizing
 
 - **Area:** Run recorder
-- **Found in / fixed by:** a sandbox batch run, where the recorder refused the run before anything was deployed; fixed by PR #<n>
+- **Found in / fixed by:** a sandbox batch run, where the recorder refused the run before anything was deployed; fixed by PR #114
 
 ## What happened
 The batch had been approved at the estimate for one `Standard_D2as_v5` session host. The batch runner set `AVD_SESSION_HOST_VM_SIZE=Standard_D2as_v5` (the size `deploy.sh --vm-size` deploys) and called `Start-AvdRunRecorder.ps1`. The recorder priced the parameter file's default instead:
