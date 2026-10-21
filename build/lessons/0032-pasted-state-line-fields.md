@@ -1,4 +1,4 @@
-# 0031. Every field of a pasted state line is input, not only its settings
+# 0032. Every field of a pasted state line is input, not only its settings
 
 - **Area:** Deployment portal
 - **Found in / fixed by:** a design review of the shared portal engine (avd-ops `docs/portal-engine-spec.md`, section 14); #111
