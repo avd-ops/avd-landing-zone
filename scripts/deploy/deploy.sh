@@ -304,6 +304,19 @@ if [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(az group exists -n "$HOSTS
   fi
   echo "==> Checking the session hosts' power state in $HOSTS_RG"
   mapfile -t STOPPED_HOSTS < <(az vm list -d -g "$HOSTS_RG" --query "[?powerState!='VM running'].id" -o tsv)
+  if $ROTATION && ((${#STOPPED_HOSTS[@]})); then
+    # A rotation deploys only the new generation, so only its VMs are started and deallocated: starting
+    # a retiring host would let users onto it, and deallocating it after would end their sessions.
+    # The names follow hostNamePrefix in bicep/main.bicep.
+    BASE_PREFIX=$(param_value sessionHostNamePrefix)
+    [[ -n "$BASE_PREFIX" ]] || { BASE_PREFIX="$NAME_PREFIX${ENV_NAME:0:1}sh"; BASE_PREFIX=${BASE_PREFIX:0:11}; }
+    GEN_PREFIX="${BASE_PREFIX:0:10}$GENERATION"
+    KEEP=()
+    for id in "${STOPPED_HOSTS[@]}"; do
+      if [[ "${id##*/}" =~ ^${GEN_PREFIX}-[0-9]{3}$ ]]; then KEEP+=("$id"); else echo "    Leaving ${id##*/} as it is (not generation $GENERATION)."; fi
+    done
+    STOPPED_HOSTS=("${KEEP[@]}")
+  fi
 fi
 # A new host pool records the image and generation its first hosts get, so later deployments keep them.
 if ! ${POOL_FOUND:-false} && [[ -n "$IMAGE_ID$GENERATION" ]]; then

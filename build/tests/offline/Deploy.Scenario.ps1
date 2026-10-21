@@ -74,6 +74,10 @@ Invoke-Deploy 'pool-tags-new-generation' @('--generation', 'b', '--image-id', $v
 $env:FAKE_POOL_TAGS = "{`n  `"avdlz-generation`": `"a`",`n  `"avdlz-image`": `"$v1`",`n  `"avdlz-image-next`": `"$v2`",`n  `"avdlz-rotation`": `"{\`"phase\`":\`"Deploy\`"}`"`n}"
 Invoke-Deploy 'pool-rotating'
 Invoke-Deploy 'pool-rotation-deploy' @('--generation', 'b', '--image-id', $v2, '--rotation')
+# A rotation starts and deallocates only the new generation's VMs: a stopped retiring host stays stopped.
+$env:FAKE_NOT_RUNNING = "$stopped`n$($stopped -replace 'avdlzdsh-001$', 'avdlzdshb-001')"
+Invoke-Deploy 'pool-rotation-stopped' @('--generation', 'b', '--image-id', $v2, '--rotation')
+$env:FAKE_NOT_RUNNING = ''
 # A pool that outlived its hosts resource group still decides: its tags are read all the same.
 $env:FAKE_HOSTS_RG_EXISTS = 'false'
 Invoke-Deploy 'pool-no-hosts-rg'

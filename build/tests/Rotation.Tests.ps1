@@ -58,6 +58,16 @@ Describe 'The rotation tag' {
     $wait.Length | Should -BeLessOrEqual 256
     (ConvertFrom-AvdRotationTag $wait).hours | Should -Be '720'
   }
+  It 'fits the longest version numbers by shortening who started it, never the state' {
+    $by = '0' * 40; $name = 'd' * 64; $ver = '2147483647.2147483647.2147483647'
+    $deploy = ConvertTo-AvdRotationTag @{ phase = 'Deploy'; from = 'a'; to = 'b'; version = $ver; deploy = $name; hours = 720; prefix = 'p' * 11; rollback = $true; by = $by }
+    $deploy.Length | Should -BeLessOrEqual 256
+    $o = ConvertFrom-AvdRotationTag $deploy
+    $o.version | Should -Be $ver; $o.deploy | Should -Be $name; $o.prefix | Should -Be ('p' * 11); $o.hours | Should -Be '720'
+    $wait = ConvertTo-AvdRotationTag @{ phase = 'Wait'; from = 'a'; to = 'b'; version = $ver; deadline = '2026-10-23T12:00:59Z'; notice = '2026-10-23T12:00:59Z'; hours = 720; prefix = 'p' * 11; rollback = $true; by = $by }
+    $wait.Length | Should -BeLessOrEqual 256
+    (ConvertFrom-AvdRotationTag $wait).notice | Should -Be '2026-10-23T12:00:59Z'
+  }
   It 'leaves out empty values, so the original generation (none) is simply absent' {
     $tag = ConvertTo-AvdRotationTag @{ phase = 'Deploy'; from = ''; to = 'a'; version = '2026.1101.1' }
     $tag | Should -Not -Match '"from"'
@@ -140,6 +150,10 @@ Describe 'Each phase''s next step' {
     $h = @((New-SessionHost 'avdlzdsha-001' 'a'), (New-SessionHost 'avdlzdshb-001' 'b'), (New-SessionHost 'avdlzdshb-002' 'b' -Ok $false))
     $r = Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $h -ExpectedCount 2 -Now $now -DeploymentState succeeded
     $r.Action | Should -Be 'wait-hosts'; $r.Phase | Should -Be 'Deploy'; $r.Detail | Should -Match '1 of 2'
+    # Available and healthy but drained (by autoscale, say) is not ready: no host would take sessions.
+    $h[2] = New-SessionHost 'avdlzdshb-002' 'b' -Allow $false
+    $r = Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $h -ExpectedCount 2 -Now $now -DeploymentState succeeded
+    $r.Action | Should -Be 'wait-hosts'; $r.Detail | Should -Match 'taking new sessions'
     $h[2] = New-SessionHost 'avdlzdshb-002' 'b'
     (Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $h -ExpectedCount 2 -Now $now -DeploymentState succeeded).Action | Should -Be 'drain'
     # A deployment that can't be found (deploy.sh stopped before submitting it) is deployed again, never cut over to.

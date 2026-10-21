@@ -70,16 +70,22 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
     if ($Method -eq 'GET' -and $Path -match "^$hpRe/sessionHosts\?") {
       return & $ok @{ value=@($ro.hosts.Keys | Sort-Object | Where-Object { -not $ro.hosts[$_].deleted } | ForEach-Object {
             $h = $ro.hosts[$_]
-            @{ name="vdpool-avdlz-dev/$_.contoso.com"; id="$hpId/sessionHosts/$_.contoso.com"
-              properties=@{ resourceId="$vmBase/$_"; status=$h.status; sessions=$h.sessions; allowNewSession=$h.allowNew
-                sessionHostHealthCheckResults=@(@{ healthCheckName='DomainJoinedCheck'; healthCheckResult=$(if ($h.healthy -eq $false) { 'HealthCheckFailed' } else { 'HealthCheckSucceeded' }) }) } } }) }
+            $props = @{ resourceId="$vmBase/$_"; status=$h.status; sessions=$h.sessions; allowNewSession=$h.allowNew }
+            # A host that hasn't reported its health checks yet: ARM leaves the property out.
+            if (-not $h.noChecks) { $props.sessionHostHealthCheckResults = @(@{ healthCheckName='DomainJoinedCheck'; healthCheckResult=$(if ($h.healthy -eq $false) { 'HealthCheckFailed' } else { 'HealthCheckSucceeded' }) }) }
+            @{ name="vdpool-avdlz-dev/$_.contoso.com"; id="$hpId/sessionHosts/$_.contoso.com"; properties=$props } }) }
     }
     if ($Path -match "^$hpRe/sessionHosts/([^./]+)\.contoso\.com(/userSessions)?") {
       $name = $Matches[1]; $h = $ro.hosts[$name]; $us = [bool]$Matches[2]
       if ($Path -match '/sendMessage\?') { $ro.messages++; return & $ok @{} }
       if ($us -and $Method -eq 'GET') { return & $ok @{ value=@(1..([Math]::Max(1, [int]$h.sessions)) | Where-Object { $h.sessions } | ForEach-Object { @{ name="vdpool-avdlz-dev/$name.contoso.com/$_" } }) } }
       if ($us -and $Method -eq 'DELETE') { $h.sessions = [Math]::Max(0, $h.sessions - 1); $ro.signedOut++; return & $ok @{} }
-      if ($Method -eq 'PATCH') { $h.allowNew = ($Payload | ConvertFrom-Json).properties.allowNewSession; return & $ok @{} }
+      if ($Method -eq 'PATCH') {
+        $h.allowNew = ($Payload | ConvertFrom-Json).properties.allowNewSession
+        # A user who connected while the host was open shows up once it drains.
+        if (-not $h.allowNew -and $h.connectOnDrain) { $h.sessions++; $h.connectOnDrain = $false }
+        return & $ok @{}
+      }
       if ($Method -eq 'DELETE') { $h.deleted = $true; return & $ok @{} }
     }
     if ($Method -eq 'GET' -and $Path -match "^$([regex]::Escape($vmBase))\?") {

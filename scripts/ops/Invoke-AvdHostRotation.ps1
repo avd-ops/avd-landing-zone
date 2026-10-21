@@ -142,7 +142,8 @@ function Read-SessionHost {
         Path = "$($_.id)"; Name = ("$($_.name)" -split '/')[-1]; VmId = $vmId; VmName = $vm
         Generation = Get-AvdHostGeneration -VmName $vm -BasePrefix $basePrefix
         Available = "$($_.properties.status)" -eq 'Available'
-        Healthy = -not @($checks | Where-Object { "$($_.healthCheckResult)" -ne 'HealthCheckSucceeded' }).Count
+        # Healthy means checks were reported and every one passed: no results is not a pass.
+        Healthy = $checks.Count -gt 0 -and -not @($checks | Where-Object { "$($_.healthCheckResult)" -ne 'HealthCheckSucceeded' }).Count
         AllowNewSession = [bool]$_.properties.allowNewSession
         Sessions = [int]$_.properties.sessions
       }
@@ -271,18 +272,21 @@ for ($i = 0; $i -lt 20; $i++) {
   $hosts = Read-SessionHost
   $expected = if ($params -and $params.sessionHostCount.value) { [int]$params.sessionHostCount.value } else { 0 }
   if ($state.phase -eq 'Deploy') { $expected = [Math]::Max($expected, @($hosts | Where-Object { $_.Generation -eq "$($state.from)" }).Count) }
+  # A Resume after a budget lock reopens every host: the retiring generation drains again, without a
+  # new message, deadline or notice. Before the next step is chosen, and from a fresh read: a user who
+  # connected while it was open must count as a session, not be removed with the host.
+  if ($state.phase -in 'Wait', 'Remove') {
+    $reopened = @($hosts | Where-Object { $_.Generation -eq "$($state.from)" -and $_.AllowNewSession })
+    foreach ($h in $reopened) {
+      Write-Host "  Draining $($h.VmName) again (it was reopened)" -ForegroundColor DarkYellow
+      $null = Set-HostDrain $h $true
+    }
+    if ($reopened.Count -and -not $WhatIfPreference) { $hosts = Read-SessionHost }
+  }
   $deployState = if ($state.phase -eq 'Deploy' -and -not $deployed) { Get-RotationDeploymentState $state } else { 'succeeded' }
   $step = Get-AvdRotationStep -State $state -SessionHosts $hosts -ExpectedCount $expected -Now $now -LogOffAtDeadline:$LogOffAtDeadline -DeploymentState $deployState
   $context.phase = "$($state.phase)"
   Write-Host "  [$($state.phase)] $($step.Detail)" -ForegroundColor DarkGray
-  # A Resume after a budget lock reopens every host: the retiring generation drains again, without a
-  # new message, deadline or notice.
-  if ($state.phase -in 'Wait', 'Remove') {
-    foreach ($h in @($hosts | Where-Object { $_.Generation -eq "$($state.from)" -and $_.AllowNewSession })) {
-      Write-Host "  Draining $($h.VmName) again (it was reopened)" -ForegroundColor DarkYellow
-      $null = Set-HostDrain $h $true
-    }
-  }
   switch ($step.Action) {
     'deploy' {
       if ($deployed) {
@@ -290,7 +294,8 @@ for ($i = 0; $i -lt 20; $i++) {
         Complete-Rotation 'waiting' 0
       }
       $target = "$($tags['avdlz-image-next'])"
-      $count = @($hosts | Where-Object { $_.Generation -eq "$($state.from)" }).Count
+      # As many hosts as the landing zone is meant to have, even if an original one lost its registration.
+      $count = $expected
       $name = "avdlz-$([IO.Path]::GetFileNameWithoutExtension($ParameterFile))-rot$($state.to)-$([datetime]::UtcNow.ToString('yyyyMMdd-HHmmss'))"
       $deployArgs = Get-AvdRotationDeployArgument -Parameters $params -ParameterFile $ParameterFile -Location $lz.Location -ImageId $target -Generation $state.to -HostCount $count -DeploymentName $name
       Write-AvdSection 'Deploy'
@@ -361,7 +366,8 @@ for ($i = 0; $i -lt 20; $i++) {
         }
       }
       $state.phase = 'Wait'
-      $state | Add-Member -NotePropertyName deadline -NotePropertyValue ($now.AddHours($(if ($state.version -eq 'rollback') { 1 } elseif ($state.hours) { [int]$state.hours } else { $DeadlineHours })).ToString('yyyy-MM-ddTHH:mmZ')) -Force
+      # From now, after the deployment and the messages, to the second: users get the whole drain period.
+      $state | Add-Member -NotePropertyName deadline -NotePropertyValue ([datetime]::UtcNow.AddHours($(if ($state.version -eq 'rollback') { 1 } elseif ($state.hours) { [int]$state.hours } else { $DeadlineHours })).ToString('yyyy-MM-ddTHH:mm:ssZ')) -Force
       Save-State $state
       Add-AvdCheckResult 'Rotation' 'Old hosts draining' 'Pass' -Id 'rotation-drained' -Detail "Deadline $($state.deadline) UTC."
     }

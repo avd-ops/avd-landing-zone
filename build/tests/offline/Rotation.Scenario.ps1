@@ -78,8 +78,9 @@ Add-Generation 'Available' @('avdlzdsha-001')
 Invoke-ScenarioStep 'deploy-retry' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
 Show-Rotation 'deploy-retry'
 Set-RotationRun 'Succeeded'
-# Registered but not yet Available: wait, without deploying again.
+# Registered but not yet Available, or Available with no health checks reported yet: wait, without deploying again.
 Add-Generation 'Unavailable'
+$global:St.rotation.hosts['avdlzdsha-001'] = @{ status = 'Available'; sessions = 0; allowNew = $true; noChecks = $true }
 Invoke-ScenarioStep 'hosts-wait' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
 Show-Rotation 'hosts-wait'
 # Ready: the pool records the new image and generation, and the old hosts drain with a message.
@@ -108,6 +109,13 @@ Show-Rotation 'notice'
 Set-RotationTime 'notice'
 Invoke-ScenarioStep 'logoff' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -LogOffAtDeadline }
 Show-Rotation 'logoff'
+# Reopened again after the sign-out, and a user connects before the re-drain: that session counts, so the
+# host waits instead of being removed with the user on it.
+$global:St.rotation.hosts['avdlzdsh-001'].allowNew = $true
+$global:St.rotation.hosts['avdlzdsh-001'].connectOnDrain = $true
+Invoke-ScenarioStep 'reopened' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
+Show-Rotation 'reopened'
+$global:St.rotation.hosts['avdlzdsh-001'].sessions = 0
 # Remove: the old session hosts and VMs go; the device objects are listed to delete by hand. One VM is still
 # deleting when the run stops; the next run finds it by its name although its session host is gone.
 $global:St.rotation.vmsSlow = @('avdlzdsh-002')

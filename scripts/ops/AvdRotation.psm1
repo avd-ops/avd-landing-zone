@@ -72,6 +72,13 @@ function ConvertTo-AvdRotationTag {
   }
   if ($o.by -and $o.by.Length -gt 40) { $o.by = $o.by.Substring(0, 40) }
   $json = $o | ConvertTo-Json -Compress
+  # Who started the rotation is the one field nothing reads back: it gives way first, so long version
+  # numbers and deployment names still fit.
+  if ($json.Length -gt 256 -and $o.by) {
+    $keep = $o.by.Length - ($json.Length - 256)
+    if ($keep -ge 8) { $o.by = $o.by.Substring(0, $keep) } else { $o.Remove('by') }
+    $json = $o | ConvertTo-Json -Compress
+  }
   if ($json.Length -gt 256) { throw "The rotation state is $($json.Length) characters; a tag holds 256." }
   $json
 }
@@ -84,6 +91,8 @@ function ConvertFrom-AvdRotationTag {
   try { $o = $Value | ConvertFrom-Json -AsHashtable -ErrorAction Stop } catch { return $null }
   if (-not $o -or $o.phase -notin $script:Phases) { return $null }
   $o.rollback = [bool]$o.rollback
+  # ConvertFrom-Json turns timestamps with seconds into dates; keep them as the UTC text that was written.
+  foreach ($k in 'deadline', 'notice') { if ($o[$k] -is [datetime]) { $o[$k] = $o[$k].ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') } }
   [pscustomobject]$o
 }
 
@@ -223,9 +232,10 @@ function Get-AvdRotationStep {
       if ($DeploymentState -eq 'failed') { return & $out 'deploy' 'Deploy' "$($new.Count)$(if ($ExpectedCount -gt 0) { " of $ExpectedCount" }) new host(s) registered and the deployment failed; deploying again." }
       if ($DeploymentState -eq 'none') { return & $out 'deploy' 'Deploy' "No deployment of generation $($State.to) found$(if ($new.Count) { " ($($new.Count) new host(s) registered)" }); deploying." }
       if ($new.Count -eq 0) { return & $out 'wait-hosts' 'Deploy' "The deployment succeeded; no generation $($State.to) host registered yet." }
-      $ready = @($new | Where-Object { $_.Available -and $_.Healthy })
+      # Ready means taking sessions too: a replacement autoscale drained would leave no host open.
+      $ready = @($new | Where-Object { $_.Available -and $_.Healthy -and $_.AllowNewSession })
       if ($ExpectedCount -gt 0 -and $ready.Count -lt $ExpectedCount) {
-        return & $out 'wait-hosts' 'Deploy' "$($ready.Count) of $ExpectedCount new host(s) Available with every health check passing."
+        return & $out 'wait-hosts' 'Deploy' "$($ready.Count) of $ExpectedCount new host(s) Available, taking new sessions, with every health check passing."
       }
       if ($ready.Count -lt $new.Count) { return & $out 'wait-hosts' 'Deploy' "$($ready.Count) of $($new.Count) new host(s) ready." }
       return & $out 'drain' 'Drain' "$($ready.Count) new host(s) ready."
