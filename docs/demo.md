@@ -5,7 +5,7 @@ A fresh landing zone takes 30–45 minutes to deploy ([deploy.md](deploy.md#4-de
 - **Dev is built the night before and is the working desktop.** You sign in to it during the demo.
 - **Test is deployed live beside it** from [`parameters/test.bicepparam`](../parameters/test.bicepparam). It is the dev footprint under its own names (`avdlz-test`, session hosts `avdlztsh-*`). It leaves the subscription-wide pieces (policy guardrails, activity log export) to dev, so nothing collides.
 
-Every block below is self-contained. Paste it into a fresh [Cloud Shell (PowerShell)](https://shell.azure.com/powershell) and paste the output into the [deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/). The portal tells you what to run next.
+Every block below is self-contained. Paste it into a fresh [Cloud Shell (PowerShell)](https://shell.azure.com/powershell) and paste the output into the [deployment portal](https://avd-ops.github.io/avd-landing-zone/portal/). The portal tells you what to run next.
 
 ## The night before (about 1.5 hours, mostly waiting)
 

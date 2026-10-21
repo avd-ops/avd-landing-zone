@@ -33,7 +33,7 @@ Everything is built from pinned [Azure Verified Modules](https://aka.ms/avm).
 
 ## Quick start
 
-**Easiest path: the [deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/).** It picks the closest region by measuring latency from your browser, sizes the host pool from how many people use it (and the preflight prices that at Azure list prices for the region), gives you each command to paste into Cloud Shell, and reads the output you paste back to tell you what to run next, all the way to signing in. Pasted output never leaves your browser. If you get stuck, **Report a problem** turns the output into a GitHub issue, with private details removed in your browser first.
+**Easiest path: the [deployment portal](https://avd-ops.github.io/avd-landing-zone/portal/).** It picks the closest region by measuring latency from your browser, sizes the host pool from how many people use it (and the preflight prices that at Azure list prices for the region), gives you each command to paste into Cloud Shell, and reads the output you paste back to tell you what to run next, all the way to signing in. Pasted output never leaves your browser. If you get stuck, **Report a problem** turns the output into a GitHub issue, with private details removed in your browser first.
 
 Prerequisites (details in [`docs/deploy.md`](docs/deploy.md)):
 - A **dedicated subscription** where you are Owner, plus Azure CLI ≥ 2.65.
@@ -117,7 +117,7 @@ avd-landing-zone/
 - [`docs/deploy.md`](docs/deploy.md): prerequisites, deployment, post-deployment steps, scaling out, teardown
 - [`docs/operations.md`](docs/operations.md): preflight with fix mode, Well-Architected review, demo host pool with sign-in validation, cleanup
 - [`docs/images.md`](docs/images.md): golden images, step 1: setting up and running the monthly image build
-- [Deployment portal](https://nickprignano.github.io/avd-landing-zone/portal/) ([how it works](site/portal/README.md)): region by latency, then the next command from each pasted Cloud Shell output; or [publish your own copy](docs/operations.md#your-own-copy-of-the-portal-optional) into your subscription
+- [Deployment portal](https://avd-ops.github.io/avd-landing-zone/portal/) ([how it works](site/portal/README.md)): region by latency, then the next command from each pasted Cloud Shell output; or [publish your own copy](docs/operations.md#your-own-copy-of-the-portal-optional) into your subscription
 - [`docs/demo.md`](docs/demo.md): a live demo in a 30-minute slot (dev built the night before, test deployed live beside it)
 - [avd-ops site](https://avd-ops.dev/) ([source](https://github.com/nickprignano/avd-ops)): one page for this repo and its four siblings (avd-current-state, avd-swarm, avd-second-brain, avd-liquidware) and how they fit together
 - [`docs/ci.md`](docs/ci.md): validation and deployment pipelines, OIDC setup

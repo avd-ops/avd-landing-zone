@@ -1,6 +1,6 @@
 # Deployment portal
 
-[`index.html`](index.html) is a static page (GitHub Pages: <https://nickprignano.github.io/avd-landing-zone/portal/>, or a copy in your own subscription from [`Publish-AvdPortal.ps1`](../../docs/operations.md#your-own-copy-of-the-portal-optional), [decision 0017](../../build/decisions/0017-portal-hosting.md)) that walks an operator through a deployment:
+[`index.html`](index.html) is a static page (GitHub Pages: <https://avd-ops.github.io/avd-landing-zone/portal/>, or a copy in your own subscription from [`Publish-AvdPortal.ps1`](../../docs/operations.md#your-own-copy-of-the-portal-optional), [decision 0017](../../build/decisions/0017-portal-hosting.md)) that walks an operator through a deployment:
 
 1. **Choose a region.** Latency measured from the browser; the closest region is selected.
 2. **Size the host pool.** Starts at the minimum viable kit (one E4as_v5 host). You choose the number of hosts, or Automatic sizes it from people and workload; the commands then carry the sizing ([decision 0010](../../build/decisions/0010-sizing-and-cost.md)).
