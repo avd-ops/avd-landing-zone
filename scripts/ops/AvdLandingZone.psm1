@@ -937,6 +937,16 @@ function Test-AvdJumpbox {
   $schedule = Invoke-AvdArm -Path "$($Lz.ResourceGroupIds.Jumpbox)/providers/Microsoft.DevTestLab/schedules/shutdown-computevm-$($Lz.Jumpbox.Name)?api-version=2018-09-15" -AllowNotFound
   $meter = Get-AvdJumpboxMeterState -PowerState $power -Tags $vm.tags -Schedule $schedule
   Add-AvdCheckResult $area "Jumpbox $($Lz.Jumpbox.Name) meter" $meter.Status -Id 'jumpbox-meter' -Detail $meter.Detail -Remediation $meter.Remediation -Data @{ powerState = $meter.PowerState; dailyStop = $meter.DailyStop }
+  # Windows first boot is a Run Command sent only when the VM is created: say when it didn't finish.
+  if ($vm.properties.storageProfile.osDisk.osType -eq 'Windows') {
+    $run = Invoke-AvdArm -Path "$vmId/runCommands/avdlz-jumpbox-tools?`$expand=instanceView&api-version=2024-07-01" -AllowNotFound
+    $state = if ($run) { [string]$run.properties.instanceView.executionState } else { 'missing' }
+    if ($state -eq 'Succeeded') { Add-AvdCheckResult $area 'Jumpbox tools installed (Windows first boot)' 'Pass' }
+    else {
+      Add-AvdCheckResult $area 'Jumpbox tools installed (Windows first boot)' 'Warn' -Id 'jumpbox-tools' -Detail ("Run Command avdlz-jumpbox-tools: $state. $([string]$run.properties.instanceView.error)".Trim()) `
+        -Remediation "Run it again: az vm run-command create -g $($Lz.ResourceGroups.Jumpbox) --vm-name $($Lz.Jumpbox.Name) --name avdlz-jumpbox-tools --script @scripts/jumpbox/Install-JumpboxTools.ps1 (C:\avdlz\jumpbox.log shows where it stopped)."
+    }
+  }
   $bastion = Invoke-AvdArm -Path "$($Lz.ResourceGroupIds.Network)/providers/Microsoft.Network/bastionHosts/bas-$($Lz.BaseName)?api-version=2024-07-01" -AllowNotFound
   if ($bastion -and $bastion.sku.name -eq 'Developer') { Add-AvdCheckResult $area "Bastion Developer bas-$($Lz.BaseName)" 'Pass' -Detail 'No hourly charge.' }
   elseif ($bastion) { Add-AvdCheckResult $area "Bastion bas-$($Lz.BaseName) is the Developer SKU" 'Warn' -Detail "SKU $($bastion.sku.name) bills by the hour." -Remediation 'It was changed outside the landing zone; Bastion cannot be downgraded. Delete it and redeploy with --jumpbox.' }

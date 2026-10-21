@@ -112,4 +112,10 @@ Invoke-Deploy 'jumpbox-region' @('--jumpbox', '-l', 'eastus')
 Invoke-Deploy 'jumpbox-windows' @('--jumpbox', '--jumpbox-os', 'Windows')
 Invoke-Deploy 'jumpbox-os-bad' @('--jumpbox', '--jumpbox-os', 'macos')
 Invoke-Deploy 'jumpbox-os-alone' @('--jumpbox-os', 'windows')
+$env:AVD_JUMPBOX_OS = 'Windows'
+Invoke-Deploy 'jumpbox-os-env' @('--jumpbox')
+$env:AVD_JUMPBOX_OS = ''
+$env:FAKE_JUMPBOX_VM_ERROR = '(AuthorizationFailed) The client does not have authorization to perform action Microsoft.Compute/virtualMachines/read.'
+Invoke-Deploy 'jumpbox-unreadable' @('--jumpbox')
+$env:FAKE_JUMPBOX_VM_ERROR = ''
 Remove-Item $log -ErrorAction SilentlyContinue

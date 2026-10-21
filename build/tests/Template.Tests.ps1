@@ -513,6 +513,27 @@ Describe 'Operator jumpbox through Bastion Developer (decision 0018)' {
     $script | Should -Match ([regex]::Escape("bicep/releases/download/$pin/bicep-win-x64.exe"))
     $script | Should -Not -Match 'releases/latest|(?i)git clone'
     $script | Should -Match "Write-Step 'ready'"
+    # A 15-character computer name, the platform's patching without a customer schedule, no legacy antimalware extension.
+    $vm['computerName'] | Should -Be "[if(variables('windows'), createObject('value', 'jumpbox'), createObject('value', parameters('vmName')))]"
+    $vm['bypassPlatformSafetyChecksOnUserSchedule']['value'] | Should -BeFalse
+    $vm['extensionAntiMalwareConfig']['value']['enabled'] | Should -BeFalse
+  }
+
+  It 'keeps the per-OS size and disk the preflight prices in step with the template' {
+    Import-Module (Join-Path $PSScriptRoot '../../scripts/ops/AvdLandingZone.psm1') -Force
+    $t = Get-CompiledTemplate 'parameters/dev.bicepparam'
+    $size = (Find-Deployment $t 'avdlz-jumpbox')['properties']['parameters']['vmSize']
+    $m = (& $script:bicep build 'bicep/modules/jumpbox.bicep' --stdout) -join "`n" | ConvertFrom-Json -Depth 100 -AsHashtable
+    $all = if ($m['resources'] -is [System.Collections.IDictionary]) { @($m['resources'].Values) } else { @($m['resources']) }
+    $disk = @($all | Where-Object { $_['type'] -eq 'Microsoft.Resources/deployments' })[0]['properties']['parameters']['osDisk']['value']['diskSizeGB']
+    $tiers = @{ E4 = 32; E10 = 128 }
+    foreach ($os in 'Linux', 'Windows') {
+      $spec = Get-AvdJumpboxSpec -Plan @{ jumpboxOs = $os; jumpboxVmSize = '' }
+      $size | Should -Match ([regex]::Escape("'$($spec.VmSize)'")) -Because $os
+      $disk | Should -Match "$($tiers[$spec.Disk])" -Because $os
+    }
+    $disk | Should -Be "[if(variables('windows'), 128, 32)]"
+    $size | Should -Match "if\(equals\(parameters\('jumpboxOs'\), 'Windows'\), createObject\('value', 'Standard_B2as_v2'\), createObject\('value', 'Standard_B2als_v2'\)\)"
   }
 
   It 'gives the jumpbox subnet an NSG that denies the internet and onward RDP and SSH, and the hosts'' egress' {

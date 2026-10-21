@@ -97,6 +97,14 @@ module vm 'br/public:avm/res/compute/virtual-machine:0.22.3' = if (!vmExists) {
     disablePasswordAuthentication: false
     customData: windows ? '' : loadTextContent('../../scripts/jumpbox/cloud-init.yaml')
     patchMode: windows ? 'AutomaticByPlatform' : ''
+    // With no maintenance configuration attached, the platform must not wait for a customer schedule.
+    bypassPlatformSafetyChecksOnUserSchedule: false
+    // Windows computer names stop at 15 characters; vm-<prefix>-<env>-jumpbox doesn't fit.
+    computerName: windows ? 'jumpbox' : vmName
+    // Microsoft Defender Antivirus is built into Windows Server 2025: no IaaSAntimalware extension.
+    extensionAntiMalwareConfig: {
+      enabled: false
+    }
     nicConfigurations: [
       {
         nicSuffix: '-nic'

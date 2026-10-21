@@ -317,6 +317,11 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     Get-StepExit $out 'jumpbox-os-change' | Should -Be 1
     Get-Result 'jumpbox-os-change-jumpbox' | Should -Be ''
     $out | Should -Match "The jumpbox runs Linux; --jumpbox-os can't change it"
+    Get-StepExit $out 'jumpbox-os-env' | Should -Be 0
+    Get-Result 'jumpbox-os-env-jumpbox' | Should -Be 'jumpbox-env deploy=true exists= until= os=Windows'
+    Get-StepExit $out 'jumpbox-unreadable' | Should -Be 1
+    Get-Result 'jumpbox-unreadable-jumpbox' | Should -Be ''
+    $out | Should -Match "Can't read the jumpbox VM"
     Get-StepExit $out 'jumpbox-kept-windows' | Should -Be 0
     Get-Result 'jumpbox-kept-windows-jumpbox' | Should -Be 'jumpbox-env deploy=true exists=true until= os=Windows'
   }

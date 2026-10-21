@@ -51,7 +51,7 @@ ROTATION=false
 DEPLOY_NAME=""
 JUMPBOX=false
 JUMPBOX_KEEP_RUNNING=""
-JUMPBOX_OS=""
+JUMPBOX_OS="${AVD_JUMPBOX_OS:-}"
 AVD_APP_ID="9cdead84-a844-4324-93f2-b2e6bb768d07"   # Azure Virtual Desktop first-party app
 
 usage() {
@@ -374,14 +374,20 @@ fi
 # password. Its daily stop and tags are updated on their own (bicep/modules/jumpbox.bicep).
 # Its operating system is chosen once: an existing one keeps its own, and asking for the other is refused.
 JUMPBOX_EXISTS=''
-if $JUMPBOX && [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] \
-  && existing_os=$(az vm show -g "rg-$NAME_PREFIX-$ENV_NAME-jumpbox" -n "vm-$NAME_PREFIX-$ENV_NAME-jumpbox" --query storageProfile.osDisk.osType -o tsv 2>/dev/null); then
-  JUMPBOX_EXISTS=true
-  if [[ -n "$JUMPBOX_OS" && "$JUMPBOX_OS" != "$existing_os" ]]; then
-    echo "The jumpbox runs $existing_os; --jumpbox-os can't change it. Remove it first (Remove-AvdDemo.ps1 -IncludeJumpbox -DiscardLastCopy)."
-    exit 1
+if $JUMPBOX && [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]]; then
+  jumpbox_err=$(mktemp)
+  if existing_os=$(az vm show -g "rg-$NAME_PREFIX-$ENV_NAME-jumpbox" -n "vm-$NAME_PREFIX-$ENV_NAME-jumpbox" --query storageProfile.osDisk.osType -o tsv 2>"$jumpbox_err"); then
+    JUMPBOX_EXISTS=true
+    if [[ -n "$JUMPBOX_OS" && "$JUMPBOX_OS" != "$existing_os" ]]; then
+      echo "The jumpbox runs $existing_os; --jumpbox-os can't change it. Remove it first (Remove-AvdDemo.ps1 -IncludeJumpbox -DiscardLastCopy)."
+      exit 1
+    fi
+    JUMPBOX_OS="$existing_os"
+  elif ! grep -q ResourceNotFound "$jumpbox_err"; then
+    # Only "not found" means there is no jumpbox; anything else would re-send an existing VM.
+    echo "Can't read the jumpbox VM:"; cat "$jumpbox_err"; exit 1
   fi
-  JUMPBOX_OS="$existing_os"
+  rm -f "$jumpbox_err"
 fi
 AVD_DEPLOY_JUMPBOX=$($JUMPBOX && echo true || echo '') AVD_JUMPBOX_KEEP_RUNNING_UNTIL="$JUMPBOX_KEEP_RUNNING" AVD_JUMPBOX_EXISTS="$JUMPBOX_EXISTS" AVD_JUMPBOX_OS="$JUMPBOX_OS"
 export AVD_DEPLOY_JUMPBOX AVD_JUMPBOX_KEEP_RUNNING_UNTIL AVD_JUMPBOX_EXISTS AVD_JUMPBOX_OS

@@ -33,7 +33,8 @@ case "$1 $2" in
       *) : ;;
     esac ;;
   "group exists") [[ "$*" == *-jumpbox* ]] && echo "${FAKE_JUMPBOX_RG_EXISTS:-false}" || echo "${FAKE_HOSTS_RG_EXISTS:-false}" ;;
-  "vm show") [[ "${FAKE_JUMPBOX_VM_EXISTS:-}" == true ]] && echo "${FAKE_JUMPBOX_OS:-Linux}" || { echo "ERROR: (ResourceNotFound)" >&2; exit 3; } ;;
+  "vm show") [[ -n "${FAKE_JUMPBOX_VM_ERROR:-}" ]] && { echo "ERROR: $FAKE_JUMPBOX_VM_ERROR" >&2; exit 1; }
+    [[ "${FAKE_JUMPBOX_VM_EXISTS:-}" == true ]] && echo "${FAKE_JUMPBOX_OS:-Linux}" || { echo "ERROR: (ResourceNotFound)" >&2; exit 3; } ;;
   "resource show") case "$*" in
       *avdlz-power-lock*) [[ -n "${FAKE_POWER_LOCK:-}" ]] && printf '%s\n' "$FAKE_POWER_LOCK" ;;
       *avdlz-rotation*)

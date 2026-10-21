@@ -56,8 +56,12 @@ try {
   $bicepDir = 'C:\Program Files\Bicep'
   New-Item -ItemType Directory -Force -Path $bicepDir | Out-Null
   Get-Download 'https://github.com/Azure/bicep/releases/download/v0.48.1/bicep-win-x64.exe' (Join-Path $bicepDir 'bicep.exe')
-  $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
-  if ($machinePath -notlike "*$bicepDir*") { [Environment]::SetEnvironmentVariable('Path', "$machinePath;$bicepDir", 'Machine') }
+  # Append to the machine Path in the registry as it is stored (unexpanded, REG_EXPAND_SZ), so the
+  # %SystemRoot%-style entries keep expanding.
+  $envKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey('SYSTEM\CurrentControlSet\Control\Session Manager\Environment', $true)
+  $machinePath = [string]$envKey.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+  if ($machinePath -notlike "*$bicepDir*") { $envKey.SetValue('Path', "$($machinePath.TrimEnd(';'));$bicepDir", [Microsoft.Win32.RegistryValueKind]::ExpandString) }
+  $envKey.Close()
 
   Write-Step 'installing the Az and Microsoft Graph PowerShell modules the scripts use'
   $pwsh = Join-Path $env:ProgramFiles 'PowerShell\7\pwsh.exe'
