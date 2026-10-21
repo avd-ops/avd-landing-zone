@@ -174,4 +174,4 @@ body.portal{font:16px/1.55 var(--body);-webkit-font-smoothing:antialiased}
 .portal table.kv td:first-child{color:var(--muted);width:40%}
 .portal td.num{text-align:right;font:.88rem var(--mono);font-variant-numeric:tabular-nums}
 
-@media (prefers-reduced-motion:reduce){.portal *{transition:none!important;animation:none!important}}
+@media (prefers-reduced-motion:reduce){.portal *,.portal *::before,.portal *::after{transition:none!important;animation:none!important}}
