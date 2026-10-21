@@ -20,3 +20,4 @@ Short records of choices that shape this repo, so they are not reopened without 
 | 0014 | [Verify access from the operator's device in three layers, each claiming only what it measures](0014-verify-access.md) | Proposed |
 | 0015 | An optional computer-use agent on an isolated VM (never built; moved out of this repo 2026-10-20) | Withdrawn |
 | 0016 | [One delegated Microsoft Graph sign-in per session, through a dedicated public client app](0016-graph-operator-app.md) | Accepted |
+| 0017 | [The portal runs from GitHub Pages by default, or from a copy you publish into your own subscription](0017-portal-hosting.md) | Proposed |

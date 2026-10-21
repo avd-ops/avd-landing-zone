@@ -204,11 +204,16 @@ fi
 DEPLOY_NAME="${DEPLOY_NAME:-avdlz-$(basename "$PARAM_FILE" .bicepparam)-$(date +%Y%m%d-%H%M%S)}"
 
 # Machine-readable state for the deployment portal (site/portal). Schema: site/portal/README.md.
+# AVD_PORTAL_URL points at a copy published into the subscription (Publish-AvdPortal.ps1, decision 0017).
 PORTAL_URL="https://nickprignano.github.io/avd-landing-zone/portal/"
+if [[ "${AVD_PORTAL_URL:-}" =~ ^https://[A-Za-z0-9.-]+(/[^[:space:]\"\'\<\>]*)?$ ]]; then PORTAL_URL="${AVD_PORTAL_URL%/}/"; fi
 json_str() { local s=${1//\\/\\\\}; s=${s//\"/\\\"}; printf '"%s"' "$s"; }
 portal_state() {
   # $1 = status (started | succeeded | failed | whatif); $2 = extra context JSON members (optional)
   printf '\nDeployment portal: paste this output into %s for the next step.\n' "$PORTAL_URL"
+  if [[ "$PORTAL_URL" != "https://nickprignano.github.io/avd-landing-zone/portal/" ]]; then
+    local portal_host=${PORTAL_URL#https://}; printf 'Portal host: %s, set by AVD_PORTAL_URL\n' "${portal_host%%/*}"
+  fi
   local sizing=""
   if [[ -n "$HOSTS$VM_SIZE$MAX_SESSIONS$PROFILE_QUOTA" ]]; then
     sizing=",\"sizing\":{\"hosts\":${HOSTS:-null},\"vmSize\":$( [[ -n "$VM_SIZE" ]] && json_str "$VM_SIZE" || printf null ),\"maxSessions\":${MAX_SESSIONS:-null},\"profileQuotaGiB\":${PROFILE_QUOTA:-null}}"

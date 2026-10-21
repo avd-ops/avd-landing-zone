@@ -10,6 +10,7 @@ $sub='00000000-aaaa-bbbb-cccc-000000000001'; $S="/subscriptions/$sub"
 $base='avdlz-dev'
 $global:St = @{
   grants = @(); tags=@(); caExclude=@(); securityDefaults=$false; aclApplied=$false; forbiddenOnce=$true; roleAssignments=@()
+  swaHost='nice-sea-0a1b2c3d4.azurestaticapps.net'; swaToken='not-a-real-swa-token'; swaTokenResets=0; webBlobs=@{}
   rgs = @('rg-avdlz-dev-network','rg-avdlz-dev-management','rg-avdlz-dev-storage','rg-avdlz-dev-avd','rg-avdlz-dev-hosts')
 }
 $users='11111111-1111-1111-1111-111111111111'; $admins='22222222-2222-2222-2222-222222222222'; $avdsp='33333333-3333-3333-3333-333333333333'
@@ -342,6 +343,11 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
   if ($Method -eq 'POST' -and $Path -match 'virtualMachines/([^/]+)/deallocate\?') { $pw.state[$Matches[1]] = 'deallocating'; return [pscustomobject]@{ StatusCode=202; Content='' } }
   if ($Path -match '/sessionHosts\?') { return & $ok @{ value=@(@{ name='vdpool-avdlz-dev-demo/avdlzddemo-001'; properties=@{status='Available';allowNewSession=$true;agentVersion='1.0.9999';sessionHostHealthCheckResults=@(@{healthCheckName='DomainJoinedCheck';healthCheckResult='HealthCheckSucceeded'})} }) } }
   if ($Path -match '/runCommands/') { return & $ok @{ properties=@{ instanceView=@{executionState='Succeeded';exitCode=0} } } }
+  # ---- Deployment portal published into the subscription (scripts/ops/Publish-AvdPortal.ps1) ----
+  if ($Path -match '/staticSites/([^/?]+)/listSecrets\?') { return & $ok @{ properties=@{ apiKey=$global:St.swaToken } } }
+  if ($Path -match '/staticSites/([^/?]+)/resetapikey\?') { $global:St.swaTokenResets++; return & $ok @{} }
+  if ($Path -match '/staticSites/([^/?]+)/createUserInvitation\?') { $global:St.swaInvitation = ($Payload | ConvertFrom-Json); return & $ok @{ properties=@{ invitationUrl="https://$($global:St.swaHost)/.auth/invitations/inv-123"; expiresOn='2026-10-27T00:00:00Z' } } }
+  if ($Path -match '/staticSites/([^/?]+)\?') { return & $ok @{ name=$Matches[1]; sku=@{ name=$(if ($global:St.swaSku) { $global:St.swaSku } else { 'Free' }) }; properties=@{ defaultHostname=$global:St.swaHost } } }
   # The landing zone's allowed-locations guardrail allows $global:St.allowedLocations; $global:St.foreignAllowed adds an
   # assignment someone else owns (inherited from a management group, as atScope() returns it). ARM omits empty parameters.
   if ($Path -match 'policyAssignments\?') {
@@ -482,15 +488,39 @@ function Get-AzVMUsage { param($Location) $l = $global:St.quotaLimit; @(
     [pscustomobject]@{Name=[pscustomobject]@{Value='cores'};Limit=$(if ($l) { $l } else { 20 });CurrentValue=4}) }
 # Az.Storage, as Start-AvdImageBuild.ps1 reads AIB's customization log with the signed-in identity.
 # Run store uploads: $global:St.blobs holds container/blob -> the uploaded file's text.
-function Set-AzStorageBlobContent { param($File,$Container,$Blob,$Context,[switch]$Force,$ErrorAction)
+# Uploads: the run store's containers, or the portal's static website ($web; Publish-AvdPortal.ps1 -Hosting Storage).
+# $global:St.blobForbidden: $web uploads refused (403) before the role applies.
+function Set-AzStorageBlobContent { param($File,$Container,$Blob,$Context,[switch]$Force,$Properties,$ErrorAction)
+  if ($Container -eq '$web') {
+    if ($global:St.blobForbidden -gt 0) { $global:St.blobForbidden--; throw 'This request is not authorized to perform this operation using this permission. (403) AuthorizationPermissionMismatch' }
+    $global:St.webBlobs[$Blob] = @{ ContentType=$Properties.ContentType; CacheControl=$Properties.CacheControl; Text=$(if ($Blob -match '\.(js|json|html)$') { Get-Content -Raw $File }) }
+    return
+  }
   Log "blob put $($Context.StorageAccountName)/$Container/$Blob"
   if ($null -eq $global:St.blobs) { $global:St.blobs = @{} }
   $global:St.blobs["$Container/$Blob"] = Get-Content -LiteralPath $File -Raw
   [pscustomobject]@{ Name=$Blob } }
 function New-AzStorageContext { param($StorageAccountName,[switch]$UseConnectedAccount) [pscustomobject]@{ StorageAccountName=$StorageAccountName } }
 function Get-AzStorageBlob { param($Container,$Context,$ErrorAction)
+  if ($Container -eq '$web') { return @($global:St.webBlobs.Keys | ForEach-Object { [pscustomobject]@{ Name=$_ } }) }
   if ($global:St.images.logUnreadable) { throw 'This request is not authorized to perform this operation using this permission. (403)' }
   [pscustomobject]@{ Name='0b1c/customization.log'; LastModified=(Get-Date) } }
+# The portal's static website ($web container; Publish-AvdPortal.ps1 -Hosting Storage).
+function Enable-AzStorageStaticWebsite { param($Context,$IndexDocument,$ErrorDocument404Path) Log "static website on $($Context.StorageAccountName) index=$IndexDocument 404=$ErrorDocument404Path"; $global:St.staticWebsite = $true }
+function Remove-AzStorageBlob { param($Context,$Container,$Blob,[switch]$Force) Log "del blob $Blob"; $global:St.webBlobs.Remove($Blob) }
+# The Static Web Apps CLI (npx @azure/static-web-apps-cli deploy <dir> ...): records what it was given. $global:St.swaFail: the upload fails.
+function npx {
+  $dir = $args[3]
+  Log "npx $($args[0..2] -join ' ') tokenSet=$($env:SWA_CLI_DEPLOYMENT_TOKEN -eq $global:St.swaToken)"
+  $global:St.swaUpload = @{
+    Files = @(Get-ChildItem -Recurse -File $dir | ForEach-Object { [IO.Path]::GetRelativePath($dir, $_.FullName).Replace('\', '/') })
+    Config = Get-Content -Raw (Join-Path $dir 'portal/portal-config.js')
+    SwaConfig = $(if (Test-Path (Join-Path $dir 'staticwebapp.config.json')) { Get-Content -Raw (Join-Path $dir 'staticwebapp.config.json') })
+    Args = @($args)
+  }
+  if ($global:St.swaFail) { 'Deploying project...'; 'Error: the content server rejected the upload.'; $global:LASTEXITCODE = 1 }
+  else { 'Deploying project...'; 'Project deployed to https://example/'; $global:LASTEXITCODE = 0 }
+}
 function Get-AzStorageBlobContent { param($Container,$Blob,$Destination,$Context,[switch]$Force) Set-Content -Path $Destination -Value $global:St.images.log; [pscustomobject]@{ Name=$Blob } }
 function Get-AzVM { param($ResourceGroupName,$Name,[switch]$Status,$ErrorAction)
   $n = if ($ResourceGroupName -like '*demo') {'avdlzddemo-001'} else {'avdlzdsh-001'}
@@ -516,6 +546,16 @@ function New-AzSubscriptionDeployment { param($Name,$Location,$TemplateFile,$Tem
     foreach ($k in 'location','storageAccountName','operatorPrincipalId') { if (-not $TemplateParameterObject[$k]) { throw "missing $k" } }
     $global:St.runStore.deployed = $true
     return [pscustomobject]@{ ProvisioningState='Succeeded'; Outputs=@{} }
+  }
+  if ($TemplateFile -match 'portal') {
+    # bicep/portal/main.bicep (Publish-AvdPortal.ps1)
+    $p = $TemplateParameterObject; $global:St.portalDeploy = $p
+    Log "deploy $Name hosting=$($p.hosting) location=$Location swaLocation=$($p.staticWebAppLocation) uploader=$($p.uploaderObjectId)"
+    $rg = "rg-$($p.namePrefix)-$($p.environmentName)-portal"; if ($global:St.rgs -notcontains $rg) { $global:St.rgs += $rg }
+    $v = { param($x) [pscustomobject]@{Value=$x} }
+    $out = if ($p.hosting -eq 'StaticWebApp') { @{ resourceName=(& $v "stapp-$($p.namePrefix)-$($p.environmentName)-portal"); portalUrl=(& $v "https://$($global:St.swaHost)/") } }
+      else { @{ resourceName=(& $v 'stavdlzdevwebabc123'); portalUrl=(& $v 'https://stavdlzdevwebabc123.z13.web.core.windows.net/') } }
+    return [pscustomobject]@{ ProvisioningState='Succeeded'; Outputs=($out + @{ resourceGroupName=(& $v $rg); hosting=(& $v $p.hosting) }) }
   }
   Log "deploy $Name pwType=$($TemplateParameterObject.localAdminPassword.GetType().Name) dns=$($TemplateParameterObject.avdPrivateDnsZoneResourceId -split '/' | select -last 1)"
   foreach ($k in 'sessionHostSubnetResourceId','usersGroupObjectId','avdServicePrincipalObjectId','profileShareUncPath') { if (-not $TemplateParameterObject[$k]) { throw "missing $k" } }

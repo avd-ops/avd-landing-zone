@@ -49,6 +49,18 @@
     return o;
   }
   function envFromFile(file) { var m = /parameters\/([a-z]+)\.bicepparam/.exec(file || ''); return m ? m[1] : null; }
+  // What a published copy's portal-config.js may set, since both go into every command (decision 0017):
+  // a GitHub repo URL, and a tag or commit to check out (no quotes, spaces, options or shell characters).
+  function isRepoUrl(u) { return typeof u === 'string' && /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/?$/.test(u) && !/\.\./.test(u); }
+  function isRef(r) { return typeof r === 'string' && /^[A-Za-z0-9][A-Za-z0-9._\/-]{0,99}$/.test(r) && !/\.\.|\/\/|\/$|\.lock$/.test(r); }
+  // site: window.AVDLZ_PORTAL_CONFIG. Returns { repoUrl, ref, ignored[] }: what is valid, and the keys that were not.
+  function siteConfig(site) {
+    site = site || {};
+    var out = { repoUrl: null, ref: null, ignored: [] };
+    if (site.repoUrl !== undefined) { if (isRepoUrl(site.repoUrl)) out.repoUrl = site.repoUrl.replace(/\/+$/, ''); else out.ignored.push('repoUrl'); }
+    if (site.ref !== undefined) { if (isRef(site.ref)) out.ref = site.ref; else out.ignored.push('ref'); }
+    return out;
+  }
   function repoDir(cfg) { return (cfg.repoUrl || DEFAULTS.repoUrl).replace(/\/+$/, '').split('/').pop(); }
 
   // ---------------------------------------------------------------- sizing (decision 0010)
@@ -192,11 +204,12 @@
   // Every command is a self-contained Cloud Shell (PowerShell) block: sessions are ephemeral,
   // so each starts by cloning or updating the repo and moving into it (build/lessons/0015).
   function preamble(cfg) {
-    var dir = '~/' + repoDir(cfg);
-    return [
-      'if (-not (Test-Path ' + dir + ')) { git clone ' + cfg.repoUrl.replace(/\/+$/, '') + '.git ' + dir + ' }',
-      'Set-Location ' + dir + '; git checkout -q master; git pull -q --ff-only'
-    ].join('\n');
+    var dir = '~/' + repoDir(cfg), url = cfg.repoUrl.replace(/\/+$/, '') + '.git';
+    var lines = ['if (-not (Test-Path ' + dir + ')) { git clone ' + url + ' ' + dir + ' }'];
+    // A published copy pins its repo and ref: an existing clone is pointed at that repo and checked out at that ref.
+    if (isRef(cfg.ref)) lines.push('Set-Location ' + dir + '; git remote set-url origin ' + url + '; git fetch -q --tags origin; git checkout -q ' + psQuote(cfg.ref));
+    else lines.push('Set-Location ' + dir + '; git checkout -q master; git pull -q --ff-only');
+    return lines.join('\n');
   }
   function block(cfg, lines) { return preamble(cfg) + '\n' + lines.join('\n'); }
   // Steps that use Microsoft Graph sign in first, once for the session; the scripts reuse the sign-in (decision 0016).
@@ -863,6 +876,6 @@
     }
   }
 
-  return { STEPS: STEPS, DEFAULTS: DEFAULTS, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_HOSTS: MAX_HOSTS, computePool: computePool, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
+  return { STEPS: STEPS, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, siteConfig: siteConfig, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_HOSTS: MAX_HOSTS, computePool: computePool, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
     REACHABILITY_HOSTS: REACHABILITY_HOSTS, rateLatency: rateLatency, classifyReachability: classifyReachability, launchTarget: launchTarget, launchUrl: launchUrl };
 });

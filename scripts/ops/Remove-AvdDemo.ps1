@@ -18,7 +18,8 @@
     - profile backup: turns vault immutability and soft delete off, stops
       protection deleting recovery points, unregisters the storage account
       (which releases the AzureBackupProtectionLock)
-    - resource groups hosts, avd, storage, management, network (in that order)
+    - resource groups portal (a copy from Publish-AvdPortal.ps1, if any), hosts, avd, storage,
+      management, network (in that order)
     - policy assignments avdlz-* and their role assignments, the budget,
       the activity-log diagnostic setting, avdlz-* deployment records
       (with another landing zone in the subscription, only this one's budget,
@@ -239,7 +240,7 @@ if ($lz.LogAnalyticsId) {
 }
 
 Write-AvdSection 'Landing zone resource groups'
-foreach ($k in 'Hosts', 'ControlPlane', 'Storage', 'Management', 'Network') {
+foreach ($k in 'Portal', 'Hosts', 'ControlPlane', 'Storage', 'Management', 'Network') {
   Remove-AvdResourceGroupIfPresent -Name $lz.ResourceGroups[$k]
 }
 

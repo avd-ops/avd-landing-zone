@@ -684,3 +684,66 @@ Describe 'Get-AvdProfileBackupVerdict' {
     (Get-AvdProfileBackupVerdict -StorageAccount $open -ProtectedItem @() -Now $now | Where-Object Id -eq 'profile-backup-access').Status | Should -Be 'Warn'
   }
 }
+
+Describe 'Deployment portal hosting (decision 0017)' {
+  BeforeAll {
+    $pa = { param($id, [string[]] $locations, $mode = 'Default') [pscustomobject]@{ properties = [pscustomobject]@{ policyDefinitionId = "/providers/Microsoft.Authorization/policyDefinitions/$id"; enforcementMode = $mode; parameters = [pscustomobject]@{ listOfAllowedLocations = [pscustomobject]@{ value = $locations } } } } }
+    $res = 'e56962a6-4747-49cd-b67b-bf8b01975c4c'; $rgs = 'e765b5de-1225-4ba3-bd56-1ac6695af988'
+  }
+  It 'puts Static Web Apps in the landing zone region when it is offered there, else the first one the policy allows' {
+    (Get-AvdPortalHostRegion -Hosting StaticWebApp -Location eastus2).ResourceLocation | Should -Be 'eastus2'
+    $r = Get-AvdPortalHostRegion -Hosting StaticWebApp -Location northcentralus -Assignments @((& $pa $res @('northcentralus', 'westus2')))
+    $r.ResourceLocation | Should -Be 'westus2'
+    $r.Allowed | Should -BeTrue
+    (Get-AvdPortalHostRegion -Hosting StaticWebApp -Location northcentralus).ResourceLocation | Should -Be 'centralus'
+  }
+  It 'blocks Static Web Apps when the allowed list has none of its regions, with the storage way out' {
+    $r = Get-AvdPortalHostRegion -Hosting StaticWebApp -Location northcentralus -Assignments @((& $pa $res @('northcentralus')))
+    $r.Allowed | Should -BeFalse
+    $r.Remediation | Should -Match '-Hosting Storage'
+  }
+  It 'ignores an assignment that is not enforced, and intersects two that are' {
+    (Get-AvdPortalHostRegion -Hosting StaticWebApp -Location northcentralus -Assignments @((& $pa $res @('northcentralus') 'DoNotEnforce'))).Allowed | Should -BeTrue
+    $r = Get-AvdPortalHostRegion -Hosting Storage -Location eastus2 -Assignments @((& $pa $res @('eastus2', 'westus2')), (& $pa $res @('westus2')))
+    $r.Allowed | Should -BeFalse
+    $r.Detail | Should -Match 'allowed: westus2'
+  }
+  It 'checks the resource group region against the resource group policy' {
+    $r = Get-AvdPortalHostRegion -Hosting Storage -Location eastus2 -Assignments @((& $pa $rgs @('northcentralus')))
+    $r.Allowed | Should -BeFalse
+    $r.Remediation | Should -Match 'northcentralus'
+  }
+  It 'refuses a region Static Web Apps does not offer' {
+    (Get-AvdPortalHostRegion -Hosting StaticWebApp -Location eastus2 -StaticWebAppLocation northcentralus).Allowed | Should -BeFalse
+  }
+  It 'writes portal-config.js as one JSON object, and refuses a repo URL or ref that could carry a command' {
+    $js = Get-AvdPortalConfigScript -RepoUrl 'https://github.com/contoso/avd-landing-zone/' -Ref 'v1.2.0' -PortalUrl 'https://x.azurestaticapps.net/portal/' -Hosting StaticWebApp
+    $js | Should -Match 'window\.AVDLZ_PORTAL_CONFIG = \{"repoUrl":"https://github.com/contoso/avd-landing-zone","ref":"v1.2.0","portalUrl":"https://x.azurestaticapps.net/portal/","hosting":"StaticWebApp"\};'
+    foreach ($bad in 'https://github.com/x/y; iex', 'https://evil.example/x/y', 'https://github.com/x/../y', 'git@github.com:x/y') {
+      { Get-AvdPortalConfigScript -RepoUrl $bad -Ref v1 -PortalUrl 'https://x/' -Hosting Storage } | Should -Throw -Because $bad
+    }
+    foreach ($bad in '--upload-pack=x', 'v1;rm', 'a..b', 'v1 ', 'refs/heads/', 'x.lock') {
+      { Get-AvdPortalConfigScript -RepoUrl 'https://github.com/x/y' -Ref $bad -PortalUrl 'https://x/' -Hosting Storage } | Should -Throw -Because $bad
+    }
+  }
+  It "never uses the 'authenticated' role alone, and always sends the security headers" {
+    $open = Get-AvdStaticWebAppConfig | ConvertFrom-Json
+    @($open.routes | Where-Object { $_ }).Count | Should -Be 0
+    $open.globalHeaders.'X-Frame-Options' | Should -Be 'DENY'
+    $locked = Get-AvdStaticWebAppConfig -RequireSignIn | ConvertFrom-Json
+    @($locked.routes | Where-Object { @($_.allowedRoles) -contains 'authenticated' }).Count | Should -Be 0
+    ($locked.routes | Where-Object route -eq '/*').allowedRoles | Should -Be @('operator')
+  }
+  It 'gives a storage static website the content types the browser needs' {
+    Get-AvdPortalContentType 'portal/index.html' | Should -Be 'text/html; charset=utf-8'
+    Get-AvdPortalContentType 'assets/fonts/x.woff2' | Should -Be 'font/woff2'
+    Get-AvdPortalContentType 'assets/brand/mark.SVG' | Should -Be 'image/svg+xml'
+    Get-AvdPortalContentType 'LICENSE' | Should -Be 'application/octet-stream'
+  }
+  It 'prints the GitHub Pages portal unless AVD_PORTAL_URL is an https URL' {
+    Get-AvdPortalUrl -Url '' | Should -Be 'https://nickprignano.github.io/avd-landing-zone/portal/'
+    Get-AvdPortalUrl -Url 'http://x.example/portal/' | Should -Be 'https://nickprignano.github.io/avd-landing-zone/portal/'
+    Get-AvdPortalUrl -Url 'https://x.azurestaticapps.net/portal' | Should -Be 'https://x.azurestaticapps.net/portal/'
+    Get-AvdPortalUrl -Url 'https://x.example/a b' | Should -Be 'https://nickprignano.github.io/avd-landing-zone/portal/'
+  }
+}

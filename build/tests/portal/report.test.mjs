@@ -17,7 +17,7 @@ const fixtures = readdirSync(new URL('./fixtures/', import.meta.url)).filter((f)
 const PRIVATE = [
   'jdoe', 'JDoe', 'jane.doe', 'fabrikam.com', 'fabrikamcorp', 'jane_gmail', 'Fabrikam Production', 'Fabrikam AVD Users', 'Fabrikam AVD Admins',
   '3f2a1b4c-1111-2222-3333-444455556666', '7d8e9f00-aaaa-bbbb-cccc-ddddeeeeffff', 'fabstdevq2w3e4r5', 'stfabdevq2w3e4r5', 'kvfabdevq2w3e4r5t6',
-  '20.51.3.4', 'QWERTY123', 'Hunter2', 'Zm9vYmFy', 'AbCdEf123', 'eyJhbGci', 'abcDEF123', "'fab-dev'", '"namePrefix":"fab"'
+  '20.51.3.4', 'QWERTY123', 'Hunter2', 'swadeploy0a1b2c3d4e5f60718293a4b5c6d7e8f9', '9f8e7d6c5b4a39281706f5e4d3c2b1a0swa', 'Zm9vYmFy', 'AbCdEf123', 'eyJhbGci', 'abcDEF123', "'fab-dev'", '"namePrefix":"fab"'
 ];
 
 test('redact: removes every private value in the sample', () => {
@@ -175,4 +175,18 @@ test('redact.mjs: same result as report.js, and fails closed on bad arguments', 
   }
   assert.equal(spawnSync('node', [cli, '--in', sample]).status, 2);
   assert.equal(spawnSync('node', [cli, '--level', 'public', '--in', join(root, 'no-such-file')]).status, 1);
+});
+
+test('maskSecrets: hides only the secrets, keeps what the analysis reads, and is idempotent', () => {
+  const sample = fixture('pii-sample.txt');
+  const m = R.maskSecrets(sample);
+  for (const v of ['QWERTY123', 'Hunter2', 'eyJhbGci', 'swadeploy0a1b2c3d4e5f60718293a4b5c6d7e8f9', '9f8e7d6c5b4a39281706f5e4d3c2b1a0swa']) assert.ok(!m.text.includes(v), `still shows ${v}`);
+  // IDs, names and the state line stay: the portal needs them to work out the next step.
+  for (const v of ['3f2a1b4c-1111-2222-3333-444455556666', 'Fabrikam AVD Users', '"namePrefix":"fab"', '<<<AVDLZ-STATE']) assert.ok(m.text.includes(v), `lost ${v}`);
+  assert.ok(m.count >= 5);
+  const again = R.maskSecrets(m.text);
+  assert.equal(again.text, m.text);
+  assert.equal(again.count, 0);
+  // redact() still counts the secrets it found.
+  assert.equal(R.redact(sample).counts.secret, m.count);
 });

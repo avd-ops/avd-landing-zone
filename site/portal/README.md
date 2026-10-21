@@ -1,6 +1,6 @@
 # Deployment portal
 
-[`index.html`](index.html) is a static page (GitHub Pages: <https://nickprignano.github.io/avd-landing-zone/portal/>) that walks an operator through a deployment:
+[`index.html`](index.html) is a static page (GitHub Pages: <https://nickprignano.github.io/avd-landing-zone/portal/>, or a copy in your own subscription from [`Publish-AvdPortal.ps1`](../../docs/operations.md#your-own-copy-of-the-portal-optional), [decision 0017](../../build/decisions/0017-portal-hosting.md)) that walks an operator through a deployment:
 
 1. **Choose a region.** Latency measured from the browser; the closest region is selected.
 2. **Size the host pool.** Starts at the minimum viable kit (one E4as_v5 host). You choose the number of hosts, or Automatic sizes it from people and workload; the commands then carry the sizing ([decision 0010](../../build/decisions/0010-sizing-and-cost.md)).
@@ -17,7 +17,7 @@
 
 The steps sit side by side and scroll horizontally (swipe, trackpad, or Back and Next); a step stays hidden until the deployment reaches it, so the page opens on the latency check. A pasted output moves to the step it leads to. Next skips a step without running it, for an operator who did it earlier or elsewhere.
 
-At each step it gives a self-contained Cloud Shell block (clone or update the repo, move into it, run the command). The operator pastes the output back and the portal works out what happened and what to run next. The **Deployment settings** link in the header opens the settings the commands use (parameter file, region, groups, name prefix, environment, test user) and *Start over*. It keeps progress and settings in the browser's local storage. **Pasted output is never sent anywhere**: apart from the page's own files (scripts, and the [avd-ops design system](https://github.com/nickprignano/avd-ops/blob/main/docs/design-system.md) vendored in [`../assets/`](../assets/): its stylesheet, logo slot and fonts, under the SIL Open Font License), the only network requests are the latency test's and the reachability probe's (`no-cors`, no credentials, no referrer). A test keeps it that way.
+At each step it gives a self-contained Cloud Shell block (clone or update the repo, move into it, run the command). The operator pastes the output back and the portal works out what happened and what to run next. The **Deployment settings** link in the header opens the settings the commands use (parameter file, region, groups, name prefix, environment, test user) and *Start over*. It keeps progress and settings in the browser's local storage. **Secrets in pasted output are masked as you paste** (`maskSecrets` in [`report.js`](report.js): tokens, keys, SAS signatures, passwords, device codes, Static Web Apps deployment tokens), before the text is drawn or read, so they are never on screen, in the analysis or in a report; IDs and names stay because the analysis needs them. **Pasted output is never sent anywhere**: apart from the page's own files (scripts, and the [avd-ops design system](https://github.com/nickprignano/avd-ops/blob/main/docs/design-system.md) vendored in [`../assets/`](../assets/): its stylesheet, logo slot and fonts, under the SIL Open Font License), the only network requests are the latency test's and the reachability probe's (`no-cors`, no credentials, no referrer). A test keeps it that way.
 
 **Report a problem** opens a GitHub issue with the pasted output and the portal's analysis. [`report.js`](report.js) redacts it in the browser first (decision [0008](../../build/decisions/0008-portal-issue-reports.md)). The reporter reviews it and submits it on GitHub.
 
@@ -77,3 +77,15 @@ The same value always gets the same placeholder. Reports carry `<!-- avdlz-porta
 - **A real paste is analyzed wrongly:** add it (redacted) to `build/tests/portal/fixtures/`, add a test, then fix `portal-core.js`. This is the retro routine (`.claude/skills/retro`).
 - **A new kind of private value turns up in a report:** add it to `fixtures/pii-sample.txt` and to the `PRIVATE` list in `build/tests/portal/report.test.mjs`, then add the pattern to `report.js`. A new GUID in `bicep/` or `scripts/` must go into `PUBLIC_IDS`, and a test checks this.
 - **A new known error:** add it to `ARM_ERRORS` (deployment errors) or `shellProblems` (errors before a script can report) in `portal-core.js`, with a fixture.
+
+## A published copy
+
+[`portal-config.js`](portal-config.js) is empty here. `Publish-AvdPortal.ps1` rewrites it in the copy it publishes, as one object on `window.AVDLZ_PORTAL_CONFIG`:
+
+| Key | Meaning |
+|---|---|
+| `repoUrl` | The repo the commands clone. Only `https://github.com/<owner>/<repo>`; anything else is ignored and the page says so. |
+| `ref` | The tag or commit the commands check out (an existing clone is pointed at `repoUrl` first). Without it, the commands follow `master`. |
+| `portalUrl`, `hosting` | Where the copy is served and how (`StaticWebApp` or `Storage`), for reference. |
+
+The page shows which repo and ref its commands run, under the command blocks.
