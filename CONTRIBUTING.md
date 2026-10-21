@@ -41,7 +41,7 @@ The repo is public, so a leaked ID or key is public the moment it's pushed. Turn
 git config core.hooksPath .githooks   # needs gitleaks 8.30.1: https://github.com/gitleaks/gitleaks/releases
 ```
 
-The hook runs `gitleaks` over the staged changes and blocks the commit if it finds something, or if `gitleaks` isn't installed. The [`secret-scan`](.github/workflows/secret-scan.yml) workflow scans the full history on every PR as a backstop. A false positive goes in [`.gitleaksignore`](.gitleaksignore) by fingerprint, with a comment saying what it is. A real secret gets rotated first: deleting it in a later commit leaves it in history.
+The hook runs `gitleaks` over the staged changes and blocks the commit if it finds something, or if `gitleaks` isn't installed. The [`secret-scan`](.github/workflows/secret-scan.yml) workflow scans the full history on every PR as a backstop. Besides gitleaks' default rules, [`.gitleaks.toml`](.gitleaks.toml) flags Azure subscription IDs (in a resource ID, `--subscription`, `-SubscriptionId` or a `subscriptionId` value): pass them at run time instead (`deploy.sh -s`, `-SubscriptionId`). Placeholders such as `00000000-aaaa-bbbb-cccc-000000000001` pass. A false positive goes in [`.gitleaksignore`](.gitleaksignore) by fingerprint, with a comment saying what it is. A real secret gets rotated first: deleting it in a later commit leaves it in history.
 
 ## When a real run surprises you
 

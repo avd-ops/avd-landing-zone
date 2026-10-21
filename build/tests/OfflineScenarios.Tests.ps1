@@ -315,7 +315,32 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     $out | Should -Match '--image-id takes a Compute Gallery image version resource ID'
   }
   It 'makes no az call the fake does not know' {
-    foreach ($s in 'stopped', 'stopped-fails', 'whatif', 'running', 'first', 'locked', 'locked-whatif', 'locked-unlock', 'owned-group', 'admin-owned-group', 'group-by-id') { Get-Result "$s-unmocked" | Should -Be 'False' }
+    foreach ($s in 'stopped', 'stopped-fails', 'whatif', 'running', 'first', 'locked', 'locked-whatif', 'locked-unlock', 'owned-group', 'admin-owned-group', 'group-by-id', 'subscription', 'subscription-whatif', 'no-subscription') { Get-Result "$s-unmocked" | Should -Be 'False' }
+  }
+  It 'deploys to the subscription -s names, without changing the one az has selected' {
+    foreach ($s in 'subscription', 'subscription-whatif') {
+      Get-StepExit $out $s | Should -Be 0
+      Get-Result "$s-arm-without-s" | Should -Be '0' -Because "${s}: every Resource Manager call names the subscription"
+      [int](Get-Result "$s-arm-with-s") | Should -BeGreaterThan 5
+      Get-Result "$s-graph-with-s" | Should -Be '0' -Because 'az ad and az rest read the tenant, and reject --subscription'
+      Get-Result "$s-account-set" | Should -Be '0'
+    }
+    Get-Result 'subscription-calls' | Should -Be 'group-exists,vm-list,vm-start,deployment-create,vm-deallocate'
+    $out | Should -Match 'Subscription: Fake other subscription \(00000000-aaaa-bbbb-cccc-000000000002\)'
+    $out | Should -Match '-SubscriptionId 00000000-aaaa-bbbb-cccc-000000000002 -Fix'
+  }
+  It 'says which subscription it uses without -s' {
+    Get-StepExit $out 'no-subscription' | Should -Be 0
+    Get-Result 'no-subscription-arm-with-s' | Should -Be '0'
+    $out | Should -Match 'Subscription: Fake subscription \(00000000-aaaa-bbbb-cccc-000000000001\)\s+\(the one az has selected; pass -s to choose\)'
+  }
+  It 'refuses a subscription it cannot find, or one in another tenant, before reading or changing anything' {
+    Get-StepExit $out 'subscription-missing' | Should -Be 1
+    Get-Result 'subscription-missing-calls' | Should -Be ''
+    $out | Should -Match 'Subscription not found, or not one this account can use: other-sub'
+    Get-StepExit $out 'subscription-other-tenant' | Should -Be 1
+    Get-Result 'subscription-other-tenant-calls' | Should -Be ''
+    $out | Should -Match "Run 'az login --tenant 00000000-0000-0000-0000-0000000000f2' first"
   }
 }
 

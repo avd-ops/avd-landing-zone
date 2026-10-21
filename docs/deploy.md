@@ -54,14 +54,15 @@ Run the pre-deployment preflight first, and repeat it until it comes back clean.
 
 ```bash
 az login
-az account set --subscription "<subscription-id>"
 
-./scripts/deploy/deploy.sh -p parameters/prod.bicepparam -l northcentralus \
+./scripts/deploy/deploy.sh -p parameters/prod.bicepparam -l northcentralus -s "<subscription-id>" \
   --users-group "AVD Users" --admins-group "AVD Admins" --what-if
 
-./scripts/deploy/deploy.sh -p parameters/prod.bicepparam -l northcentralus \
+./scripts/deploy/deploy.sh -p parameters/prod.bicepparam -l northcentralus -s "<subscription-id>" \
   --users-group "AVD Users" --admins-group "AVD Admins"
 ```
+
+`-s` names the subscription for this run only: az's selected subscription doesn't change, and without `-s` the script uses that one. Either way it prints the subscription's name and ID before it changes anything, and it refuses a subscription in a different tenant from the one az is signed in to. Never commit a subscription ID: the secret scan fails on one ([CONTRIBUTING.md](../CONTRIBUTING.md#secret-scanning)).
 
 To size the host pool, use the portal's **Size the host pool** step, then its **Cost** step for Start VM on Connect and the scheduled stop. They add their flags to both commands, and the preflight checks quota for that size and prices it at Azure list prices for the region (see [operations.md](operations.md#sizing-and-cost)).
 
