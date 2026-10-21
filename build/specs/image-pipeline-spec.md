@@ -174,7 +174,7 @@ AIB generalizes the VM (sysprep) after the last customizer, with its default dep
 - no reboot is pending, and no update failed in this build;
 - no local user account exists beyond the built-ins;
 - Defender is enabled, with signatures less than 24 hours old;
-- WDOT ran with the `avdlz` profile at the pinned version and reported success, and no protected service (§5.5) is Disabled;
+- WDOT ran with the `avdlz` profile at the pinned version and its run was verified (`Invoke-Wdot.ps1` checks WDOT's registry stamp, its event log and the services it disabled, because WDOT returns without an error when it skips work; lesson 0031), and no protected service (§5.5) is Disabled;
 - Windows and Microsoft 365 Apps automatic updates are off (§5.6).
 
 It prints one `RESULT <check> <Pass|Fail> <detail>` line per check, the format of the offline scenarios, so the build issue can quote it.
