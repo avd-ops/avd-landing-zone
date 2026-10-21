@@ -33,10 +33,9 @@
   .resume-hint { font-size: .85rem; margin: .5rem 0 0; }
   .status { font-size: .93rem; }
   .hidden { display: none !important; }
-  .eyebrow { margin: 0 0 6px; }
 
   /* The page's title row under the avd-ops shell bar: the portal's name, then its own tools. */
-  header.top { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; padding-block: 14px; border-bottom: 1px solid var(--line); }
+  header.top { display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; padding-block: 28px 18px; border-bottom: 1px solid var(--line); }
   .title { min-width: 0; margin-right: auto; }
   .title h1 { font-size: 1.25rem; }
   .toplinks { display: flex; align-items: center; gap: 4px 14px; flex-wrap: wrap; font-size: .95rem; }
@@ -53,7 +52,7 @@
   @media (max-width: 560px) { .toplinks { width: 100%; } .toplinks > a.about { display: none; } .toplinks > a.toolbtn { flex: 1 1 0; justify-content: center; white-space: normal; text-align: center; } }
   .credit { margin: 0; padding: 0 0 calc(24px + env(safe-area-inset-bottom, 0px)); font: 600 .8rem var(--mono); letter-spacing: .04em; color: var(--fg); }
   .credit a { color: inherit; }
-  .intro { padding-block: 18px 6px; }
+  .intro { padding-block: 20px 20px; }
   .lede { color: var(--muted); margin: 0; max-width: 62ch; font-size: 1rem; }
   .disclaimer { font-size: .85rem; color: var(--muted); }
   footer.disclaimer { margin: 28px 0 0; padding: 16px 0 10px; border-top: 1px solid var(--line); }
@@ -165,14 +164,20 @@
   }
 
   /* Back / Next stays reachable at the bottom of the screen. */
-  .stepnav { position: sticky; bottom: 0; z-index: 5; display: flex; gap: 12px; align-items: center; justify-content: space-between; margin: 0 0 16px; padding: 14px 0 calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--bg); border-top: 1px solid var(--line); }
-  /* The step bar is solid and focus scrolls clear of it, so it never sits over a chip, a field or the paste hint. */
-  html { scroll-padding-bottom: 96px; }
+  /* On a wide screen Back / Next sits right under the step card; on a phone it docks at the bottom of the screen,
+     solid, with a shadow where the card runs under it, and focus scrolls clear of it. Anything scrolled into view
+     stops below the sticky avd-ops bar, never under it. */
+  .stepnav { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin: 16px 0; padding: 0; }
+  html { scroll-padding-top: calc(var(--bar) + 16px); }
+  @media (max-width: 560px) {
+    .stepnav { position: sticky; bottom: 0; z-index: 5; margin: 12px -16px 16px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--bg); border-top: 1px solid var(--line); box-shadow: 0 -10px 18px -14px rgba(0, 0, 0, .45); }
+    html { scroll-padding-bottom: 96px; }
+  }
   .stepnav button { min-width: 7.5rem; box-shadow: var(--shadow); }
   #next-step.primary:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
   #next-step.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--on-accent); }
   .stepnav .status { text-align: center; flex: 1; min-width: 0; font-family: var(--mono); font-size: .78rem; letter-spacing: .02em; }
-  @media (max-width: 560px) { .stepnav .status { display: none; } .stepnav button { min-width: 0; flex: 1 1 0; } }
+  @media (max-width: 560px) { .stepnav .status { display: none; } .stepnav button { min-width: 0; flex: 1 1 0; } .stepnav #prev-step { flex: 0 0 auto; padding-inline: 18px; } }
   @media (prefers-reduced-motion: reduce) { .track { scroll-behavior: auto; transition: none; } button, a.btnlink { transition: none; } }
 
   /* Actions: each command is a terminal block with its own Copy button. */
@@ -185,7 +190,7 @@
   .term-label::before { content: "PS>"; color: var(--prompt); margin-right: 8px; }
   .term[data-shell="bash"] .term-label::before { content: "$"; }
   .term-head .untested { margin-right: auto; margin-left: 10px; }
-  .runin { margin: 4px 0 18px; }
+  .runin { margin: 0 0 24px; }
   .runin .segmented input:disabled + span { opacity: .45; cursor: default; }
   #runin-note:empty { display: none; }
   .action .requires, .action .unsupported { margin: 6px 0 0; }
@@ -341,7 +346,7 @@
 
   <div class="track" id="track">
     <section class="slide" id="region-panel" data-step="region" aria-label="Choose a region">
-      <h2><span class="n"></span>Choose a region <span class="muted" style="font-weight:400">· <span id="region-summary"></span></span></h2>
+      <h2><span class="n"></span>Choose a region <span class="muted" style="font-weight:400"><span id="region-summary"></span></span></h2>
       <p class="status">Ranks Azure regions by round-trip time <strong>from this browser</strong>. Run it from where your users work, not from Cloud Shell or a VPN. Under 100&nbsp;ms is good for AVD, 100–150&nbsp;ms is usable, above 150&nbsp;ms feels sluggish.</p>
       <div class="row" id="geos">
         <label><input type="checkbox" value="Americas" checked> Americas</label>
@@ -366,7 +371,7 @@
       </div>
     </section>
     <section class="slide" id="size-panel" data-step="size" aria-label="Size the host pool">
-      <h2><span class="n"></span>Size the host pool <span class="muted" style="font-weight:400">· <span id="size-summary"></span></span></h2>
+      <h2><span class="n"></span>Size the host pool <span class="muted" style="font-weight:400"><span id="size-summary"></span></span></h2>
       <p class="status">Starts from the minimum viable kit: one memory-optimized E4as_v5 host and a 100&nbsp;GiB profile share. Choose the number of hosts, or Automatic to size them from how many people use them and how they work (Microsoft's multi-session guidance: light 6, medium 4, heavy 2, power 1 user per vCPU). It suggests memory-optimized E-series sizes, because hosts shared by many users run out of memory before CPU, and every host gets a Premium SSD OS disk. Once you apply a sizing, the commands carry it: the pre-deployment preflight checks quota and availability for it, and <code>deploy.sh</code> deploys it. The next step prices it.</p>
       <div id="pools"></div>
       <div class="row">
@@ -382,7 +387,7 @@
       </div>
     </section>
     <section class="slide" id="cost-panel" data-step="cost" aria-label="Cost">
-      <h2><span class="n"></span>Cost <span class="muted" style="font-weight:400">· <span id="cost-summary"></span></span></h2>
+      <h2><span class="n"></span>Cost <span class="muted" style="font-weight:400"><span id="cost-summary"></span></span></h2>
       <p class="status">Most of the cost is the hours the session hosts run, and two settings decide those hours. They are deployed with the landing zone. The pre-deployment preflight prices the plan at Azure list prices for your region; after that, changing a setting here reprices it without running anything.</p>
       <div class="pool">
         <label class="switch"><input type="checkbox" id="power-svmoc"><span><strong>Start VM on Connect</strong><br><span class="muted">Starts a stopped host when someone connects, so hosts don't need to be running before people arrive.</span></span></label>
@@ -416,7 +421,7 @@
       <div class="slot"></div>
     </section>
     <section class="slide" id="slide-verify" data-step="verify" aria-label="Verify access">
-      <h2><span class="n"></span>Verify access <span class="muted" style="font-weight:400">· <span id="reach-summary">not checked</span></span></h2>
+      <h2><span class="n"></span>Verify access <span class="muted" style="font-weight:400"><span id="reach-summary">not checked</span></span></h2>
       <p class="status">Checks access to the desktop <strong>from this device and network</strong>, signed in as yourself. Run it where people will connect from. Each check says what it proves and what it doesn't.</p>
       <div class="pool">
         <h3>Can this device reach AVD?</h3>

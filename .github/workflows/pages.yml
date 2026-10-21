@@ -4,7 +4,9 @@ name: pages
 # website) to GitHub Pages. The site is kept apart from the code people deploy (README, "Repo
 # layout"). Needs Settings > Pages > Source set to "GitHub Actions"; until then the last
 # deployment stays up. The avd-ops site itself is published from avd-ops/avd-ops; the old
-# pages here redirect to it. Nothing here touches Azure.
+# pages here redirect to it. The custom domain deploy.avd-ops.dev is set in Settings > Pages (an Actions
+# deployment needs no CNAME file); GitHub then sends avd-ops.github.io/avd-landing-zone/... there. Nothing
+# here touches Azure.
 on:
   push:
     branches:

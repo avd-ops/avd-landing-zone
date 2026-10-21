@@ -104,7 +104,6 @@
   }
   // Short labels and phases for the progress rail; the full step titles stay everywhere else.
   var RAIL = { region: ['Region', 'Plan'], size: ['Size'], cost: ['Cost'], predeploy: ['Preflight', 'Deploy'], deploy: ['Deploy'], postdeploy: ['Setup'], signin: ['Sign in', 'Use'], verify: ['Verify'] };
-  function phaseOf(i) { for (var j = i; j >= 0; j--) { var r = RAIL[P.STEPS[j].id]; if (r && r[1]) return r[1]; } return ''; }
   function renderSteps() {
     var cur = curIndex(), ol = $('steps');
     ol.textContent = '';
@@ -135,9 +134,6 @@
     slides().forEach(function (sl, i) {
       sl.classList.toggle('hidden', i > reached);
       sl.querySelector('h2 .n').textContent = (i + 1) + '.';
-      var eb = sl.querySelector(':scope > .eyebrow');
-      if (!eb) { eb = el('p', 'eyebrow'); sl.insertBefore(eb, sl.firstChild); }
-      eb.textContent = phaseOf(i) + ' \u00b7 Step ' + (i + 1) + ' of ' + P.STEPS.length;
       if (i === cur) sl.removeAttribute('inert'); else sl.setAttribute('inert', '');
     });
     var slot = currentSlide().querySelector('.slot'), shared = $('shared');
@@ -159,7 +155,7 @@
     var sl = currentSlide(); if (!sl) return;
     programmatic = Date.now();
     track.scrollTo({ left: sl.offsetLeft - track.offsetLeft, behavior: page === 'instant' ? 'auto' : 'smooth' });
-    if (page !== 'instant' && track.getBoundingClientRect().top < 0) $('steps').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (page !== 'instant' && track.getBoundingClientRect().top < document.querySelector('header.bar').offsetHeight) $('steps').scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   // Scrolling the track sideways (swipe, trackpad, keyboard) changes the step in view.
   var scrollTimer = null;
