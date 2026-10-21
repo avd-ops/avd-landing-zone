@@ -22,7 +22,7 @@ They share `AvdSpend.psm1` (estimates, the gate, teardown evidence, records) and
 
 ```powershell
 # Cloud Shell (PowerShell), in the sandbox subscription
-if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git $HOME/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git pull -q --ff-only
 ./scripts/ops/Initialize-AvdRunStore.ps1 -WhatIf          # where records and logs are kept; drop -WhatIf to create it
 ./scripts/ops/Set-AvdSpendBudget.ps1 -Amount 150 -Email you@contoso.com -WhatIf
@@ -43,7 +43,7 @@ Cloud Shell's home folder is not a durable copy: an ephemeral session loses it, 
 ## One run, by hand
 
 ```powershell
-if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git $HOME/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git pull -q --ff-only
 ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -PreDeployment *>&1 | Tee-Object ~/preflight.txt
 ./scripts/ops/Start-AvdSpendRun.ps1 -Sandbox lab -Purpose 'FSLogix retest' -Hours 3 -PreflightOutput ~/preflight.txt
@@ -97,7 +97,7 @@ An item is one test you want run. Write it as a JSON file in a folder (no GitHub
 ### Build, approve, run
 
 ```powershell
-if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git $HOME/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git pull -q --ff-only
 ./scripts/ops/New-AvdSandboxBatch.ps1 -ItemsPath ~/clouddrive/queue -MonthlyCap 150 -RunCap 25
 ```
@@ -112,7 +112,7 @@ Set-Location ~/avd-landing-zone
 And runs each group in order, one block per group:
 
 ```powershell
-if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git $HOME/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git pull -q --ff-only
 ./scripts/ops/Invoke-AvdSandboxBatch.ps1 -BatchId b20261021-1700 -Group G1 -MonthlyCap 150 -RunCap 25
 ```
@@ -124,7 +124,7 @@ Exit 0: closed clean and every test passed. Exit 3: closed clean with a failed t
 Cloud Shell ends a session after about 20 minutes without input, and a group can take hours. The group's results are written to the records before and after every step, so in a new session:
 
 ```powershell
-if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git $HOME/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git pull -q --ff-only
 ./scripts/ops/Get-AvdSandboxBatchStatus.ps1
 ```

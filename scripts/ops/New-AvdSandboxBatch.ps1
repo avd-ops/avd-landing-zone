@@ -159,7 +159,7 @@ else {
   $lz = if ($recorder) { $recorder } else { $null }
   $clone = if ($lz) { "https://github.com/$($lz.repo).git" } else { 'https://github.com/avd-ops/avd-landing-zone.git' }
   $checkout = if ($lz) { "git checkout -q $($lz.sha)" } else { 'git checkout -q master; git pull -q --ff-only' }
-  $pre = @("if (-not (Test-Path ~/avd-landing-zone)) { git clone $clone ~/avd-landing-zone }", "Set-Location ~/avd-landing-zone; git fetch -q origin; $checkout")
+  $pre = @("if (-not (Test-Path ~/avd-landing-zone)) { git clone $clone `$HOME/avd-landing-zone }", "Set-Location ~/avd-landing-zone; git fetch -q origin; $checkout")
   $localFlag = if ($Local) { ' -Local' } else { '' }
   # One line that runs the same from Cloud Shell's PowerShell or Bash prompt.
   $block = { param($cmd) "pwsh -NoLogo -Command '$((@($pre) + $cmd) -join '; ')'" }

@@ -952,7 +952,7 @@ Describe 'Sandbox batches from Cloud Shell (decision 0020)' {
     $out | Should -Match 'Not starting: group G2 stopped the batch\..*-ContinueAfterStop'
   }
   It 'prints blocks that run the same from Cloud Shell''s PowerShell or Bash prompt' {
-    $out | Should -Match "pwsh -NoLogo -Command 'if \(-not \(Test-Path ~/avd-landing-zone\)\).*Invoke-AvdSandboxBatch\.ps1 -BatchId b20261021-0100 -Group G1 -MonthlyCap 150 -RunCap 25 -Local'"
+    $out | Should -Match "pwsh -NoLogo -Command 'if \(-not \(Test-Path ~/avd-landing-zone\)\).*\`$HOME/avd-landing-zone.*Invoke-AvdSandboxBatch\.ps1 -BatchId b20261021-0100 -Group G1 -MonthlyCap 150 -RunCap 25 -Local'"
     $out | Should -Match "pwsh -NoLogo -Command 'Set-Location ~/avd-landing-zone; \./scripts/ops/Invoke-AvdSandboxBatch\.ps1 -BatchId b20261021-0100 -Group G3 -Resume'"
   }
   It 'stops the batch when the close finds a leftover, and closes clean after cleanup' {

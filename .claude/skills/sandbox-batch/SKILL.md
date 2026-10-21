@@ -26,7 +26,7 @@ If you changed the scripts, run the `SandboxBatch` offline scenario too (`build/
 ## 3. Hand over
 Give the person one self-contained block for Cloud Shell, which runs from either prompt:
 ```shell
-pwsh -NoLogo -Command 'if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }; Set-Location ~/avd-landing-zone; git pull -q --ff-only; ./scripts/ops/New-AvdSandboxBatch.ps1 -ItemsPath ~/clouddrive/queue -MonthlyCap 150 -RunCap 25'
+pwsh -NoLogo -Command 'if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git $HOME/avd-landing-zone }; Set-Location ~/avd-landing-zone; git pull -q --ff-only; ./scripts/ops/New-AvdSandboxBatch.ps1 -ItemsPath ~/clouddrive/queue -MonthlyCap 150 -RunCap 25'
 ```
 The script prints `batch.md`: the groups, the total and the blocks to approve and run each group. Quote the total and the exact go phrase back to the person, with what each group deploys and for how long. Then stop and wait.
 
