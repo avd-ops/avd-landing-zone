@@ -30,7 +30,7 @@
   $('source-repo').href = repoUrl; $('source-repo').textContent = repoUrl.replace(/^https:\/\/github\.com\//, '');
   $('source-ref').textContent = site.ref || 'master';
   if (site.commit) $('source-line').appendChild(document.createTextNode(' This portal was built from commit ' + site.commit.slice(0, 7) + '.'));
-  if (site.ignored.length) $('source-line').appendChild(document.createTextNode(' This copy\'s portal-config.js has an invalid ' + site.ignored.join(' and ') + ', so the commands use the default.'));
+  if (site.ignored.length) { $('source-line').appendChild(document.createTextNode(' This copy\'s portal-config.js has an invalid ' + site.ignored.join(' and ') + ', so the commands use the default.')); $('source-more').open = true; }
   // Report a problem files into the repo the commands run from, and the issue is public (red team PH-10).
   var repoSlug = repoUrl.replace(/^https:\/\/github\.com\//, '');
   $('issues-link').textContent = repoSlug;
@@ -80,8 +80,20 @@
 
   // ---------------------------------------------------------------- deployment settings (header link)
   // Settings and "Where did I leave off?" open as sheets over the step; one at a time, Escape or the backdrop closes.
+  // While a sheet is open the page behind it is inert, and closing it returns focus to what opened it.
   function sheetOpen() { return !$('settings-panel').classList.contains('hidden') ? 'settings' : !$('resume-panel').classList.contains('hidden') ? 'resume' : null; }
-  function syncBackdrop() { $('sheet-backdrop').classList.toggle('hidden', !sheetOpen()); }
+  var sheetOpener = null;
+  function syncBackdrop() {
+    var open = !!sheetOpen();
+    if (open && !sheetOpener) sheetOpener = document.activeElement;
+    $('sheet-backdrop').classList.toggle('hidden', !open);
+    document.querySelectorAll('main, .wz-nav, .after').forEach(function (n) { if (open) n.setAttribute('inert', ''); else n.removeAttribute('inert'); });
+  }
+  function sheetClosed(fallback) {
+    var to = sheetOpener && document.contains(sheetOpener) && sheetOpener !== document.body ? sheetOpener : fallback;
+    sheetOpener = null;
+    if (!sheetOpen()) to.focus({ preventScroll: true });
+  }
   $('sheet-backdrop').addEventListener('click', function () { if (sheetOpen() === 'settings') showSettings(false); else if (sheetOpen() === 'resume') showResume(false); });
   document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && sheetOpen()) $('sheet-backdrop').click(); });
   function showSettings(open) {
@@ -90,7 +102,7 @@
     $('settings-link').setAttribute('aria-expanded', String(open));
     syncBackdrop();
     if (open) $('parameterFile').focus({ preventScroll: true });
-    else $('settings-link').focus({ preventScroll: true });
+    else sheetClosed($('settings-link'));
   }
   $('settings-link').addEventListener('click', function (e) { e.preventDefault(); showSettings($('settings-panel').classList.contains('hidden')); });
   $('settings-close').addEventListener('click', function () { showSettings(false); });
@@ -121,7 +133,8 @@
       var rail = RAIL[s.id] || [s.title];
       var state = i > reached ? 'locked' : i === cur ? 'current' : i < reached || i < cur ? 'done' : '';
       if (rail[1] || !phase) {
-        if (rail[1]) list.appendChild(el('li', 'group', rail[1]));
+        // The phase name is a visible heading only; each step's own label carries its number.
+        if (rail[1]) { var g = el('li', 'group', rail[1]); g.setAttribute('aria-hidden', 'true'); list.appendChild(g); }
         phase = el('li', 'phase'); phase.setAttribute('data-steps', '0');
         phase.appendChild(el('span', 'phase-name', rail[1] || ''));
         segs = el('div', 'segs'); phase.appendChild(segs); bar.appendChild(phase);
@@ -282,7 +295,7 @@
       renderResume();
       $('resume-close').focus({ preventScroll: true });
     }
-    else $('resume-link').focus({ preventScroll: true });
+    else sheetClosed($('resume-link'));
   }
   $('resume-link').addEventListener('click', function (e) { e.preventDefault(); showResume($('resume-panel').classList.contains('hidden')); });
   $('resume-close').addEventListener('click', function () { showResume(false); });
@@ -297,7 +310,7 @@
     $('record-panel').classList.toggle('hidden', !r);
     if (!r) return;
     $('record-id').textContent = r.runId;
-    $('record-note').textContent = 'Every command below sets this run ID, so it keeps recording after a Cloud Shell reset. Open the run before the pre-deployment preflight; the run folder is kept ' +
+    $('record-note').textContent = 'Open the run before the pre-deployment preflight. Every command carries this run ID; the run folder is kept ' +
       (r.mode === 'azure' ? 'in the run store (outside the landing zone, so cleanup never removes it) and in Cloud Shell.' : 'in Cloud Shell only (~/clouddrive/avdlz-runs when clouddrive is mounted).');
     renderActions(P.recordActions(config()), $('record-actions'));
   }
@@ -308,7 +321,6 @@
   $('record-on').addEventListener('change', function () {
     var mode = $('record-mode').value === 'on' ? 'on' : 'azure';
     setRecord($('record-on').checked ? { runId: P.newRunId(), mode: mode } : { mode: mode });
-    if (cfg.record) $('record-steps').open = true;
   });
   $('record-mode').addEventListener('change', function () { if (P.recording(cfg)) setRecord({ runId: cfg.record.runId, mode: $('record-mode').value === 'on' ? 'on' : 'azure' }); });
   $('record-new').addEventListener('click', function () { if (P.recording(cfg)) setRecord({ runId: P.newRunId(), mode: P.recording(cfg).mode }); });
@@ -319,7 +331,7 @@
     (r.failures || []).forEach(function (f) { items.push({ cls: 'poor', label: 'Fail', f: f }); });
     (r.warnings || []).forEach(function (f) { items.push({ cls: 'ok', label: 'Warn', f: f }); });
     if (!items.length) { box.classList.add('hidden'); return; }
-    var det = el('details'); det.open = false;
+    var det = el('details'); det.open = items.length <= 6;
     det.appendChild(el('summary', '', items.length + ' finding' + (items.length > 1 ? 's' : '') + ' in this run'));
     var ul = el('ul', 'findings');
     items.forEach(function (it) {

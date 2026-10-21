@@ -488,7 +488,7 @@ test('page: one slide per step, in order, and the latency check comes first', ()
   assert.match(region, /id="run"/, 'the latency test is in the first step');
 });
 
-test('page: Deployment settings opens from a link in the header, above the steps', () => {
+test('page: Settings opens from a tool in the header, and its sheet comes before the steps and the report', () => {
   const html = readFileSync(new URL('../../../site/portal/index.html', import.meta.url), 'utf8');
   const top = html.indexOf('<header class="top');                        // the page's own header, under the avd-ops shell bar
   const header = html.slice(top, html.indexOf('</header>', top));

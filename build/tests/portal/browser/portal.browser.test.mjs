@@ -51,6 +51,9 @@ for (const [name, viewport, colorScheme] of [['desktop', { width: 1280, height: 
     await page.check('#record-on');
     const id = (await page.textContent('#record-id')).trim();
     assert.match(id, /^run-\d{8}-\d{4}-[a-z0-9]{4}$/);
+    // Settings is a sheet over the step (design system 2.5.0): Escape closes it, and the Recording box is on the page.
+    await page.keyboard.press('Escape');
+    assert.ok(await page.isHidden('#settings-panel'));
     await page.click('#record-new');
     assert.notEqual((await page.textContent('#record-id')).trim(), id);
     const blocks = await page.locator('#record-actions pre').allTextContents();
@@ -58,9 +61,9 @@ for (const [name, viewport, colorScheme] of [['desktop', { width: 1280, height: 
     for (const b of blocks) assert.match(b, /AVDLZ_RUN_ID = 'run-/);
 
     // Turned off: the blocks clear the run ID in a shell that already has it.
+    await page.click('#settings-link');
     await page.uncheck('#record-on');
     assert.ok(await page.isHidden('#record-panel'));
-    // Settings is a sheet over the step (design system 2.5.0): Escape closes it, and Resume opens its own.
     await page.keyboard.press('Escape');
     assert.ok(await page.isHidden('#settings-panel'));
     await page.click('#resume-link');

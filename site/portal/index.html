@@ -104,8 +104,8 @@
   html { scroll-padding-top: calc(var(--bar) + env(safe-area-inset-top, 0px) + 16px); scroll-padding-bottom: 96px; }
   .wz-nav #next-step.primary:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
   .wz-nav #next-step.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
-  /* Recording, inside the settings sheet. */
-  #record-panel { margin: 4px 0 14px; padding: 12px 14px; box-shadow: none; background: var(--sunken); }
+  /* Recording: one slim box over the step. */
+  #record-panel { margin: 24px 0 0; padding: 12px 14px; box-shadow: none; max-width: 46rem; }
   #record-panel h2 { font-size: 1rem; }
   /* The answer to a paste leads with its bottom line. */
   #next.answered #next-headline { font: 600 1.12rem/1.35 var(--display); color: var(--fg); margin: 0 0 8px; }
@@ -213,7 +213,8 @@
   label.switch > input[type=checkbox]:checked::after { left: 19px; }
   label.switch > input[type=checkbox]:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   @media (prefers-reduced-motion: reduce) { label.switch > input[type=checkbox], label.switch > input[type=checkbox]::after { transition: none; } }
-  input[type=time] { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 6px; padding: 2px 6px; margin-left: 6px; }
+  .portal input[type=time] { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 6px; padding: 2px 6px; margin-left: 6px; width: auto; }
+  .portal textarea { min-height: 160px; }
   input[type=time]:disabled { opacity: .5; }
   progress { width: 100%; height: 6px; margin-top: 12px; accent-color: var(--accent); }
 </style>
@@ -228,7 +229,7 @@
 <li>Use a lab subscription and tenant.</li></ul></div></details>
 <div class="tools"><button class="iconbtn theme" type="button" aria-label="Switch theme"><svg class="sun" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="3.5"/><path d="M10 1.8v2.2M10 16v2.2M1.8 10H4M16 10h2.2M4.2 4.2l1.6 1.6M14.2 14.2l1.6 1.6M4.2 15.8l1.6-1.6M14.2 5.8l1.6-1.6"/></svg><svg class="moon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z"/></svg></button></div></div></header>
   <button type="button" class="sheet-backdrop hidden" id="sheet-backdrop" tabindex="-1" aria-label="Close"></button>
-  <section id="settings-panel" class="sheet hidden" role="dialog" aria-labelledby="settings-title">
+  <section id="settings-panel" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
     <div class="headline"><h2 id="settings-title" style="margin:0">Deployment settings</h2><button type="button" class="linkbtn" id="settings-close" style="margin-left:auto">Close</button></div>
     <p class="status">The commands are built from these. Pasted output fills them in; they stay in this browser.</p>
     <!-- Run in (avd-ops docs/design-system.md): every command block follows this choice. Cloud Shell PowerShell is the default; the choice is kept in this browser only. -->
@@ -260,18 +261,13 @@
         <select id="record-mode"><option value="azure">the run store and Cloud Shell</option><option value="on">Cloud Shell only</option></select>
       </label>
     </div>
-    <section id="record-panel" class="hidden" aria-labelledby="record-title">
-      <div class="headline"><h2 id="record-title" style="margin:0">Recording <span class="run-id" id="record-id"></span></h2><button type="button" class="linkbtn" id="record-new" style="margin-left:auto">New run ID</button></div>
-      <p class="status" id="record-note"></p>
-      <details id="record-steps"><summary>Open and close the run (5 steps)</summary><div id="record-actions" style="margin-top:12px"></div></details>
-    </section>
     <div class="row" style="margin-top:12px">
       <button class="secondary" id="reset">Start over</button>
       <span class="status">Clears the saved progress and settings.</span>
     </div>
   </section>
 
-  <section id="resume-panel" class="sheet hidden" role="dialog" aria-labelledby="resume-title">
+  <section id="resume-panel" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="resume-title">
     <div class="headline"><h2 id="resume-title" style="margin:0">Where did I leave off?</h2><button type="button" class="linkbtn" id="resume-close" style="margin-left:auto">Close</button></div>
     <p class="status">Run this after a Cloud Shell reset or a break, then paste its output into the step's paste box. It changes nothing.</p>
     <details class="more"><summary>What it reads</summary><p>Where the deployment stands, from Azure: the deployment history and the resource groups. A recorded run's journal adds detail.</p></details>
@@ -289,6 +285,11 @@
     <a href="#settings" id="settings-link" class="wz-tool" role="button" aria-controls="settings-panel" aria-expanded="false" title="Deployment settings"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h7M13 4h1M2 12h1M7 12h7"/><circle cx="11" cy="4" r="2"/><circle cx="5" cy="12" r="2"/></svg><span class="t">Settings</span></a></div>
   </header>
   <div class="wz-main">
+  <section id="record-panel" class="hidden" aria-labelledby="record-title">
+    <div class="headline"><h2 id="record-title" style="margin:0">Recording <span class="run-id" id="record-id"></span></h2><button type="button" class="linkbtn" id="record-new" style="margin-left:auto">New run ID</button></div>
+    <p class="status" id="record-note"></p>
+    <details id="record-steps"><summary>Open and close the run (5 steps)</summary><div id="record-actions" style="margin-top:12px"></div></details>
+  </section>
 
   <div class="track" id="track">
     <section class="slide wz-stage" id="region-panel" data-step="region" aria-label="Choose a region">
@@ -428,8 +429,8 @@
     <div id="findings" class="hidden"></div>
     <p class="runline" id="runline">For <strong id="runline-where">Cloud Shell, PowerShell</strong><button type="button" class="linkbtn" id="runline-change">Change</button></p>
     <div id="actions"></div>
-    <p class="status quiet" style="margin-top:12px">Keep the <a href="https://shell.azure.com/powershell" target="_blank" rel="noopener">Cloud Shell</a> tab in front while it runs. Stuck? <button type="button" class="linkbtn" id="report-open">Report a problem</button></p>
-    <details class="more"><summary>Where these commands come from</summary><p><span id="source-line">Commands run <a href="https://github.com/avd-ops/avd-landing-zone" id="source-repo">avd-ops/avd-landing-zone</a> at <code id="source-ref">master</code>.</span></p></details>
+    <p class="status quiet" style="margin-top:12px">Copy the block into <a href="https://shell.azure.com/powershell" target="_blank" rel="noopener">Cloud Shell</a>, keep its tab in front while it runs, then paste the output below. Stuck? <button type="button" class="linkbtn" id="report-open">Report a problem</button></p>
+    <details class="more" id="source-more"><summary>Where these commands come from</summary><p><span id="source-line">Commands run <a href="https://github.com/avd-ops/avd-landing-zone" id="source-repo">avd-ops/avd-landing-zone</a> at <code id="source-ref">master</code>.</span></p></details>
   </section>
   <section id="paste-box">
     <h3>Paste the output</h3>
