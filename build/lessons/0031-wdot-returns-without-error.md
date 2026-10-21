@@ -1,7 +1,7 @@
 # 0031. WDOT returns without an error when it skips work, so its return is never proof it ran
 
 - **Area:** Image pipeline
-- **Found in / fixed by:** reading WDOT v1.1 at the pinned commit (no real build has run v1.1 yet); fixed by this PR
+- **Found in / fixed by:** reading WDOT v1.1 at the pinned commit (no real build has run v1.1 yet); fixed by PR #98
 
 ## What happened
 `Invoke-Wdot.ps1` ran `Windows_Optimization.ps1` and recorded `WdotResult = Succeeded` whenever the call returned, and `Test-GoldenImage.ps1` trusted that marker. Nothing checked that WDOT had changed anything. Reading WDOT v1.1 (`f20d6b7`, the pinned commit) turned up three ways it returns normally while doing little or nothing.
