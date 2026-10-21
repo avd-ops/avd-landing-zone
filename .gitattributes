@@ -10,6 +10,7 @@ build/tests/offline/deploybin/* text eol=lf
 contracts/schemas/*.json -text
 contracts/examples/*.json -text
 contracts/fact-register.json -text
+contracts/run-use-cases.json -text
 # Release and tag archives (the "Source code" zip on each GitHub release) carry only what a
 # person needs to deploy and run the landing zone: see releases/README.md.
 /build export-ignore
