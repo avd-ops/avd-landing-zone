@@ -459,11 +459,11 @@
   // PowerShell's $env: assignments and Remove-Item Env: become export and unset, so pwsh and bash scripts
   // started from the same bash prompt both see them.
   function envToBash(line) {
-    var sets = line.split(/;\s*/), out = [];
+    var sets = line.trim().split(/;\s*(?=\$env:)/), out = [];
     for (var i = 0; i < sets.length; i++) {
-      var m = /^\$env:([A-Z0-9_]+) = '([^']*)'$/.exec(sets[i].trim());
+      var m = /^\$env:([A-Z0-9_]+) = '((?:[^']|'')*)'$/.exec(sets[i]);
       if (!m) return null;
-      out.push(m[1] + "='" + m[2] + "'");
+      out.push(m[1] + '=' + bashQuote(m[2].replace(/''/g, "'")));
     }
     return 'export ' + out.join(' ');
   }

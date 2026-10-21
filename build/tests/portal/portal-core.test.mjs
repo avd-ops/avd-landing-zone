@@ -1073,6 +1073,7 @@ test('run in: Bash clones in bash, exports the run variables and runs each Power
   assert.match(del, /^bash \.\/scripts\/deploy\/deploy\.sh .* --users-group 'O'\\''Brien users' /m, "PowerShell's '' becomes bash's '\\''");
   const rec = P.forRunIn(P.commands.recordStart({ ...runCfg, sizing: { hosts: 2, vmSize: 'Standard_E4as_v5', maxSessions: 4, profileQuotaGiB: 100 } }), { where: 'cloudshell', shell: 'bash' });
   assert.match(rec, /^export AVD_SESSION_HOST_COUNT='2' AVD_SESSION_HOST_VM_SIZE='Standard_E4as_v5'/m);
+  assert.match(P.forRunIn("x\n$env:A_B = 'it''s; fine'; $env:C = ''\nbash ./scripts/deploy/deploy.sh", { where: 'cloudshell', shell: 'bash' }), /^export A_B='it'\\''s; fine' C=''$/m, 'quotes and semicolons inside a value');
   assert.match(rec, /^unset AVD_SESSION_HOST_COUNT AVD_SESSION_HOST_VM_SIZE AVD_MAX_SESSION_LIMIT AVD_PROFILE_QUOTA_GIB$/m);
 });
 
