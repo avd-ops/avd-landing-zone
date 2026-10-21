@@ -9,6 +9,8 @@
 <meta name="description" content="Guides an AVD landing zone deployment step by step: pick a region by latency, paste Cloud Shell output, get the next command.">
 <link rel="icon" href="../assets/brand/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="../assets/avd-ops.css">
+<link rel="stylesheet" href="../assets/avd-ops-shell.css">
+<script src="../assets/theme.js"></script>
 <style>
   /* Layout: a slim avd-ops bar, a phase-grouped progress rail, then one step card in view. Inside a command
      step, "Run in Cloud Shell" and "Paste the output" are two numbered stops on a short timeline. Tokens,
@@ -33,12 +35,10 @@
   .hidden { display: none !important; }
   .eyebrow { font: 600 .72rem/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
 
-  /* Top bar, as on avd-ops.dev: brand, page name, settings. */
+  /* The page's title row under the avd-ops shell bar: the portal's name, then its own tools. */
   header.top { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; padding-block: 14px; border-bottom: 1px solid var(--line); }
-  .brand { display: flex; align-items: baseline; gap: 8px; min-width: 0; margin-right: auto; flex-wrap: wrap; }
-  .brand a.home { display: inline-flex; align-items: center; gap: 8px; font: 700 1.05rem var(--display); color: var(--fg); text-decoration: none; }
-  .brand a.home:hover { color: var(--accent); }
-  .brand .sep { color: var(--line-strong); }
+  .title { min-width: 0; margin-right: auto; }
+  .title h1 { font-size: 1.25rem; }
   .toplinks { display: flex; align-items: center; gap: 4px 14px; flex-wrap: wrap; font-size: .95rem; }
   .toplinks > a:not(.toolbtn) { color: var(--muted); text-decoration: none; }
   .toplinks > a:not(.toolbtn):hover { color: var(--accent); }
@@ -46,12 +46,19 @@
   .toplinks > a.toolbtn:hover { border-color: var(--accent); color: var(--accent); }
   .toplinks > a.toolbtn[aria-expanded="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
   .toplinks > a.toolbtn svg { width: 16px; height: 16px; }
+  @media (pointer: coarse) { .toplinks > a { display: inline-flex; align-items: center; min-height: var(--tap); } }
+  /* The shell bar lines up with the portal's column. */
+  header.bar .bar-in { max-width: 980px; }
+  .shell main { padding-block: 0; }
+  @media (max-width: 560px) { .toplinks { width: 100%; } .toplinks > a.about { display: none; } .toplinks > a.toolbtn { flex: 1 1 0; justify-content: center; white-space: normal; text-align: center; } }
+  .credit { margin: 0; padding: 0 0 calc(24px + env(safe-area-inset-bottom, 0px)); font: 600 .8rem var(--mono); letter-spacing: .04em; color: var(--fg); }
+  .credit a { color: inherit; }
   .intro { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px 24px; align-items: start; padding-block: 18px 6px; }
   .lede { color: var(--muted); margin: 0; max-width: 62ch; font-size: 1rem; }
   .disclaimer { font-size: .85rem; color: var(--muted); }
   p.disclaimer { margin: 0; background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn-fg); border-radius: var(--radius-sm); padding: 9px 12px; line-height: 1.45; }
   p.disclaimer a { color: inherit; }
-  footer.disclaimer { margin: 28px 0 0; padding: 16px 0 calc(24px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--line); }
+  footer.disclaimer { margin: 28px 0 0; padding: 16px 0 10px; border-top: 1px solid var(--line); }
   @media (max-width: 720px) { .intro { grid-template-columns: minmax(0, 1fr); } }
 
   /* Panels */
@@ -161,7 +168,9 @@
   }
 
   /* Back / Next stays reachable at the bottom of the screen. */
-  .stepnav { position: sticky; bottom: 0; z-index: 5; display: flex; gap: 12px; align-items: center; justify-content: space-between; margin: 0 0 16px; padding: 14px 0 calc(12px + env(safe-area-inset-bottom, 0px)); background: linear-gradient(to top, var(--bg) 72%, transparent); }
+  .stepnav { position: sticky; bottom: 0; z-index: 5; display: flex; gap: 12px; align-items: center; justify-content: space-between; margin: 0 0 16px; padding: 14px 0 calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--bg); border-top: 1px solid var(--line); }
+  /* The step bar is solid and focus scrolls clear of it, so it never sits over a chip, a field or the paste hint. */
+  html { scroll-padding-bottom: 96px; }
   .stepnav button { min-width: 7.5rem; box-shadow: var(--shadow); }
   #next-step.primary:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
   #next-step.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--on-accent); }
@@ -224,7 +233,7 @@
   #rows tr { cursor: pointer; }
   #rows tr:hover td { background: var(--accent-soft); }
   #rows input { accent-color: var(--accent); }
-  .bar { height: 8px; background: var(--accent); border-radius: 4px; min-width: 2px; opacity: .75; }
+  div.bar { height: 8px; background: var(--accent); border-radius: 4px; min-width: 2px; opacity: .75; }
   .barcell { width: 25%; min-width: 60px; }
   .good { color: var(--good); font-weight: 600; } .ok { color: var(--caution); font-weight: 600; } .poor { color: var(--bad); font-weight: 600; }
   table.kv td:first-child { color: var(--muted); white-space: normal; width: 40%; }
@@ -250,11 +259,15 @@
   progress { width: 100%; height: 6px; margin-top: 12px; accent-color: var(--accent); }
 </style>
 </head>
-<body>
+<body class="shell">
+<!-- The avd-ops shell (avd-ops docs/design-system.md, "Shell"): the brand bar and switcher shared with avd-ops.dev and the assessment portal. -->
+<header class="bar"><div class="bar-in"><a class="brand" href="https://avd-ops.dev/"><img class="mark" src="../assets/brand/mark.svg" alt="" width="28" height="28"><span class="word">avd-ops</span></a>
+<nav class="switcher" aria-label="avd-ops tools"><a href="https://avd-ops.dev/">Docs</a><a href="./" aria-current="page">Deploy</a><a href="https://avd-ops.github.io/avd-current-state/portal/">Assess</a></nav>
+<div class="tools"><button class="iconbtn theme" type="button" aria-label="Switch theme"><svg class="sun" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="3.5"/><path d="M10 1.8v2.2M10 16v2.2M1.8 10H4M16 10h2.2M4.2 4.2l1.6 1.6M14.2 14.2l1.6 1.6M4.2 15.8l1.6-1.6M14.2 5.8l1.6-1.6"/></svg><svg class="moon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z"/></svg></button></div></div></header>
 <main>
   <header class="top">
-    <div class="brand"><a class="home" href="https://avd-ops.dev/"><img class="mark" src="../assets/brand/mark.svg" alt="" width="26" height="26">avd-ops</a><span class="sep" aria-hidden="true">/</span><h1>AVD deployment portal</h1></div>
-    <div class="toplinks"><a href="https://avd-ops.dev/family/avd-landing-zone.html">About the landing zone</a>
+    <div class="title"><h1>AVD deployment portal</h1></div>
+    <div class="toplinks"><a class="about" href="https://avd-ops.dev/family/avd-landing-zone.html">About the landing zone</a>
     <a href="#resume" id="resume-link" class="toolbtn" role="button" aria-controls="resume-panel" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9"/><path d="M2.5 2.5v2.5H5"/><path d="M8 5v3l2 1.5"/></svg>Where did I leave off?</a>
     <a href="#settings" id="settings-link" class="toolbtn" role="button" aria-controls="settings-panel" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h7M13 4h1M2 12h1M7 12h7"/><circle cx="11" cy="4" r="2"/><circle cx="5" cy="12" r="2"/></svg>Deployment settings</a></div>
   </header>
@@ -467,6 +480,7 @@
     </div>
   </details>
   <footer class="disclaimer">A personal project, provided as is, without warranty. Not affiliated with the author's employer or with Microsoft. Not for production use.</footer>
+  <p class="credit">A <a href="https://prignano.ai/">prignano.ai</a> production</p>
 </main>
 
 <script src="portal-config.js"></script>

@@ -1,0 +1,21 @@
+{
+  "$comment": "The avd-ops design system copy in this folder: the avd-ops tag and commit it came from and the SHA-256 of each file (its MANIFEST.json). Update it with the Cloud Shell block in avd-ops docs/design-system.md, never by hand.",
+  "tag": "ds-v2.0.1",
+  "commit": "d106eed35aced00f7292601b706e62f56a795446",
+  "files": {
+    "avd-ops.css": "f8a763d9bb86a65d78911cd5770cb4ad5fe047917402897d4eba13b2b2181a8b",
+    "avd-ops-shell.css": "4ecfae2231489a2a96163df9d27b36f331f37f101d09ff1fd5408262879f1761",
+    "avd-ops-portal.css": "3bc34048abf27413c95f01490afc3fe501a1693173bde932d17a0c72f859fb6e",
+    "theme.js": "3798da13325bfc97b946e08dd05256f8705f98e3adeb99568fef3621fd242017",
+    "fonts/LICENSE": "5340cc319ceeaba4bfeb4065c719457d8804fe53bbc65253e8fdd3c318dcc4fe",
+    "fonts/jetbrains-mono-latin-500-normal.woff2": "cb182feeed4d798ff6961d3c79f7026279448fca0676438aaecb21f3fc39553a",
+    "fonts/jetbrains-mono-latin-600-normal.woff2": "400c6bfda18d5d14acad1c15d6dcb9f8e13c015e7286317e0b9a482539bef147",
+    "fonts/schibsted-grotesk-latin-600-normal.woff2": "d00ac8735bf6b96cc4cfbfb22576c4168645547a264bd22d127c46519cab3250",
+    "fonts/schibsted-grotesk-latin-700-normal.woff2": "d656a2dcc2bf850a9af5156f2de42f6051facfbaa8d5790cf31159de39bc2568",
+    "fonts/source-sans-3-latin-400-normal.woff2": "0f73f35e08cde0a2f10c109c6e01d71459d97e4099ecd9a50f1b6c0209e4de2b",
+    "fonts/source-sans-3-latin-600-normal.woff2": "14527d193b0e30bc32ef931549a246cdfd286573bb12869b7e052b8101a39d38",
+    "brand/favicon.svg": "8651608c42ed305ad5fee0cdc66e9f12f70673ee4b3222181f9f7f40d81c61dd",
+    "brand/mark-white.svg": "5df08ff6ee99f86d79d65dd7a7dbdcc3e3c8f3ba37c3910fdbfcfbf688c9a5fe",
+    "brand/mark.svg": "e5a202dee19df4dd7047b48d3f63f0d3b0cf6f44079adf5799b798271cf99fa2"
+  }
+}

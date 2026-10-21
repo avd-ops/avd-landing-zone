@@ -1,0 +1,87 @@
+/* avd-ops app shell v2.0.1 (https://avd-ops.dev/, nickprignano/avd-ops site/assets/avd-ops-shell.css). MIT.
+   Personal project, not for production, as is; not affiliated with the author's employer or Microsoft.
+   The frame every family page opens in: the brand bar (mark, word, the Docs, Deploy and Assess switcher, theme
+   and menu buttons), the one-line research notice that opens to the full text, a side list that becomes a drawer
+   below 64rem, the page column, and the footer with the credit line. Load it after avd-ops.css and put
+   class="shell" on <body>; every rule is scoped to .shell. theme.js wires the theme button and the drawer; without
+   it the side list sits below the page on narrow screens and the theme follows the system. */
+
+/* Brand bar: brand ink in both themes, so moving between the site and a portal keeps the same frame. */
+.shell{background:var(--bg)}
+.shell::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--shell);z-index:30}
+.shell header.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--shell);color:var(--shell-fg);border-bottom:1px solid var(--shell-line)}
+.shell .bar-in{max-width:var(--page);margin:0 auto;display:flex;align-items:center;gap:var(--space-3);min-height:56px;
+  padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
+.shell header.bar .brand{display:inline-flex;align-items:center;gap:var(--space-2);font:700 1.05rem var(--display);color:var(--shell-fg);text-decoration:none;letter-spacing:.01em;min-height:var(--tap)}
+.shell header.bar .brand .mark{width:28px;height:28px;flex:none;border-radius:6px;display:block}
+.shell .switcher{display:flex;gap:2px;padding:3px;border-radius:10px;background:var(--shell-hover);margin-left:var(--space-2)}
+.shell .switcher a{display:flex;align-items:center;min-height:36px;padding:0 .8rem;border-radius:7px;color:var(--shell-muted);text-decoration:none;font-weight:600;font-size:.92rem;transition:background var(--fast) var(--ease),color var(--fast) var(--ease)}
+.shell .switcher a:hover{color:var(--shell-fg)}
+.shell .switcher a[aria-current]{background:var(--shell-fg);color:var(--shell)}
+.shell .tools{margin-left:auto;display:flex;gap:var(--space-2)}
+.shell .iconbtn{width:var(--tap);height:var(--tap);display:grid;place-items:center;border-radius:10px;border:1px solid var(--shell-line);background:transparent;color:var(--shell-fg);cursor:pointer;padding:0}
+.shell .iconbtn:hover{background:var(--shell-hover)}
+.shell .iconbtn svg{width:20px;height:20px}
+.shell header.bar :focus-visible{outline-color:var(--shell-fg)}
+.shell .menu{display:none}
+.shell .theme .moon{display:none}
+:root[data-theme="dark"] .shell .theme .sun{display:none} :root[data-theme="dark"] .shell .theme .moon{display:block}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .shell .theme .sun{display:none}:root:not([data-theme="light"]) .shell .theme .moon{display:block}}
+html:not(.js) .shell .theme{display:none}
+
+/* Notice: one line that opens to the full research-only notice. The whole text stays in the page. */
+.shell details.notice{background:var(--surface);border-bottom:1px solid var(--line);font-size:.92rem;color:var(--muted)}
+.shell .notice summary{max-width:var(--page);margin:0 auto;display:flex;align-items:center;gap:var(--space-2);min-height:40px;cursor:pointer;list-style:none;
+  padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
+.shell .notice summary::-webkit-details-marker{display:none}
+.shell .notice summary::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--warn-line);flex:none}
+.shell .notice summary strong{font-weight:600;color:var(--fg)}
+.shell .notice summary .short{display:none}
+.shell .notice summary .more{margin-left:auto;color:var(--accent);white-space:nowrap;padding-left:var(--space-3)}
+.shell .notice[open] summary .more{visibility:hidden}
+.shell .notice .full{max-width:var(--page);margin:0 auto;padding-block:0 var(--space-3);
+  padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
+.shell .notice ul{margin:0;padding:var(--space-3) var(--space-4) var(--space-3) 2.2rem;background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:var(--radius-sm);color:var(--warn-fg)}
+.shell .notice ul a{color:inherit}
+
+/* Side list and page column. */
+.shell .layout{max-width:var(--page);margin:0 auto;display:grid;grid-template-columns:var(--side) minmax(0,1fr);gap:var(--space-6);
+  padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
+.shell .side{position:sticky;top:calc(56px + env(safe-area-inset-top,0px));align-self:start;max-height:calc(100vh - 56px);overflow-y:auto;padding-block:var(--space-5) var(--space-6);display:grid;gap:var(--space-1);align-content:start}
+.shell .side .group{font:600 .72rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:var(--space-4) 0 var(--space-1);padding-left:.6rem}
+.shell .side .group:first-child{margin-top:0}
+.shell .side a{display:flex;align-items:center;min-height:36px;padding:0 .6rem;border-radius:var(--radius-sm);color:var(--fg);text-decoration:none;font-size:.95rem}
+.shell .side a:hover{background:var(--sunken)}
+.shell .side a[aria-current]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.shell main{min-width:0;padding-block:var(--space-5) var(--space-6)}
+.shell main>.col{max-width:var(--measure)}
+.shell main h1{margin-top:var(--space-3)}
+.shell main h1:first-child{margin-top:var(--space-4)}
+.shell .backdrop{display:none}
+
+/* Footer */
+.shell footer.foot{border-top:1px solid var(--line);background:var(--surface);font-size:.86rem;color:var(--muted)}
+.shell footer.foot .in{max-width:var(--page);margin:0 auto;padding-block:var(--space-5) calc(var(--space-6) + env(safe-area-inset-bottom,0px));display:grid;gap:var(--space-2);
+  padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
+.shell footer.foot p{margin:0;max-width:var(--measure)}
+.shell footer.foot .credit{font:600 .8rem var(--mono);letter-spacing:.04em;color:var(--fg);margin-top:var(--space-2)}
+.shell footer.foot .credit a{color:inherit}
+
+/* Touch screens get 44px rows in the side list and switcher. */
+@media (pointer:coarse){.shell .side a{min-height:var(--tap)} .shell .switcher a{min-height:40px}}
+
+/* Below 64rem (iPad portrait, phones) the side list is a drawer the menu button opens. */
+@media (max-width:64rem){
+  .shell .layout{grid-template-columns:minmax(0,1fr);gap:0}
+  .js .shell .menu{display:grid}
+  .js .shell .side{position:fixed;top:0;bottom:0;left:0;width:min(20rem,86vw);max-height:none;z-index:40;background:var(--surface);border-right:1px solid var(--line);box-shadow:var(--shadow-2);
+    padding:calc(var(--space-5) + env(safe-area-inset-top,0px)) var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom,0px)) max(var(--space-4),env(safe-area-inset-left,0px));
+    transform:translateX(-105%);visibility:hidden;transition:transform var(--slow) var(--ease),visibility 0s linear var(--slow)}
+  .js .shell.drawer-open .side{transform:none;visibility:visible;transition:transform var(--slow) var(--ease)}
+  .js .shell.drawer-open .backdrop{display:block;position:fixed;inset:0;z-index:35;background:var(--shell);opacity:.5;border:0;padding:0}
+  html:not(.js) .shell .side{position:static;max-height:none;order:2;border-top:1px solid var(--line)}
+}
+@media (max-width:40rem){.shell .notice:not([open]) summary .long{display:none} .shell .notice:not([open]) summary .short{display:inline}}
+@media (max-width:30rem){.shell header.bar .brand .word{display:none} .shell .switcher{margin-left:0} .shell .switcher a{padding:0 .65rem}}
+.shell .skip{position:absolute;left:-999px;top:0;z-index:50;background:var(--surface);color:var(--fg);padding:var(--space-2) var(--space-3);border-radius:var(--radius-sm)}
+.shell .skip:focus{left:max(var(--gutter),env(safe-area-inset-left,0px));top:calc(var(--space-2) + env(safe-area-inset-top,0px))}
