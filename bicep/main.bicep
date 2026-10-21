@@ -262,10 +262,10 @@ param jumpboxVmSize string = 'Standard_B2als_v2'
 @description('Daily stop of the jumpbox (HHmm, in autoShutdownTimeZone). It always has one unless jumpboxKeepRunningUntil is set (avd-second-brain decision 0017).')
 param jumpboxAutoShutdownTime string = '2000'
 
-@description('Keep the jumpbox running past its daily stop until this UTC time (yyyy-MM-ddTHH:mmZ), recorded on the VM\'s avdlz-keep-running-until tag. Empty: the daily stop applies.')
+@description('Keep the jumpbox running past its daily stop until this UTC time (yyyy-MM-ddTHH:mmZ), recorded on the avdlz-keep-running-until tag of the VM. Empty: the daily stop applies.')
 param jumpboxKeepRunningUntil string = ''
 
-@description('The jumpbox\'s local account password. Random per deployment and applied only when the VM is created; nobody knows it. scripts/ops/Connect-AvdJumpbox.ps1 sets a one-time password on each connect.')
+@description('Password of the local account on the jumpbox. Random per deployment and applied only when the VM is created; nobody knows it. scripts/ops/Connect-AvdJumpbox.ps1 sets a one-time password on each connect.')
 @secure()
 param jumpboxAdminPassword string = newGuid()
 

@@ -67,8 +67,8 @@ Entra ID-only, Intune-managed, private-by-default Azure Virtual Desktop landing 
 | `jumpboxSubnetPrefix` | string | `'(address in the source)'` | Jumpbox subnet (inside the spoke). |
 | `jumpboxVmSize` | string | `'Standard_B2als_v2'` | Jumpbox VM size: the smallest burstable size with room for PowerShell and the Az modules (2 vCPUs, 4 GiB). |
 | `jumpboxAutoShutdownTime` | string | `'2000'` | Daily stop of the jumpbox (HHmm, in autoShutdownTimeZone). It always has one unless jumpboxKeepRunningUntil is set (avd-second-brain decision 0017). |
-| `jumpboxKeepRunningUntil` | string | `''` |  |
-| `jumpboxAdminPassword` | string | `newGuid()` |  |
+| `jumpboxKeepRunningUntil` | string | `''` | Keep the jumpbox running past its daily stop until this UTC time (yyyy-MM-ddTHH:mmZ), recorded on the avdlz-keep-running-until tag of the VM. Empty: the daily stop applies. |
+| `jumpboxAdminPassword` | string | `newGuid()` | Password of the local account on the jumpbox. Random per deployment and applied only when the VM is created; nobody knows it. scripts/ops/Connect-AvdJumpbox.ps1 sets a one-time password on each connect. |
 | `enableDefenderForCloud` | bool | `true` | Enable Microsoft Defender for Cloud plans (Servers P2, Storage, Key Vault) on the subscription. |
 | `deploySubscriptionSettings` | bool | `true` | Deploy the subscription-wide pieces: the policy guardrails (when enablePolicyGuardrails) and the activity log export. One landing zone per subscription owns them; a second one beside it (parameters/test.bicepparam) sets this to false. |
 | `enablePolicyGuardrails` | bool | `true` |  |
