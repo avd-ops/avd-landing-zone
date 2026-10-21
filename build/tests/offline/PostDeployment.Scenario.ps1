@@ -72,6 +72,15 @@ $global:St.kerberosServicesStopped = @('iphlpsvc')
 $kerbDemo = & ./scripts/ops/Deploy-AvdDemo.ps1 @lz -TestUserUpn alex@contoso.com 6>&1 | Out-String
 $global:St.kerberosServicesStopped = @()
 Write-Host "RESULT kerberos-services failed=$($kerbDemo -match 'FAIL.*Entra Kerberos services running') named=$($kerbDemo -match 'Not running: iphlpsvc')"
+# Host security drift (scripts/security/host-baseline.json): VBS off is a gap nobody recorded, a value
+# the host couldn't read is unknown with the host's error, and both stay warnings. Not in the state-line list.
+$global:St.hostSecurity = @{ vbsStatus = 0; lsaRunAsPpl = 2; extraLocalAdmins = $null; readErrors = @('Administrators group: Access is denied.') }
+$driftDemo = & ./scripts/ops/Deploy-AvdDemo.ps1 @lz -TestUserUpn alex@contoso.com 6>&1 | Out-String
+$global:St.hostSecurity = $null
+$driftState = [regex]::Match($driftDemo, '<<<AVDLZ-STATE (.*?) AVDLZ-STATE>>>').Groups[1].Value | ConvertFrom-Json
+$driftOutcomes = (@($driftState.warnings | Where-Object { $_.id -like 'host-baseline-*' -and $_.data.outcome -ne 'departure' }) | ForEach-Object { "$($_.id)=$($_.data.outcome)" } | Sort-Object) -join ','
+$named = [bool]($driftState.warnings | Where-Object { $_.id -eq 'host-baseline-local-admins' -and $_.detail -match '^avdlzddemo-001: .*Host errors: Administrators group: Access is denied\.' })
+Write-Host "RESULT host-baseline-drift $driftOutcomes named=$named failures=$(@($driftState.failures | Where-Object { $_.id -like 'host-baseline-*' }).Count)"
 Invoke-ScenarioStep 'remove-demo' { & ./scripts/ops/Remove-AvdDemo.ps1 @lz -Force }
 
 # A Graph sign-in that times out during the demo cleanup (lesson 0029): the hosts are gone, so the

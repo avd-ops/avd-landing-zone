@@ -48,6 +48,13 @@ Describe 'Post-deployment: preflight, demo and cleanup' {
     Get-StepExit $out 'demo' | Should -Be 0
     Get-StepExit $out 'remove-demo' | Should -Be 0
   }
+  It 'checks the demo hosts against the host security baseline, as warnings (decision 0018)' {
+    $demo = (Get-PortalState $out)[3]
+    (@($demo.warnings | Where-Object { $_.id -like 'host-baseline-*' }) | ForEach-Object { "$($_.id)=$($_.data.outcome)" } | Sort-Object) -join ',' |
+      Should -Be 'host-baseline-app-control=departure,host-baseline-defender-tamper=departure,host-baseline-idle-limit=departure,host-baseline-lsa-protection=unknown,host-baseline-screen-capture-protection=departure,host-baseline-screen-lock=departure'
+    $out | Should -Match '\[PASS \] avdlzddemo-001 Credential Guard running'
+    $out | Should -Match 'RESULT host-baseline-drift host-baseline-local-admins=unknown,host-baseline-vbs-running=gap named=True failures=0'
+  }
   It 'keeps the demo record when the device cleanup fails, so a rerun finishes it (lesson 0029)' { $out | Should -Match 'RESULT device-retry kept=True named=True rerunDeleted=True recordGone=True' }
   It 'changes nothing when removing the landing zone with -WhatIf' { $out | Should -Match 'RESULT remove-lz-whatif changes=0' }
   It 'refuses to remove the landing zone, the last copy of its profiles and logs, without -DiscardLastCopy, even with -Force (decision 0016)' { $out | Should -Match 'RESULT remove-lz-refused named=True changes=0' }
@@ -454,6 +461,12 @@ Describe 'Well-Architected review of the deployed landing zone' {
     ($s[0].warnings | Where-Object { $_.detail -match 'Azure.VM.AMA' }) | Should -BeNullOrEmpty
     ($s[3].warnings | Where-Object id -eq 'waf-monitor-agent').detail | Should -Match 'avdlzdsh-001'
     ($s[3].warnings | Where-Object id -eq 'waf-psrule-operational-excellence').detail | Should -Match 'Azure.VM.AMA on avdlzdsh-001'
+  }
+  It 'flags a host without vTPM and a host pool that redirects drives' {
+    $s = Get-PortalState $out
+    ($s[3].warnings | Where-Object id -eq 'waf-host-security').detail | Should -Match 'avdlzdsh-001'
+    ($s[3].warnings | Where-Object id -eq 'waf-redirection').detail | Should -Be 'Not turned off: drives'
+    ($s[0].warnings | Where-Object id -eq 'waf-redirection') | Should -BeNullOrEmpty
   }
   It 'flags a session host whose OS disk is not Premium SSD' {
     $s = Get-PortalState $out

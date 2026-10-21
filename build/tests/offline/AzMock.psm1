@@ -385,7 +385,7 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
   if ($Path -match 'Microsoft.Compute/virtualMachines\?api-version') {
     $n = if ($g) { 2 } else { 1 }
     return & $ok @{ value=@(1..$n | ForEach-Object {
-          $vm = @{ name="avdlzdsh-00$_"; id="$S/resourceGroups/rg-avdlz-dev-hosts/providers/Microsoft.Compute/virtualMachines/avdlzdsh-00$_"; properties=@{ hardwareProfile=@{ vmSize=$global:St.hostSize }; securityProfile=@{ securityType='TrustedLaunch'; encryptionAtHost=$true }; storageProfile=@{ osDisk=@{ managedDisk=@{ storageAccountType=$(if ($global:St.waf.standardDisk) { 'StandardSSD_LRS' } else { 'Premium_LRS' }) } } } } }
+          $vm = @{ name="avdlzdsh-00$_"; id="$S/resourceGroups/rg-avdlz-dev-hosts/providers/Microsoft.Compute/virtualMachines/avdlzdsh-00$_"; properties=@{ hardwareProfile=@{ vmSize=$global:St.hostSize }; securityProfile=@{ securityType='TrustedLaunch'; encryptionAtHost=$true; uefiSettings=@{ secureBootEnabled=$true; vTpmEnabled=[bool](-not $global:St.waf.noVtpm) } }; storageProfile=@{ osDisk=@{ managedDisk=@{ storageAccountType=$(if ($global:St.waf.standardDisk) { 'StandardSSD_LRS' } else { 'Premium_LRS' }) } } } } }
           if ($g) { $vm.zones = @("$_") }
           $vm }) }
   }
@@ -410,6 +410,8 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
   if ($Path -match '/rg/kv\?api-version') { return & $ok @{ properties=@{ enablePurgeProtection=$true; enableRbacAuthorization=$true; publicNetworkAccess='Disabled' } } }
   if ($Path -match 'Microsoft.Consumption/budgets\?') { return & $ok @{ value=@(if ($g) { @{ name='budget-avdlz-prod' } }) } }
   if ($Path -match 'scalingPlans\?') { return & $ok @{ value=@(@{ name='vdscaling-avdlz-dev'; properties=@{ hostPoolReferences=@(@{ hostPoolArmPath=$hpId; scalingPlanEnabled=$true }) } }) } }
+  # The host pool as bicep/main.bicep deploys it, or with drives redirected ($global:St.waf.drivesOn).
+  if ($Path -match 'hostPools/vdpool-avdlz-dev\?api-version') { return & $ok @{ name='vdpool-avdlz-dev'; id=$hpId; properties=@{ customRdpProperty=$(if ($global:St.waf.drivesOn) { 'enablerdsaadauth:i:1;drivestoredirect:s:*;usbdevicestoredirect:s:;redirectcomports:i:0' } else { 'enablerdsaadauth:i:1;targetisaadjoined:i:1;drivestoredirect:s:;usbdevicestoredirect:s:;redirectcomports:i:0;redirectclipboard:i:1' }) } } }
   if ($Path -match 'hostPools/vdpool-avdlz-dev/providers/Microsoft.Insights/diagnosticSettings\?') { return & $ok @{ value=@(@{ name='diag-vdpool'; properties=@{ workspaceId=$lawId } }) } }
   if ($Path -match 'workspaces/log-avdlz-dev\?api-version') { return & $ok @{ properties=@{ customerId='66666666-6666-6666-6666-666666666666'; retentionInDays=$(if ($g) { 90 } else { 30 }) } } }
   if ($Path -match 'policyStates/latest/summarize') {
@@ -530,8 +532,16 @@ function Get-AzVM { param($ResourceGroupName,$Name,[switch]$Status,$ErrorAction)
 function Start-AzVM { param($ResourceGroupName,$Name) Log "start $Name" }
 function Stop-AzVM { param($ResourceGroupName,$Name,[switch]$Force) Log "stop $Name" }
 function Invoke-AzVMRunCommand { param($ResourceGroupName,$VMName,$CommandId,$ScriptString,$Parameter,$ErrorAction)
-  Log "runcmd $VMName $(if ($ScriptString -match 'filepermission') {'acl'} else {'diag'}) apply=$($Parameter.Apply)"
-  if ($ScriptString -match 'filepermission') {
+  Log "runcmd $VMName $(if ($ScriptString -match 'filepermission') {'acl'} elseif ($ScriptString -match 'Win32_DeviceGuard') {'security'} else {'diag'}) apply=$($Parameter.Apply)"
+  if ($ScriptString -match 'Win32_DeviceGuard') {
+    # Get-SessionHostSecurity.ps1 on a fresh Trusted Launch host: the landing zone's controls on, the
+    # organization's left at Windows defaults, and no RunAsPPL value (left out, as the host script
+    # leaves it out until something sets it; not yet confirmed by a real run, decision 0018).
+    # $global:St.hostSecurity overrides values; a $null leaves one out.
+    $o=[ordered]@{vbsStatus=2;securityServicesRunning=@(1,2);codeIntegrityEnforcement=0;defenderRealTime=$true;defenderTamperProtected=$false;smb1Enabled=$false;maxIdleTimeMs=0;inactivityTimeoutSecs=0;screenCaptureProtection=0;extraLocalAdmins=0;readErrors=@()}
+    if ($global:St.hostSecurity) { foreach ($k in @($global:St.hostSecurity.Keys)) { if ($null -eq $global:St.hostSecurity[$k]) { $o.Remove($k) } else { $o[$k]=$global:St.hostSecurity[$k] } } }
+  }
+  elseif ($ScriptString -match 'filepermission') {
     if ($global:St.forbiddenOnce) { $global:St.forbiddenOnce=$false; $o=@{status='Forbidden';httpStatus=403} }
     elseif ($Parameter.Apply -eq 'true') { $global:St.aclApplied=$true; $sddl=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Parameter.DesiredSddlBase64)); $o=@{status='ok';before='x';after=$sddl} }
     elseif ($global:St.aclApplied) { $o=@{status='ok';before=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Parameter.DesiredSddlBase64))} }
