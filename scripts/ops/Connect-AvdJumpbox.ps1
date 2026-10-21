@@ -9,7 +9,7 @@
   Run from Azure Cloud Shell (PowerShell), or any PowerShell signed in to Azure as an AVD operator
   (the landing zone gives the AVD Admins group Reader and Virtual Machine Contributor on the jumpbox).
 
-  Connect (default)
+  Connect (default; Linux or Windows Server)
     1. Starts the jumpbox if it isn't running (it stops daily on its own schedule).
     2. Sets a new one-time password on its local account through the VM access extension (management
        plane; the protected settings are encrypted to the VM). Bastion Developer offers no Microsoft
@@ -104,6 +104,12 @@ if (-not $WhatIfPreference) {
 
 $vm = Invoke-AvdArm -Path "$($vmId)?$api"
 $user = $vm.properties.osProfile.adminUsername
+$windows = $vm.properties.storageProfile.osDisk.osType -eq 'Windows'
+# VM access extension (Microsoft Learn, vmaccess-linux / vmaccess-windows): one per VM, named enablevmaccess.
+$access = if ($windows) {
+  @{ publisher = 'Microsoft.Compute'; type = 'VMAccessAgent'; typeHandlerVersion = '2.4'; settings = @{ username = $user }; protectedSettings = @{} }
+}
+else { @{ publisher = 'Microsoft.OSTCExtensions'; type = 'VMAccessForLinux'; typeHandlerVersion = '1.5'; settings = @{}; protectedSettings = @{ username = $user } } }
 $secure = Get-AvdRandomPassword
 $password = ConvertFrom-SecureString -SecureString $secure -AsPlainText
 if ($PSCmdlet.ShouldProcess("$user on $vmName", 'Set a one-time password (VM access extension)')) {
@@ -112,12 +118,12 @@ if ($PSCmdlet.ShouldProcess("$user on $vmName", 'Set a one-time password (VM acc
   Invoke-AvdArm -Method PUT -Path $ext -Body @{
     location   = $vm.location
     properties = @{
-      publisher               = 'Microsoft.OSTCExtensions'
-      type                    = 'VMAccessForLinux'
-      typeHandlerVersion      = '1.5'
+      publisher               = $access.publisher
+      type                    = $access.type
+      typeHandlerVersion      = $access.typeHandlerVersion
       autoUpgradeMinorVersion = $true
-      settings                = @{}
-      protectedSettings       = @{ username = $user; password = $password }
+      settings                = $access.settings
+      protectedSettings       = $access.protectedSettings + @{ password = $password }
     }
   } | Out-Null
   # "Done" means the extension succeeded, not that the request was accepted.
@@ -134,7 +140,7 @@ if ($PSCmdlet.ShouldProcess("$user on $vmName", 'Set a one-time password (VM acc
   }
   $portal = "https://portal.azure.com/#@$($ctx.Tenant.Id)/resource$vmId/bastionHost"
   Write-Host ''
-  Write-Host '  Ready. In the Azure portal: open the link, choose SSH, Authentication type Password, and paste:' -ForegroundColor Green
+  Write-Host "  Ready. In the Azure portal: open the link, $(if ($windows) { 'choose RDP and' } else { 'choose SSH, Authentication type Password, and' }) paste:" -ForegroundColor Green
   Write-Host "    Link:     $portal"
   Write-Host "    Username: $user"
   Write-Host "    Password: $password   (one time: the next connect replaces it)"

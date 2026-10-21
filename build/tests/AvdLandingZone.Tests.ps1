@@ -826,4 +826,23 @@ Describe 'Operator jumpbox (decision 0018)' {
     ($off.lines + $off.unpriced | ForEach-Object key) | Should -Not -Contain 'jumpbox'
     $off.free.Count | Should -Be 0
   }
+
+  It 'prices a Windows jumpbox at the Windows rate on its default size, with a Standard SSD E10' {
+    Mock -ModuleName AvdLandingZone Get-AvdRetailPrice {
+      if ($Filter -like "*armSkuName eq 'Standard_B2as_v2'*") {
+        [pscustomobject]@{ productName = 'Virtual Machines Basv2 Series'; skuName = 'B2as v2'; meterName = 'B2as v2'; unitOfMeasure = '1 Hour'; retailPrice = 0.075 }
+        [pscustomobject]@{ productName = 'Virtual Machines Basv2 Series Windows'; skuName = 'B2as v2'; meterName = 'B2as v2'; unitOfMeasure = '1 Hour'; retailPrice = 0.084 }
+        [pscustomobject]@{ productName = 'Basv2 Series Cloud Services'; skuName = 'B2as v2'; meterName = 'B2as v2'; unitOfMeasure = '1 Hour'; retailPrice = 0.084 }
+      }
+      elseif ($Filter -like "*E10 LRS*") { [pscustomobject]@{ productName = 'Standard SSD Managed Disks'; skuName = 'E10 LRS'; meterName = 'E10 LRS Disk'; unitOfMeasure = '1/Month'; retailPrice = 9.6 } }
+    }
+    $plan = @{ location = 'northcentralus'; sessionHostCount = 1; sessionHostVmSize = 'Standard_E4as_v5'; profileShareQuotaGiB = 100; profileStorageSku = 'Premium_LRS'; connectivityMode = 'HubPeered'; enableAvdPrivateLink = $false
+      deployJumpbox = $true; jumpboxOs = 'Windows'; jumpboxVmSize = ''; jumpboxAutoShutdownTime = '2000'; jumpboxKeepRunningUntil = '' }
+    $e = Get-AvdCostEstimate -Plan $plan -ActiveHoursPerWeek 10
+    $j = $e.lines | Where-Object key -eq 'jumpbox'
+    $j.unitPrice | Should -Be 0.084
+    $j.item | Should -Match 'Standard_B2as_v2, Windows'
+    ($e.lines | Where-Object key -eq 'jumpboxdisk').monthly | Should -Be 9.6
+    (Get-AvdJumpboxSpec -Plan @{ jumpboxVmSize = '' }).VmSize | Should -Be 'Standard_B2als_v2'
+  }
 }

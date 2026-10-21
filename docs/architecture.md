@@ -32,7 +32,7 @@ Subscription (dedicated AVD landing zone)
 │       run commands: Configure-FSLogix → Register-AvdAgent
 │
 └── rg-<prefix>-<env>-jumpbox (opt-in, deploy.sh --jumpbox)
-      Operator jumpbox: Ubuntu, Standard_B2als_v2, Trusted Launch, daily stop, Cloud Shell's tools
+      Operator jumpbox: Ubuntu (B2als_v2) or Windows Server 2025 (B2as_v2), Trusted Launch, daily stop, Cloud Shell's tools
 ```
 
 ## Traffic flows

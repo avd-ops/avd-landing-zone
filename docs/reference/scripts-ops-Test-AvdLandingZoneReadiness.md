@@ -19,6 +19,9 @@ Preflight for the AVD landing zone, in two stages: -PreDeployment   before deplo
 | `-ActiveHoursPerWeek` | int | no | `50` | Hours per week each host runs, for the cost estimate. The deployment portal's Cost step works it out from the working hours and the two power settings below. |
 | `-AutoShutdownTime` | string | no |  | Power settings (the portal's Cost step; deploy.sh --auto-shutdown / --start-vm-on-connect): the daily scheduled stop (HH:mm, or none) and Start VM on Connect. Empty = the parameter file's. |
 | `-StartVmOnConnect` | string | no |  |  |
+| `-Jumpbox` | switch | no |  | The operator jumpbox (deploy.sh --jumpbox / --jumpbox-keep-running, decision 0018): check its region and size, and price it. |
+| `-JumpboxOs` | string | no |  |  |
+| `-JumpboxKeepRunningUntil` | string | no |  |  |
 | `-NamePrefix` | string | yes, in the PostDeployment set |  | ---- Post-deployment ---- |
 | `-Environment` | string | yes, in the PostDeployment set |  |  |
 | `-SessionHostVmSize` | string | no |  | Size and count to check quota for. Before deployment they override the parameter file (deploy.sh --vm-size / --hosts); after it, the size defaults to the deployed hosts' size. |

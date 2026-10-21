@@ -250,14 +250,21 @@ param autoShutdownBudgetPercent int = 100
 param autoShutdownRunbookUri string = 'https://raw.githubusercontent.com/nickprignano/avd-landing-zone/master/scripts/automation/Invoke-AvdPowerAction.ps1'
 
 // ---------- Operator jumpbox (decision 0018) ----------
-@description('Add an operator jumpbox: a small Linux VM in the spoke with the Cloud Shell toolchain, reached in the browser through Azure Bastion Developer (no charge, no public IP). Off by default. Bastion Developer exists only in some regions (Get-AvdBastionDeveloperRegion).')
+@description('Add an operator jumpbox: a small Linux or Windows Server VM in the spoke with the Cloud Shell toolchain, reached in the browser through Azure Bastion Developer (no charge, no public IP). Off by default. Bastion Developer exists only in some regions (Get-AvdBastionDeveloperRegion).')
 param deployJumpbox bool = false
 
 @description('Jumpbox subnet (inside the spoke).')
 param jumpboxSubnetPrefix string = '10.100.2.32/28'
 
-@description('Jumpbox VM size: the smallest burstable size with room for PowerShell and the Az modules (2 vCPUs, 4 GiB).')
-param jumpboxVmSize string = 'Standard_B2als_v2'
+@description('Jumpbox operating system: Linux (Ubuntu 24.04, the default) or Windows (Windows Server 2025).')
+@allowed([
+  'Linux'
+  'Windows'
+])
+param jumpboxOs string = 'Linux'
+
+@description('Jumpbox VM size. Empty: the smallest burstable size with room for PowerShell and the Az modules, Standard_B2als_v2 (2 vCPUs, 4 GiB) for Linux and Standard_B2as_v2 (8 GiB) for Windows.')
+param jumpboxVmSize string = ''
 
 @description('Daily stop of the jumpbox (HHmm, in autoShutdownTimeZone). It always has one unless jumpboxKeepRunningUntil is set (avd-second-brain decision 0017).')
 param jumpboxAutoShutdownTime string = '2000'
@@ -650,7 +657,8 @@ module jumpbox 'modules/jumpbox.bicep' = if (deployJumpbox) {
     location: location
     tags: allTags
     vmName: names.jumpbox
-    vmSize: jumpboxVmSize
+    osType: jumpboxOs
+    vmSize: !empty(jumpboxVmSize) ? jumpboxVmSize : (jumpboxOs == 'Windows' ? 'Standard_B2as_v2' : 'Standard_B2als_v2')
     subnetResourceId: network.outputs.jumpboxSubnetResourceId
     encryptionAtHost: encryptionAtHost
     adminUsername: 'avdoperator'

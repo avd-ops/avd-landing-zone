@@ -10,6 +10,7 @@
 | `tags` | object |  |  |
 | `vmName` | string |  |  |
 | `vmSize` | string |  |  |
+| `osType` | string | `'Linux'` |  |
 | `subnetResourceId` | string |  |  |
 | `encryptionAtHost` | bool |  |  |
 | `adminUsername` | string |  |  |
@@ -18,6 +19,7 @@
 | `autoShutdownTimeZone` | string |  |  |
 | `keepRunningUntil` | string | `''` | Opt out of the daily stop until this UTC time (yyyy-MM-ddTHH:mmZ). Empty: the daily stop applies. |
 | `adminsGroupObjectId` | string |  | Entra group of AVD operators: Reader and Virtual Machine Contributor on this resource group (connect through Bastion, start, stop, set the one-time password). |
+| `vmExists` | bool | `false` | The VM already exists: update only its daily stop and tags. |
 
 ## Outputs
 

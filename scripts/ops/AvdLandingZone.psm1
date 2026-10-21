@@ -843,6 +843,14 @@ function Get-AvdBastionDeveloperRegion {
   return , @($script:BastionDeveloperRegions)
 }
 
+function Get-AvdJumpboxSpec {
+  <# The jumpbox's OS, size and disk from a deployment plan: jumpboxVmSize, else the per-OS default bicep/main.bicep uses. #>
+  param([Parameter(Mandatory)][hashtable] $Plan)
+  $os = if ([string]$Plan.jumpboxOs -eq 'Windows') { 'Windows' } else { 'Linux' }
+  $size = if ($Plan.jumpboxVmSize) { [string]$Plan.jumpboxVmSize } elseif ($os -eq 'Windows') { 'Standard_B2as_v2' } else { 'Standard_B2als_v2' }
+  [pscustomobject]@{ Os = $os; VmSize = $size; Disk = $(if ($os -eq 'Windows') { 'E10' } else { 'E4' }) }
+}
+
 function Test-AvdJumpboxPlan {
   <#
     Pre-deployment checks for -deployJumpbox: the region offers Bastion Developer, the jumpbox size
@@ -857,7 +865,7 @@ function Test-AvdJumpboxPlan {
       -Detail "Bastion Developer regions (Microsoft Learn): $($script:BastionDeveloperRegions -join ', ')" `
       -Remediation 'Deploy without --jumpbox, or in one of these regions. Basic and higher work everywhere but bill by the hour, and this landing zone does not deploy them.'
   }
-  $size = [string]$Plan.jumpboxVmSize
+  $size = (Get-AvdJumpboxSpec -Plan $Plan).VmSize
   $sku = @(Get-AzComputeResourceSku -Location $loc -ErrorAction SilentlyContinue | Where-Object { $_.ResourceType -eq 'virtualMachines' -and $_.Name -eq $size }) | Select-Object -First 1
   if (-not $sku) { Add-AvdCheckResult $area "Jumpbox size $size offered in $loc" 'Fail' -Remediation 'Set jumpboxVmSize to a size the region offers.' }
   elseif (@($sku.Restrictions | Where-Object { $_.ReasonCode -eq 'NotAvailableForSubscription' -and $_.Type -eq 'Location' }).Count) {
@@ -2146,7 +2154,7 @@ function Get-AvdDeploymentPlan {
   if ($RecoveryLocation) { $vars.AVD_RECOVERY_LOCATION = $RecoveryLocation }
   $sizingVars = @{ hosts = 'AVD_SESSION_HOST_COUNT'; vmSize = 'AVD_SESSION_HOST_VM_SIZE'; maxSessions = 'AVD_MAX_SESSION_LIMIT'; profileQuotaGiB = 'AVD_PROFILE_QUOTA_GIB'
     autoShutdownTime = 'AVD_AUTO_SHUTDOWN_TIME'; startVmOnConnect = 'AVD_START_VM_ON_CONNECT'
-    jumpbox = 'AVD_DEPLOY_JUMPBOX'; jumpboxKeepRunningUntil = 'AVD_JUMPBOX_KEEP_RUNNING_UNTIL' }
+    jumpbox = 'AVD_DEPLOY_JUMPBOX'; jumpboxKeepRunningUntil = 'AVD_JUMPBOX_KEEP_RUNNING_UNTIL'; jumpboxOs = 'AVD_JUMPBOX_OS' }
   foreach ($k in $sizingVars.Keys) { $vars[$sizingVars[$k]] = $(if ($Sizing[$k]) { [string]$Sizing[$k] } else { '' }) }
   $saved = @{}
   foreach ($k in $vars.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k); [Environment]::SetEnvironmentVariable($k, $vars[$k]) }
@@ -2336,19 +2344,25 @@ function Get-AvdCostEstimate {
       pick = { $_.skuName -eq 'Standard' -and $_.meterName -match 'Static Public IP' -and $_.meterName -notmatch 'IPv6' -and $_.unitOfMeasure -eq '1 Hour' } }
   }
 
-  # The operator jumpbox (decision 0018): Linux, so the base compute rate; Bastion Developer is free.
+  # The operator jumpbox (decision 0018): Linux at the base compute rate, Windows Server at the Windows
+  # rate (the server license is in it); Bastion Developer is free.
   $free = @()
   $jumpboxAlwaysOn = [bool]$Plan.jumpboxKeepRunningUntil
   if ($Plan.deployJumpbox) {
-    $jSize = [string]$Plan.jumpboxVmSize
+    $jSpec = Get-AvdJumpboxSpec -Plan $Plan
+    $jSize = $jSpec.VmSize; $jDisk = $jSpec.Disk
     $jHours = if ($jumpboxAlwaysOn) { $script:HoursPerMonth } else { [math]::Round($ActiveHoursPerWeek * 52 / 12, 1) }
-    $specs += @{ key = 'jumpbox'; item = "Jumpbox (1 x $jSize, Linux)"; quantity = $jHours; unit = 'hours'
+    $jPick = if ($jSpec.Os -eq 'Windows') {
+      { $_.productName -match '^Virtual Machines .* Windows$' -and $_.skuName -notmatch 'Spot|Low Priority' -and $_.unitOfMeasure -eq '1 Hour' }
+    }
+    else { { $_.productName -match '^Virtual Machines ' -and $_.productName -notmatch 'Windows' -and $_.skuName -notmatch 'Spot|Low Priority' -and $_.unitOfMeasure -eq '1 Hour' } }
+    $specs += @{ key = 'jumpbox'; item = "Jumpbox (1 x $jSize, $($jSpec.Os))"; quantity = $jHours; unit = 'hours'
       note = $(if ($jumpboxAlwaysOn) { "kept running until $($Plan.jumpboxKeepRunningUntil)" } else { "$ActiveHoursPerWeek h/week; stopped daily at $($Plan.jumpboxAutoShutdownTime)" })
       filter = "serviceName eq 'Virtual Machines' and armRegionName eq '$loc' and armSkuName eq '$jSize' and priceType eq 'Consumption'"
-      pick = { $_.productName -match '^Virtual Machines ' -and $_.productName -notmatch 'Windows' -and $_.skuName -notmatch 'Spot|Low Priority' -and $_.unitOfMeasure -eq '1 Hour' } }
-    $specs += @{ key = 'jumpboxdisk'; item = 'Jumpbox OS disk (Standard SSD E4)'; quantity = 1; unit = 'disks'
-      filter = "serviceName eq 'Storage' and armRegionName eq '$loc' and skuName eq 'E4 LRS' and priceType eq 'Consumption'"
-      pick = { $_.productName -eq 'Standard SSD Managed Disks' -and $_.meterName -eq 'E4 LRS Disk' -and $_.unitOfMeasure -match 'Month' } }
+      pick = $jPick }
+    $specs += @{ key = 'jumpboxdisk'; item = "Jumpbox OS disk (Standard SSD $jDisk)"; quantity = 1; unit = 'disks'
+      filter = "serviceName eq 'Storage' and armRegionName eq '$loc' and skuName eq '$jDisk LRS' and priceType eq 'Consumption'"
+      pick = { $_.productName -eq 'Standard SSD Managed Disks' -and $_.meterName -eq "$jDisk LRS Disk" -and $_.unitOfMeasure -match 'Month' } }
     # No meter to match: Microsoft Learn (bastion-sku-comparison) lists no hourly or data charge.
     $free += 'Azure Bastion Developer (no hourly or outbound data charge)'
   }

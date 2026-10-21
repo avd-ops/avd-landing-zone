@@ -91,7 +91,9 @@ Required roles:
 
 ## Operator jumpbox
 
-Optional, off by default ([decision 0018](../build/decisions/0018-jumpbox-bastion-developer.md)): a small Linux VM inside the landing zone's VNet with the same tools as Cloud Shell (pwsh, the Azure CLI, Bicep, git, the Az and Graph modules), reached in the browser through **Azure Bastion Developer**. Developer has no hourly charge and needs no public IP, but connects one VM at a time, only in its own VNet, only from the Azure portal, and only in [some regions](https://learn.microsoft.com/azure/bastion/bastion-sku-comparison#regional-availability) (North Central US yes; East US and South Central US no). Use it for long runs that a Cloud Shell timeout would cut, and for anything that needs the private endpoints (the break-glass secret in the private Key Vault).
+Optional, off by default ([decision 0018](../build/decisions/0018-jumpbox-bastion-developer.md)): a small Linux VM (or Windows Server, with `--jumpbox-os windows`) inside the landing zone's VNet with the same tools as Cloud Shell (pwsh, the Azure CLI, Bicep, git, the Az and Graph modules), reached in the browser through **Azure Bastion Developer**. Developer has no hourly charge and needs no public IP, but connects one VM at a time, only in its own VNet, only from the Azure portal, and only in [some regions](https://learn.microsoft.com/azure/bastion/bastion-sku-comparison#regional-availability) (North Central US yes; East US and South Central US no). Use it for long runs that a Cloud Shell timeout would cut, and for anything that needs the private endpoints (the break-glass secret in the private Key Vault).
+
+**Linux or Windows.** Linux (Ubuntu 24.04, `Standard_B2als_v2`, Standard SSD E4) is the default and the cheapest. `--jumpbox-os windows` (preflight: `-JumpboxOs Windows`) gives Windows Server 2025 (`Standard_B2as_v2`, E10) with the same tools, for a Windows desktop, a browser to reach the deployment portal or an app console from inside the VNet, or Windows-only tools; it bills at the Windows rate. The choice is made when the jumpbox is created: to switch, remove it and deploy again.
 
 ```powershell
 # Cloud Shell (PowerShell): preflight with the jumpbox (region, size, cost)
@@ -112,7 +114,7 @@ if (Test-Path ~/avd-landing-zone) { Set-Location ~/avd-landing-zone; git pull -q
 ./scripts/ops/Connect-AvdJumpbox.ps1 -NamePrefix avdlz -Environment dev
 ```
 
-Open the link, choose SSH with Authentication type Password, and paste the username and the password it printed. The password changes on every connect, so there is nothing to remember. Bastion Developer offers no Microsoft Entra sign-in (Basic or higher do, billed by the hour), so the OS account is local; your Azure and Graph sign-ins on the box are your own:
+Open the link, choose SSH with Authentication type Password (RDP on Windows), and paste the username and the password it printed. The password changes on every connect, so there is nothing to remember. Bastion Developer offers no Microsoft Entra sign-in (Basic or higher do, billed by the hour), so the OS account is local; your Azure and Graph sign-ins on the box are your own:
 
 ```bash
 # On the jumpbox (Bash): the repo and the Azure CLI sign-in deploy.sh uses
@@ -128,7 +130,9 @@ Connect-AzAccount -UseDeviceAuthentication
 ./scripts/ops/Connect-AvdLandingZone.ps1
 ```
 
-First boot installs the tools (a few minutes; `/var/log/avdlz-jumpbox.log` ends with `ready`).
+On Windows, open PowerShell 7 (`pwsh`) for the PowerShell block; Git Bash runs the Bash block.
+
+First boot installs the tools (a few minutes on Linux, longer on Windows; `/var/log/avdlz-jumpbox.log` or `C:\avdlz\jumpbox.log` ends with `ready`).
 
 **The meter.** The jumpbox stops itself daily at 20:00 (the landing zone's time zone). `--jumpbox-keep-running 2026-10-22T02:00Z` keeps it on until then (UTC, recorded on the VM's `avdlz-keep-running-until` tag); the next deployment without the flag restores the daily stop. Stop it when you are done: `./scripts/ops/Connect-AvdJumpbox.ps1 -NamePrefix avdlz -Environment dev -Stop` (a shutdown from inside the VM leaves compute billing). The post-deployment preflight reports the jumpbox's meter (`jumpbox-meter`). Bastion Developer itself costs nothing.
 

@@ -103,6 +103,13 @@ Invoke-Deploy 'jumpbox-past' @('--jumpbox', '--jumpbox-keep-running', '2020-01-0
 $env:FAKE_JUMPBOX_RG_EXISTS = 'true'; $env:FAKE_JUMPBOX_VM_EXISTS = 'true'
 Invoke-Deploy 'jumpbox-kept'
 Invoke-Deploy 'jumpbox-kept-running' @('--jumpbox-keep-running', $soon)
+Invoke-Deploy 'jumpbox-os-change' @('--jumpbox', '--jumpbox-os', 'windows')
+$env:FAKE_JUMPBOX_OS = 'Windows'
+Invoke-Deploy 'jumpbox-kept-windows'
+$env:FAKE_JUMPBOX_OS = ''
 $env:FAKE_JUMPBOX_RG_EXISTS = ''; $env:FAKE_JUMPBOX_VM_EXISTS = ''
 Invoke-Deploy 'jumpbox-region' @('--jumpbox', '-l', 'eastus')
+Invoke-Deploy 'jumpbox-windows' @('--jumpbox', '--jumpbox-os', 'Windows')
+Invoke-Deploy 'jumpbox-os-bad' @('--jumpbox', '--jumpbox-os', 'macos')
+Invoke-Deploy 'jumpbox-os-alone' @('--jumpbox-os', 'windows')
 Remove-Item $log -ErrorAction SilentlyContinue

@@ -107,6 +107,7 @@ param(
   # The operator jumpbox (deploy.sh --jumpbox / --jumpbox-keep-running, decision 0018): check its region
   # and size, and price it.
   [Parameter(ParameterSetName = 'PreDeployment')][switch] $Jumpbox,
+  [Parameter(ParameterSetName = 'PreDeployment')][ValidateSet('Linux', 'Windows')][string] $JumpboxOs,
   [Parameter(ParameterSetName = 'PreDeployment')][ValidatePattern('^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z$')][string] $JumpboxKeepRunningUntil,
 
   # ---- Post-deployment ----
@@ -156,6 +157,7 @@ if ($PreDeployment) {
     if ($PSBoundParameters.ContainsKey($p[0])) { $sizing[$p[1]] = $PSBoundParameters[$p[0]] }
   }
   if ($Jumpbox) { $sizing.jumpbox = 'true' }
+  if ($JumpboxOs) { $sizing.jumpbox = 'true'; $sizing.jumpboxOs = $JumpboxOs }
   if ($JumpboxKeepRunningUntil) { $sizing.jumpbox = 'true'; $sizing.jumpboxKeepRunningUntil = $JumpboxKeepRunningUntil }
   $pre = @{ ParameterFile = $ParameterFile; UsersGroup = $UsersGroup; AdminsGroup = $AdminsGroup; Location = $Location; Fix = $Fix; AddMeToGroups = $AddMeToGroups; SkipTenant = $SkipTenant; WhatIf = $WhatIfPreference; Sizing = $sizing; ActiveHoursPerWeek = $ActiveHoursPerWeek; RecoveryLocation = $RecoveryLocation }
   if ($Force) { $pre.Confirm = $false }

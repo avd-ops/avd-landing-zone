@@ -1,6 +1,7 @@
-// Operator jumpbox (build/decisions/0018-jumpbox-bastion-developer.md): a small Linux VM in the
-// landing zone's spoke with Cloud Shell's toolchain (scripts/jumpbox/cloud-init.yaml), reached only
-// through Azure Bastion Developer in the browser. No public IP.
+// Operator jumpbox (build/decisions/0018-jumpbox-bastion-developer.md): a small Linux or Windows Server
+// VM in the landing zone's spoke with Cloud Shell's toolchain (Linux: scripts/jumpbox/cloud-init.yaml at
+// first boot; Windows: scripts/jumpbox/Install-JumpboxTools.ps1 as a Run Command when it is created),
+// reached only through Azure Bastion Developer in the browser (SSH or RDP). No public IP.
 //
 // Sign-in: Bastion Developer offers no Microsoft Entra sign-in (that needs Basic or higher, billed by
 // the hour), so the OS account is local. Its password is random, set at creation and stored nowhere;
@@ -19,6 +20,12 @@ param location string
 param tags object
 param vmName string
 param vmSize string
+
+@allowed([
+  'Linux'
+  'Windows'
+])
+param osType string = 'Linux'
 param subnetResourceId string
 param encryptionAtHost bool
 param adminUsername string
@@ -44,6 +51,22 @@ var roles = {
   virtualMachineContributor: '9980e02c-c2be-4d73-94e8-173b1dc7cf3c'
 }
 var keepRunning = !empty(keepRunningUntil)
+var windows = osType == 'Windows'
+var images = {
+  Linux: {
+    publisher: 'Canonical'
+    offer: 'ubuntu-24_04-lts'
+    sku: 'server'
+    version: 'latest'
+  }
+  // Windows Server 2025 Azure Edition: Generation 2, Trusted Launch, patched by the platform.
+  Windows: {
+    publisher: 'MicrosoftWindowsServer'
+    offer: 'WindowsServer'
+    sku: '2025-datacenter-azure-edition'
+    version: 'latest'
+  }
+}
 var vmTags = union(tags, { purpose: 'jumpbox' }, keepRunning ? { 'avdlz-keep-running-until': keepRunningUntil } : {})
 
 module vm 'br/public:avm/res/compute/virtual-machine:0.22.3' = if (!vmExists) {
@@ -53,23 +76,18 @@ module vm 'br/public:avm/res/compute/virtual-machine:0.22.3' = if (!vmExists) {
     location: location
     tags: vmTags
     vmSize: vmSize
-    osType: 'Linux'
+    osType: osType
     availabilityZone: -1
-    imageReference: {
-      publisher: 'Canonical'
-      offer: 'ubuntu-24_04-lts'
-      sku: 'server'
-      version: 'latest'
-    }
+    imageReference: images[osType]
     securityType: 'TrustedLaunch'
     secureBootEnabled: true
     vTpmEnabled: true
     encryptionAtHost: encryptionAtHost
-    // Standard SSD: a workstation for scripts, not a session host.
+    // Standard SSD: a workstation for scripts, not a session host. E4 for Linux, E10 for Windows.
     osDisk: {
       caching: 'ReadWrite'
       deleteOption: 'Delete'
-      diskSizeGB: 32
+      diskSizeGB: windows ? 128 : 32
       managedDisk: {
         storageAccountType: 'StandardSSD_LRS'
       }
@@ -77,7 +95,8 @@ module vm 'br/public:avm/res/compute/virtual-machine:0.22.3' = if (!vmExists) {
     adminUsername: adminUsername
     adminPassword: adminPassword
     disablePasswordAuthentication: false
-    customData: loadTextContent('../../scripts/jumpbox/cloud-init.yaml')
+    customData: windows ? '' : loadTextContent('../../scripts/jumpbox/cloud-init.yaml')
+    patchMode: windows ? 'AutomaticByPlatform' : ''
     nicConfigurations: [
       {
         nicSuffix: '-nic'
@@ -99,6 +118,25 @@ module vm 'br/public:avm/res/compute/virtual-machine:0.22.3' = if (!vmExists) {
 
 resource vmRef 'Microsoft.Compute/virtualMachines@2024-07-01' existing = {
   name: vmName
+}
+
+// Windows first boot: the toolchain, once, when the VM is created (asynchronous: the deployment doesn't
+// wait; C:\avdlz\jumpbox.log ends with 'ready'). Never re-sent with an existing VM.
+resource windowsTools 'Microsoft.Compute/virtualMachines/runCommands@2024-07-01' = if (windows && !vmExists) {
+  parent: vmRef
+  name: 'avdlz-jumpbox-tools'
+  location: location
+  tags: tags
+  properties: {
+    source: {
+      script: loadTextContent('../../scripts/jumpbox/Install-JumpboxTools.ps1')
+    }
+    asyncExecution: true
+    timeoutInSeconds: 3600
+  }
+  dependsOn: [
+    vm
+  ]
 }
 
 // The daily stop, always present: Disabled while kept running, so a redeploy with
