@@ -117,4 +117,37 @@ Invoke-ScenarioStep 'recorder-refused' { & ./scripts/ops/Invoke-AvdSandboxBatch.
 Write-Host "RESULT recorder-refused outcome=$((& $results G2).outcome) deploys=$(& $count 'deploy rg-lz-e')"
 Invoke-ScenarioStep 'keep-local' { & ./scripts/ops/Invoke-AvdSandboxBatch.ps1 -Group G3 @batchArgs }
 Write-Host "RESULT keep-local deploys=$(& $count 'deploy rg-lz-f')"
+# Health before spend (Test-AvdSandboxHealth.ps1): a host device an earlier run left (no VM has its
+# name; another one's VM still exists), a group refused before its claim, a Graph read that fails,
+# a leftover landing zone resource group, and no run store.
+$sp = $global:St.spend
+$sp.devices = @(@{ displayName = 'avdlzdsh-001' }, @{ displayName = 'avdlzdsh-002' }, @{ displayName = 'avdlzdsh-001-old' })
+$rows = @(Get-Content $inv -Raw | ConvertFrom-Json | ForEach-Object { $_ })
+$rows += [pscustomobject]@{ id = '/subscriptions/y/resourcegroups/rg-other/providers/microsoft.compute/virtualmachines/avdlzdsh-002'; type = 'microsoft.compute/virtualmachines'; resourceGroup = 'rg-other'; name = 'avdlzdsh-002'; computerName = 'avdlzdsh-002' }
+ConvertTo-Json @($rows) | Set-Content $inv
+$health = @{ MonthlyCap = 150; RunCap = 25 }
+Invoke-ScenarioStep 'health-device' { & ./scripts/ops/Test-AvdSandboxHealth.ps1 @health }
+Remove-Item (Join-Path $items '*.json')
+& $item 8 'lz-g' "echo test 8 >> '$log'" (& $teardown 'rg-lz-g')
+$batchId = 'b20261021-0300'
+$batchArgs.BatchId = $batchId
+Invoke-ScenarioStep 'build3' { & ./scripts/ops/New-AvdSandboxBatch.ps1 -ItemsPath $items -MonthToDate 12.5 -Now $now.AddHours(2) -BatchCap 10 -MonthlyCap 150 -RunCap 25 @common }
+$batch = Get-Content (Join-Path $records "queue/2026-10/$batchId/batch.json") -Raw | ConvertFrom-Json
+Invoke-ScenarioStep 'approve3' { & ./scripts/ops/Approve-AvdSandboxBatch.ps1 -BatchId $batchId -Phrase ("go batch {0} `${1:N2}" -f $batchId, $batch.total) @common }
+Invoke-ScenarioStep 'unhealthy-group' { & ./scripts/ops/Invoke-AvdSandboxBatch.ps1 -Group G1 @batchArgs }
+Write-Host "RESULT unhealthy-group claimed=$(Test-Path (Join-Path $records "queue/2026-10/$batchId/results-G1.json")) deploys=$(& $count 'deploy rg-lz-g')"
+$sp.devices = @(); $sp.graphStatus = 403
+Invoke-ScenarioStep 'health-graph' { & ./scripts/ops/Test-AvdSandboxHealth.ps1 @health }
+$sp.graphStatus = 0
+& (Join-Path $work 'add-rg.ps1') 'rg-avdlz-dev-hosts'
+Invoke-ScenarioStep 'health-group' { & ./scripts/ops/Test-AvdSandboxHealth.ps1 @health }
+& (Join-Path $work 'del-rg.ps1') 'rg-avdlz-dev-hosts'
+$sp.runStore = $false
+Invoke-ScenarioStep 'health-store' { & ./scripts/ops/Test-AvdSandboxHealth.ps1 @health -NeedsRunStore }
+$sp.runStore = $true
+$json = Join-Path $work 'health.json'
+Invoke-ScenarioStep 'health-ok' { & ./scripts/ops/Test-AvdSandboxHealth.ps1 @health -Estimate 1 -NeedsRunStore -JsonPath $json }
+Write-Host "RESULT health-ok healthy=$((Get-Content $json -Raw | ConvertFrom-Json).healthy)"
+Invoke-ScenarioStep 'healthy-group' { & ./scripts/ops/Invoke-AvdSandboxBatch.ps1 -Group G1 @batchArgs }
+Write-Host "RESULT healthy-group outcome=$((& $results G1).outcome) deploys=$(& $count 'deploy rg-lz-g')"
 Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue

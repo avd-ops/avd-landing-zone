@@ -23,7 +23,7 @@ $script:StateFile = '.records-state.json'
 # =====================================================================
 function Invoke-AvdSpendArm {
   <#
-    One ARM REST call. Cost Management throttles hard (per-scope query units): a 429, or a
+    One ARM (or Microsoft Graph) REST call. Cost Management throttles hard (per-scope query units): a 429, or a
     transient 500/502/503/504, waits and retries, up to about ten minutes in all. Any other failure throws with the status and body
     (lesson 0012).
   #>
@@ -33,7 +33,10 @@ function Invoke-AvdSpendArm {
     $Body,
     [switch] $AllowNotFound
   )
-  $p = @{ Path = ($Path -replace '^https://management\.azure\.com', ''); Method = $Method; ErrorAction = 'Stop' }
+  # Microsoft Graph goes by full URI on the same sign-in (Az.Accounts picks the Graph token); ARM by path.
+  $p = if ($Path -match '^https://graph\.microsoft\.com/') { @{ Uri = $Path; Method = $Method; ErrorAction = 'Stop' } }
+  else { @{ Path = ($Path -replace '^https://management\.azure\.com', ''); Method = $Method; ErrorAction = 'Stop' } }
+  $target = if ($p.Path) { $p.Path } else { $p.Uri }
   if ($null -ne $Body) { $p.Payload = ($Body | ConvertTo-Json -Depth 20 -Compress) }
   for ($attempt = 1; ; $attempt++) {
     $r = Invoke-AzRestMethod @p
@@ -45,11 +48,11 @@ function Invoke-AvdSpendArm {
       # Honor the service's own Retry-After when it sends one (seconds), within the same ceiling.
       $after = if ($r.PSObject.Properties['Headers'] -and $r.Headers -and $r.Headers.RetryAfter -and $r.Headers.RetryAfter.Delta) { [int]$r.Headers.RetryAfter.Delta.TotalSeconds } else { 0 }
       if ($after -gt 0) { $wait = [math]::Min($after, 300) }
-      Write-Host "  ARM answered $($r.StatusCode) on $Method $($p.Path); waiting ${wait}s (attempt $attempt of 6) ..." -ForegroundColor DarkGray
+      Write-Host "  Azure answered $($r.StatusCode) on $Method $target; waiting ${wait}s (attempt $attempt of 6) ..." -ForegroundColor DarkGray
       Start-Sleep -Seconds $wait
       continue
     }
-    throw "ARM $Method $($p.Path) failed ($($r.StatusCode)): $($r.Content)"
+    throw "$Method $target failed ($($r.StatusCode)): $($r.Content)"
   }
 }
 

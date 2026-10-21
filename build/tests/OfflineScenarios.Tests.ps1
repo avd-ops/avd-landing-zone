@@ -988,6 +988,28 @@ Describe 'Sandbox batches from Cloud Shell (decision 0020)' {
     $out | Should -Match 'RESULT recorded outcome=passed runId=run-\d{8}-\d{4}-q001 steps=record-open,start,deploy,test,record-export,teardown,close,record-close'
     $out | Should -Match 'RESULT recorded order=Start-AvdRunRecorder -RunId\|deploy rg-lz-d\|test 5\|Stop-AvdRunRecorder -RunId\|teardown rg-lz-d\|Stop-AvdRunRecorder -RunId'
   }
+  It 'reports a host device an earlier run left, but not one whose VM still exists, and deletes nothing' {
+    Get-StepExit $out 'health-device' | Should -Be 1
+    $out | Should -Match 'FAIL \] Devices from earlier runs: Still there with no VM of that name in any subscription you can read: avdlzdsh-001\. '
+    $out | Should -Match 'Nothing here deletes them for you'
+    $out | Should -Not -Match 'DELETE https://graph'
+  }
+  It 'refuses an unhealthy group before its claim, so the same block runs again once it is fixed' {
+    Get-StepExit $out 'unhealthy-group' | Should -Be 2
+    $out | Should -Match 'RESULT unhealthy-group claimed=False deploys=0'
+    Get-StepExit $out 'healthy-group' | Should -Be 0
+    $out | Should -Match 'RESULT healthy-group outcome=passed deploys=1'
+  }
+  It 'reports a failed Graph read as it came back, a leftover resource group and a missing run store' {
+    Get-StepExit $out 'health-graph' | Should -Be 1
+    $out | Should -Match 'Reading devices returned 403: .*Authorization_RequestDenied'
+    Get-StepExit $out 'health-group' | Should -Be 1
+    $out | Should -Match 'Resource groups from earlier runs: Still there: rg-avdlz-dev-hosts\.'
+    Get-StepExit $out 'health-store' | Should -Be 1
+    $out | Should -Match 'Run store: No run store'
+    Get-StepExit $out 'health-ok' | Should -Be 0
+    $out | Should -Match 'RESULT health-ok healthy=True'
+  }
   It 'spends nothing when the recorder refuses the run' {
     Get-StepExit $out 'recorder-refused' | Should -Be 2
     $out | Should -Match 'RESULT recorder-refused outcome=stop-batch deploys=0'

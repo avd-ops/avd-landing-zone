@@ -17,7 +17,8 @@
                    the interrupted step runs again (item steps must be safe to run twice)
     -TeardownOnly  the safety net: keep, tear down and close, unless the group already closed clean
   A group doesn't start while an earlier group of the batch stopped part way, or stopped the batch
-  (until you pass -ContinueAfterStop).
+  (until you pass -ContinueAfterStop), or while Test-AvdSandboxHealth.ps1 finds a problem (a
+  missing permission, a leftover from an earlier run, a cap not set; -SkipHealth skips it).
   Get-AvdSandboxBatchStatus.ps1 shows where each group stands and prints the block to continue.
 
   Exit codes: 0 the group closed clean and every test passed; 3 closed clean with a failed test or
@@ -52,6 +53,8 @@ param(
   [switch] $TeardownOnly,
   # Start this group although an earlier group stopped the batch, once you have dealt with why.
   [switch] $ContinueAfterStop,
+  # Skip the read-only health check (Test-AvdSandboxHealth.ps1) a new group starts with.
+  [switch] $SkipHealth,
   # Recorded groups: the private companion repo the run recorder copies the run to after the close.
   # Empty: the run stays in the run store only, and can be copied later.
   [string] $PrivateRepo = $env:AVD_PRIVATE_REPO
@@ -107,6 +110,13 @@ if ($mode -eq 'start') {
 }
 $may = Test-AvdBatchGroupStart -Results $prior -Mode $mode
 if (-not $may.allowed) { Write-Host "Not starting: $($may.reason)" -ForegroundColor Red; exit 2 }
+if ($mode -eq 'start' -and -not $SkipHealth) {
+  # Read-only, before the claim: a failure here claims, deploys and spends nothing, so the same block runs again once it's fixed.
+  $lzName = if ($g.record) { @{ NamePrefix = $g.record.namePrefix; Environment = $g.record.environment } } else { @{} }
+  $global:LASTEXITCODE = 0
+  & (Join-Path $PSScriptRoot 'Test-AvdSandboxHealth.ps1') @lzName -MonthlyCap $MonthlyCap -RunCap $RunCap -Estimate ([double]$g.estimate) -NeedsRunStore:(-not $store.local) -SubscriptionId $subId | Out-Host
+  if ($LASTEXITCODE) { Write-Host "Not starting: the sandbox isn't healthy (above). Fix what failed and run the same block again; nothing was claimed, deployed or spent." -ForegroundColor Red; exit 2 }
+}
 if ($TeardownOnly) {
   if (-not $prior -or -not @($prior.steps | Where-Object { $_ -and $_.step -eq 'start' -and $_.exitCode -eq 0 }).Count) { Write-Host "Group $Group never opened a spend run; nothing to tear down."; exit 0 }
   if (@($prior.steps | Where-Object { $_ -and $_.step -eq 'close' -and $_.exitCode -eq 0 }).Count) { Write-Host "Group $Group already closed clean; nothing to tear down."; exit 0 }

@@ -180,6 +180,7 @@ Each links its reference page, generated from the script's help or the template'
 | [`scripts/ops/Stop-AvdSpendRun.ps1`](docs/reference/scripts-ops-Stop-AvdSpendRun.md) | After teardown: prove the run's resources are gone and close its record (docs/sandbox-runs.md). |
 | [`scripts/ops/Test-AvdLandingZoneReadiness.ps1`](docs/reference/scripts-ops-Test-AvdLandingZoneReadiness.md) | Preflight for the AVD landing zone, in two stages: -PreDeployment before deploying: is this subscription and tenant ready for the landing zone described by the parameter file? (default) after deploying: is the landing zone ready for session hosts and users, including the three post-deployment tenant steps? Check mode by default; -Fix remediates what it can. |
 | [`scripts/ops/Test-AvdRecoveryCopies.ps1`](docs/reference/scripts-ops-Test-AvdRecoveryCopies.md) | The monthly verify routine (build/specs/recovery-spec.md section 9): copies rot silently, so read every one back. |
+| [`scripts/ops/Test-AvdSandboxHealth.ps1`](docs/reference/scripts-ops-Test-AvdSandboxHealth.md) | Is the sandbox ready to spend? Read-only checks before a run or a batch group starts, each failure with what fixes it (docs/sandbox-runs.md). |
 | [`scripts/ops/Test-AvdUserConnection.ps1`](docs/reference/scripts-ops-Test-AvdUserConnection.md) | Confirms from Azure telemetry that a user's sign-in reached the landing zone's desktop: the deployment portal's Verify access step (decision 0014, build/specs/verify-access-spec.md). |
 <!-- generated:entry-points end -->
 
