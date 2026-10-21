@@ -468,6 +468,7 @@ Describe 'Health before spend' {
     (Get-Failed @{ permissions = @(); permissionsError = 'GET failed (403)' })[0].detail | Should -Match 'Could not read your permissions: GET failed \(403\)'
     (Get-Failed @{ groupsError = 'POST failed (500)' }).detail | Should -Match 'Could not list resource groups'
     (Get-Failed @{ graphStatus = 403; graphError = 'denied' }).detail | Should -Match 'returned 403'
+    (Get-Failed @{ vmError = 'POST failed (429)' }).detail | Should -Match 'Could not look up VMs .*POST failed \(429\)'
   }
   It 'names leftover devices and groups, and deletes nothing' {
     $f = Get-Failed @{ staleDevices = @(@{ displayName = 'avdlzdsh-001' }); leftoverGroups = @('rg-avdlz-dev-hosts') }

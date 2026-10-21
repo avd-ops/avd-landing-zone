@@ -550,7 +550,7 @@ function Get-AvdSandboxHealthResult {
   #>
   param([Parameter(Mandatory)][hashtable] $Facts)
   $f = @{}
-  foreach ($k in 'signedIn', 'signInError', 'subscriptionName', 'permissions', 'permissionsError', 'graphStatus', 'graphError', 'staleDevices',
+  foreach ($k in 'signedIn', 'signInError', 'subscriptionName', 'permissions', 'permissionsError', 'graphStatus', 'graphError', 'staleDevices', 'vmError',
     'leftoverGroups', 'groupsError', 'namePrefix', 'environment', 'needsRunStore', 'runStore', 'runStoreError', 'monthlyCap', 'runCap', 'estimate') { $f[$k] = $Facts[$k] }
   $r = [System.Collections.Generic.List[object]]::new()
   $add = { param($Check, $Ok, $Detail, $Fix) $r.Add([ordered]@{ check = $Check; ok = [bool]$Ok; detail = $Detail; fix = $(if ($Ok) { '' } else { $Fix }) }) }
@@ -569,7 +569,7 @@ function Get-AvdSandboxHealthResult {
     'Your account needs to read devices in Entra ID (any directory reader role; deleting them at teardown needs Cloud Device Administrator).'
   if ($graph) {
     $left = @($f.staleDevices | Where-Object { $_ } | ForEach-Object { $_.displayName })
-    & $add 'Devices from earlier runs' (-not $left.Count) $(if ($left.Count) { "Still there with no VM of that name in any subscription you can read: $($left -join ', '). A new host with the same name can't join Entra ID." } else { 'None left by an earlier run.' }) `
+    & $add 'Devices from earlier runs' (-not $left.Count -and -not $f.vmError) $(if ($f.vmError) { "Could not look up VMs with those names in Resource Graph: $($f.vmError)" } elseif ($left.Count) { "Still there with no VM of that name in any subscription you can read: $($left -join ', '). A new host with the same name can't join Entra ID." } else { 'None left by an earlier run.' }) `
       "Delete them in the Entra admin center (Devices, All devices) and in Intune if they are enrolled, then run this check again. Nothing here deletes them for you."
   }
   $groups = @($f.leftoverGroups | Where-Object { $_ })

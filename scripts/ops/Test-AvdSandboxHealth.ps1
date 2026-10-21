@@ -89,15 +89,19 @@ if ($facts.signedIn) {
     # resource name and computer name, so a host in another subscription is never called stale.
     Write-Host '  Looking for VMs with those names in every subscription you can read ...' -ForegroundColor DarkGray
     $vmNames = @(); $skip = $null; $page = 0
-    do {
-      $page++
-      $body = @{ query = "resources | where type =~ 'microsoft.compute/virtualmachines' | project name, type = tolower(type), computerName = tostring(properties.osProfile.computerName)"; options = @{ '$top' = 1000 } }
-      if ($skip) { $body.options['$skipToken'] = $skip }
-      $r = Invoke-AvdSpendArm -Method POST -Path '/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01' -Body $body
-      $vmNames += @($r.data | Where-Object { $_ -and $_.type -eq 'microsoft.compute/virtualmachines' } | ForEach-Object { $_.name; if ($_.PSObject.Properties['computerName']) { $_.computerName } })
-      $skip = if ($r.PSObject.Properties['$skipToken']) { $r.'$skipToken' } else { $null }
-    } while ($skip -and $page -lt 50)
-    $facts.staleDevices = @(Get-AvdStaleHostDevice -Devices $devices -Prefix $prefixes -VmName $vmNames)
+    try {
+      do {
+        $page++
+        $body = @{ query = "resources | where type =~ 'microsoft.compute/virtualmachines' | project name, type = tolower(type), computerName = tostring(properties.osProfile.computerName)"; options = @{ '$top' = 1000 } }
+        if ($skip) { $body.options['$skipToken'] = $skip }
+        $r = Invoke-AvdSpendArm -Method POST -Path '/providers/Microsoft.ResourceGraph/resources?api-version=2022-10-01' -Body $body
+        $vmNames += @($r.data | Where-Object { $_ -and $_.type -eq 'microsoft.compute/virtualmachines' } | ForEach-Object { $_.name; if ($_.PSObject.Properties['computerName']) { $_.computerName } })
+        $skip = if ($r.PSObject.Properties['$skipToken']) { $r.'$skipToken' } else { $null }
+      } while ($skip -and $page -lt 50)
+      $facts.staleDevices = @(Get-AvdStaleHostDevice -Devices $devices -Prefix $prefixes -VmName $vmNames)
+    }
+    # Without the VM list no device can be called stale or clean: report it as it came back.
+    catch { $facts.vmError = $_.Exception.Message }
   }
 
   if ($NeedsRunStore) {
