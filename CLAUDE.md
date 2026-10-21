@@ -55,6 +55,8 @@ Without Pester, run an offline scenario directly: `pwsh -File build/tests/offlin
 
 - **Never leave the meter running** (avd-second-brain decision 0017). Anything that bills by time is removed, stopped or on a schedule at the end of a run unless the operator opts in with an expiry or a reason; the demo hosts carry their own daily shutdown, and the preflight warns when a dev or test landing zone has no budget.
 
+- **Sandbox runs are part of the package** (decision 0020, `docs/sandbox-runs.md`). Spend runs, batches, approvals and results live in the run store's `records` container and are written with conditional writes; the local folder is a cache and `-Local` says it is the only copy. A group runs once per approval, resumes after a Cloud Shell drop (`-Resume`, `-TeardownOnly`), and nothing deletes leftovers automatically. A person types the go (`go batch <id> $<total>`); a model never approves. The v1 batch hash is frozen (golden test in `SandboxRuns.Tests.ps1`), and a new ARM route for these scripts goes into `AzMock.psm1` under `$St.spend` with an assertion in the SandboxBatch scenario.
+
 - **Personal project, not for production, as is, not affiliated with the author's employer.** The MIT `LICENSE`, the README warning, the portal's notice and footer, and the one-line notice at the top of entry-point code stay in place; a new entry-point script or template gets the notice (`build/tests/portal/disclaimer.test.mjs`).
 
 - **American English** in docs, script output, the portal and comments (a portal test fails on British spellings; recorded fixtures are exempt).
