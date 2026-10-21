@@ -383,6 +383,11 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     Get-Result 'subscription-other-tenant-calls' | Should -Be ''
     $out | Should -Match "Run 'az login --tenant 00000000-0000-0000-0000-0000000000f2' first"
   }
+  It 'never reads the runbook from master: refuses a commit no remote has unless AVD_RUNBOOK_URI is set' {
+    Get-StepExit $out 'runbook-unpinned' | Should -Be 1
+    Get-Result 'runbook-unpinned-calls' | Should -Not -Match 'deployment-'
+    $out | Should -Match "can't pin the auto-shutdown runbook"
+  }
 }
 
 Describe 'Post-deployment quota on a deployed landing zone (real run, 2026-09-30)' {

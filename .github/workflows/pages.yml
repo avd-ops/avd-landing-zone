@@ -38,8 +38,18 @@ jobs:
       - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
       # The commit this portal is built from (decision 0017): the page compares it with the commit in
       # every pasted state line and says when the scripts are newer than the portal.
-      - name: Record the build commit in portal-config.js
-        run: printf '/* Written by the pages workflow (decision 0017). */\nwindow.AVDLZ_PORTAL_CONFIG = {"commit":"%s"};\n' "$GITHUB_SHA" > site/portal/portal-config.js
+      # The latest release tag, when there is one, becomes the ref every command checks out (avd-ops
+      # decision 0008); with no release yet the commands keep following master. After cutting a release,
+      # run this workflow (gh workflow run pages.yml) so the portal picks the new tag up; a release
+      # event would run on the tag, which the github-pages environment does not allow to deploy.
+      - name: Record the build commit and release tag in portal-config.js
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          echo "Reading the latest release of $GITHUB_REPOSITORY"
+          tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name 2>/dev/null || true)
+          if [[ $tag =~ ^v[0-9A-Za-z.-]+$ ]]; then ref=",\"ref\":\"$tag\""; echo "Commands check out $tag"; else ref=''; echo "No release yet: commands follow master"; fi
+          printf '/* Written by the pages workflow (decision 0017). */\nwindow.AVDLZ_PORTAL_CONFIG = {"commit":"%s"%s};\n' "$GITHUB_SHA" "$ref" > site/portal/portal-config.js
       - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: site

@@ -13,7 +13,7 @@ Every block below is self-contained. Paste it into a fresh [Cloud Shell (PowerSh
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
-Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname)[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -PreDeployment -ParameterFile parameters/dev.bicepparam -Location northcentralus -UsersGroup 'AVD Users' -AdminsGroup 'AVD Admins' -Fix
 ```
 
@@ -21,7 +21,7 @@ Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
-Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname)[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 bash ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus --users-group 'AVD Users' --admins-group 'AVD Admins'
 ```
 
@@ -29,7 +29,7 @@ bash ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus -
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
-Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname)[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -NamePrefix avdlz -Environment dev -Fix -AllowHostStart
 ```
 
@@ -46,7 +46,7 @@ az deployment operation sub list -n $name --query "[].{step:properties.targetRes
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
-Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname)[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -PreDeployment -ParameterFile parameters/test.bicepparam -Location northcentralus -UsersGroup 'AVD Users' -AdminsGroup 'AVD Admins' -Fix
 ```
 
@@ -84,7 +84,7 @@ Remove test and keep dev:
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
-Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname)[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 ./scripts/ops/Remove-AvdDemo.ps1 -NamePrefix avdlz -Environment test -IncludeLandingZone -WhatIf
 ```
 

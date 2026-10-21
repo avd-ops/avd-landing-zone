@@ -241,17 +241,22 @@ fi
 
 AVD_LOCATION="$LOCATION"
 export AVD_USERS_GROUP_ID AVD_ADMINS_GROUP_ID AVD_SERVICE_PRINCIPAL_ID AVD_LOCAL_ADMIN_PASSWORD AVD_LOCATION
-# Pin the auto-shutdown runbook (decision 0011) to the commit being deployed, when GitHub has it;
-# otherwise the repo's master branch.
-repo_dir=$(cd "$(dirname "$0")/../.." && pwd)
-if origin=$(git -C "$repo_dir" remote get-url origin 2>/dev/null) && [[ $origin =~ github\.com[:/]([^/]+)/([^/]+)$ ]]; then
-  owner=${BASH_REMATCH[1]}; repo=${BASH_REMATCH[2]%.git}
-  ref=master
+# Pin the auto-shutdown runbook (decision 0011) to the commit being deployed. It is never read from
+# master (avd-ops decision 0008): when GitHub doesn't have this commit, push it or set AVD_RUNBOOK_URI.
+if [[ -z "${AVD_RUNBOOK_URI:-}" ]]; then
+  repo_dir=$(cd "$(dirname "$0")/../.." && pwd)
   sha=$(git -C "$repo_dir" rev-parse HEAD 2>/dev/null || true)
-  if [[ -n "$sha" ]] && git -C "$repo_dir" branch -r --contains "$sha" 2>/dev/null | grep -q .; then ref=$sha; fi
-  AVD_RUNBOOK_URI="https://raw.githubusercontent.com/$owner/$repo/$ref/scripts/automation/Invoke-AvdPowerAction.ps1"
-  export AVD_RUNBOOK_URI
+  if origin=$(git -C "$repo_dir" remote get-url origin 2>/dev/null) && [[ $origin =~ github\.com[:/]([^/]+)/([^/]+)$ ]] &&
+     [[ -n "$sha" ]] && git -C "$repo_dir" branch -r --contains "$sha" 2>/dev/null | grep -q .; then
+    owner=${BASH_REMATCH[1]}; repo=${BASH_REMATCH[2]%.git}
+    AVD_RUNBOOK_URI="https://raw.githubusercontent.com/$owner/$repo/$sha/scripts/automation/Invoke-AvdPowerAction.ps1"
+  else
+    echo "ERROR: can't pin the auto-shutdown runbook: commit ${sha:-unknown} is not on a GitHub remote of this clone." >&2
+    echo "       Deploy from a release tag or a pushed commit, or set AVD_RUNBOOK_URI to the runbook's raw URL at a commit." >&2
+    exit 1
+  fi
 fi
+export AVD_RUNBOOK_URI
 
 # Sizing overrides (empty = the parameter file's values).
 AVD_SESSION_HOST_COUNT="$HOSTS" AVD_SESSION_HOST_VM_SIZE="$VM_SIZE" AVD_MAX_SESSION_LIMIT="$MAX_SESSIONS" AVD_PROFILE_QUOTA_GIB="$PROFILE_QUOTA"

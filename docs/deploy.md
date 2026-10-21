@@ -76,7 +76,7 @@ When the design comes from an assessment, it arrives as an approved target-state
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
-Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname)[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 ./scripts/ops/ConvertFrom-AvdTargetState.ps1 -Path ~/clouddrive/engagement/manifest.json -ParameterFile parameters/prod.bicepparam -AlertEmail ops@example.com
 ```
 

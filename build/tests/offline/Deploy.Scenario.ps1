@@ -8,6 +8,9 @@ $log = Join-Path ([IO.Path]::GetTempPath()) "avdlz-fake-az-$PID.log"
 $env:FAKE_AZ_LOG = $log
 # AVDLZ_TEST_BASH picks the bash (CI: Git Bash on Windows, Homebrew bash on macOS).
 $bash = if ($env:AVDLZ_TEST_BASH) { $env:AVDLZ_TEST_BASH } else { 'bash' }
+# deploy.sh refuses to read the runbook from master (avd-ops decision 0008); a CI checkout is a merge
+# commit no remote branch contains, so the scenario passes the pin the way an operator can.
+$env:AVD_RUNBOOK_URI = 'https://raw.githubusercontent.com/contoso/avd-landing-zone/0000000/scripts/automation/Invoke-AvdPowerAction.ps1'
 $stopped = '/subscriptions/0000/resourceGroups/rg-avdlz-dev-hosts/providers/Microsoft.Compute/virtualMachines/avdlzdsh-001'
 
 function Invoke-Deploy([string] $Step, [string[]] $Extra) {
@@ -147,4 +150,9 @@ Invoke-Deploy 'subscription-missing' @('-s', 'other-sub')
 $env:FAKE_SUB_MISSING = ''; $env:FAKE_SUB_TENANT = '00000000-0000-0000-0000-0000000000f2'
 Invoke-Deploy 'subscription-other-tenant' @('-s', 'other-sub')
 $env:FAKE_SUB_TENANT = ''
+
+# No runbook pin and no commit git can find on a remote: refused, never read from master (avd-ops decision 0008).
+$pin = $env:AVD_RUNBOOK_URI; $env:AVD_RUNBOOK_URI = ''; $env:GIT_DIR = Join-Path ([IO.Path]::GetTempPath()) "avdlz-no-git-$PID"
+Invoke-Deploy 'runbook-unpinned'
+$env:GIT_DIR = $null; $env:AVD_RUNBOOK_URI = $pin
 Remove-Item $log -ErrorAction SilentlyContinue
