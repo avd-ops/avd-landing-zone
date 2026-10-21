@@ -101,38 +101,70 @@
   // that run as subscription Owner. Only these fields of a context reach the config: the settings above, and
   // sizing, power and launch, each checked field by field. Anything else a context carries (a repo URL, a ref,
   // a run to record) is dropped, so a crafted paste can't point the next block at other code.
-  var VM_SIZE = /^Standard_[A-Za-z0-9_-]{2,40}$/;
+  // The ranges are the scripts' own (Test-AvdLandingZoneReadiness.ps1 ValidateRange and ValidatePattern). A field
+  // left out or null (deploy.sh writes null for a flag it wasn't given) is left out; a field that is there and
+  // doesn't fit rejects the whole object.
+  var VM_SIZE = /^Standard_[A-Za-z0-9_]{2,40}$/;
+  var SHUTDOWN = /^(([01][0-9]|2[0-3]):[0-5][0-9]|none)$/;
   function wholeIn(v, min, max) { var n = Number(v); return typeof v !== 'boolean' && v !== '' && v !== null && isFinite(n) && Math.floor(n) === n && n >= min && n <= max ? n : null; }
-  function validSizing(s) {
-    if (!s || typeof s !== 'object') return null;
-    var o = { hosts: wholeIn(s.hosts, 1, MAX_HOSTS), vmSize: VM_SIZE.test(String(s.vmSize || '')) ? String(s.vmSize) : null,
-      maxSessions: wholeIn(s.maxSessions, 1, 999), profileQuotaGiB: wholeIn(s.profileQuotaGiB, 1, 102400) };
-    if (o.hosts === null || o.vmSize === null || o.maxSessions === null || o.profileQuotaGiB === null) return null;
-    var h = Number(s.activeHoursPerWeek);
-    if (s.activeHoursPerWeek !== undefined && s.activeHoursPerWeek !== null && isFinite(h) && h >= 1 && h <= 168) o.activeHoursPerWeek = h;
-    return o;
+  // Returns { value, bad }: the fields that are there and fit (null when none are), and whether any did not.
+  function checkFields(obj, rules) {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return { value: null, bad: true };
+    var o = {}, k, v;
+    for (k in rules) {
+      v = obj[k];
+      if (v === undefined || v === null) continue;
+      v = rules[k](v);
+      if (v === null) return { value: null, bad: true };
+      o[k] = v;
+    }
+    return { value: Object.keys(o).length ? o : null, bad: false };
   }
-  function validPower(p) {
-    if (!p || typeof p !== 'object' || !/^(([01][0-9]|2[0-3]):[0-5][0-9]|none)$/.test(String(p.autoShutdownTime || ''))) return null;
-    return { startVmOnConnect: p.startVmOnConnect !== false && p.startVmOnConnect !== 'false', autoShutdownTime: String(p.autoShutdownTime) };
+  var SIZING_RULES = {
+    hosts: function (v) { return wholeIn(v, 1, 200); },
+    vmSize: function (v) { return typeof v === 'string' && VM_SIZE.test(v) ? v : null; },
+    maxSessions: function (v) { return wholeIn(v, 1, 1000); },
+    profileQuotaGiB: function (v) { return wholeIn(v, 1, 102400); },
+    activeHoursPerWeek: function (v) { var n = Number(v); return typeof v !== 'boolean' && v !== '' && isFinite(n) && n >= 1 && n <= 168 ? n : null; }
+  };
+  var POWER_RULES = {
+    startVmOnConnect: function (v) { return v === true || v === 'true' ? true : v === false || v === 'false' ? false : null; },
+    autoShutdownTime: function (v) { return typeof v === 'string' && SHUTDOWN.test(v) ? v : null; }
+  };
+  function validSizing(s) { return checkFields(s, SIZING_RULES).value; }
+  function validPower(p) { return checkFields(p, POWER_RULES).value; }
+  // An estimate is shown and repriced, never put into a command: it only has to have the shape the page reads.
+  function validEstimate(e) {
+    if (!e || typeof e !== 'object' || Array.isArray(e)) return null;
+    var lists = ['lines', 'unpriced', 'excluded'];
+    for (var i = 0; i < lists.length; i++) if (e[lists[i]] !== undefined && e[lists[i]] !== null && !Array.isArray(e[lists[i]])) return null;
+    return (e.lines || []).every(function (l) { return l && typeof l === 'object'; }) ? e : null;
   }
+  function present(o, k) { return !!o && o[k] !== undefined && o[k] !== null; }
   function contextSettings(context) {
-    var patch = {}, rejected = [];
+    var patch = {};
     SETTING_NAMES.forEach(function (k) { if (context && Object.prototype.hasOwnProperty.call(context, k)) patch[k] = context[k]; });
     var checked = validSettings(patch);
-    if (context && context.sizing !== undefined && context.sizing !== null) { var sz = validSizing(context.sizing); if (sz) checked.settings.sizing = sz; else checked.rejected.push('sizing'); }
-    if (context && context.power !== undefined && context.power !== null) { var pw = validPower(context.power); if (pw) checked.settings.power = pw; else checked.rejected.push('power'); }
+    [['sizing', SIZING_RULES], ['power', POWER_RULES]].forEach(function (r) {
+      if (!present(context, r[0])) return;
+      var c = checkFields(context[r[0]], r[1]);
+      if (c.bad) checked.rejected.push(r[0]); else if (c.value) checked.settings[r[0]] = c.value;
+    });
     var launch = context && launchTarget(context.launch);
     if (launch) checked.settings.launch = launch;
     return checked;
   }
   // Values from a state line's other fields that go into a command, checked where they are read.
   var PASTED = {
+    location: /^[a-z][a-z0-9]{2,39}$/,
     deploymentName: /^[A-Za-z0-9._()-]{1,64}$/,
-    runId: /^[A-Za-z0-9._-]{1,80}$/,
-    quotaName: /^[A-Za-z0-9_.-]{1,80}$/
+    // Get-AvdRunId's run IDs, the same pattern as RUN_ID.
+    runId: /^run-\d{8}-\d{4}-[a-z0-9]{4}$/,
+    quotaName: /^[A-Za-z0-9_.-]{1,80}$/,
+    // Single-quoted in the command; any UPN Entra ID allows, apostrophes included, with no control character.
+    user: /^[^\x00-\x20\x7f@]{1,113}@[A-Za-z0-9][A-Za-z0-9.-]{0,253}$/
   };
-  function pasted(kind, v) { return typeof v === 'string' && (kind === 'location' ? SETTINGS.location : kind === 'user' ? SETTINGS.testUserUpn : PASTED[kind]).test(v) ? v : null; }
+  function pasted(kind, v) { return typeof v === 'string' && PASTED[kind].test(v) ? v : null; }
   function pastedList(kind, list) { return (Array.isArray(list) ? list : []).filter(function (v) { return pasted(kind, v) !== null; }); }
   // Quota items from a preflight: a region, a quota name and whole numbers, or the item is left out.
   function pastedQuota(d) {
@@ -916,15 +948,15 @@
     }
     if (S === 'recovery') {
       // Get-AvdRecoveryStatus.ps1 and Start-AvdRecoveryTest.ps1: one action for the first thing that isn't met.
-      var rv = state.context || {}, open = failures.concat(warnings);
+      var rv = state.context || {}, open = failures.concat(warnings), runId = pasted('runId', rv.runId);
       var has = function (id) { return byId(open, id).length > 0; };
       var opts = { tier: rv.tier, recoveryLocation: rv.recoveryLocation };
       if (rv.test) {
         if (rv.mode === 'plan' && state.status === 'ready') note('Run the recovery test when you are ready', 'The plan above restores the newest recovery point into a new storage account and prints its cost. Nothing was created. Add -Go to the same command to run it, and remove it after with -Cleanup.', cmd.recoveryTest(cfg) + ' -Go');
         else if (rv.mode === 'plan') note('Not ready for a recovery test', ((failures[0] || {}).detail || '') + ' Nothing was created.', '');
-        else if (state.status === 'passed') note('Remove the test copy', 'The restore passed; the measured RPO and restore time are in the run record. Remove the test copy now so it stops billing.', cmd.recoveryTest(cfg) + ' -Cleanup -RunId ' + psQuote(pasted('runId', rv.runId) || ''));
+        else if (state.status === 'passed') note('Remove the test copy', 'The restore passed; the measured RPO and restore time are in the run record. Remove the test copy now so it stops billing.', cmd.recoveryTest(cfg) + ' -Cleanup -RunId ' + psQuote(runId || ''));
         else if (state.status === 'done') note('Check the recovery status again', 'The test copy is removed. The status check now counts the passed test.', cmd.recoveryStatus(cfg, opts));
-        else note('Remove the test, then look at the error', ((failures[0] || {}).detail || 'The test did not pass.') + ' Remove what it created first, so nothing keeps billing.', pasted('runId', rv.runId) ? cmd.recoveryTest(cfg) + ' -Cleanup -RunId ' + psQuote(pasted('runId', rv.runId)) : '');
+        else note('Remove the test, then look at the error', ((failures[0] || {}).detail || 'The test did not pass.') + ' Remove what it created first, so nothing keeps billing.', runId ? cmd.recoveryTest(cfg) + ' -Cleanup -RunId ' + psQuote(runId) : '');
         return { step: 'recovery', actions: a };
       }
       if (state.status === 'met') {
@@ -977,13 +1009,12 @@
     // the commit it carries is compared with this portal's, not merged.
     var checked = contextSettings(state && state.context);
     var stateCommit = state && state.context && isCommit(state.context.commit) ? String(state.context.commit).toLowerCase() : null;
-    delete checked.settings.commit;
     if (state && state.context) cfg = merge(cfg, checked.settings);
     if (state && state.context && checked.settings.parameterFile && !checked.settings.environment) cfg.environment = envFromFile(checked.settings.parameterFile) || cfg.environment;
 
     var result = { recognized: !!state || problems.length > 0, source: source, problems: problems, config: cfg, rejectedSettings: checked.rejected, failures: [], warnings: [], actions: [], stage: null, status: null, headline: '', step: options.currentStep || null,
-      estimate: (state && state.context && state.context.estimate) || null, sizing: (state && state.context && state.context.sizing) || null,
-      power: (state && state.context && state.context.power) || null,
+      estimate: validEstimate(state && state.context && state.context.estimate), sizing: checked.settings.sizing || null,
+      power: checked.settings.power || null,
       commit: { state: stateCommit, portal: isCommit(options.portalCommit) ? String(options.portalCommit).toLowerCase() : null }, versionNote: versionNote(stateCommit, options.portalCommit) };
     if (state) {
       var d = decide(state, cfg, { text: text, rankedRegions: options.rankedRegions });
@@ -1152,7 +1183,7 @@
     return a;
   }
 
-  return { STEPS: STEPS, newRunId: newRunId, recording: recording, recordActions: recordActions, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, isCommit: isCommit, siteConfig: siteConfig, SETTINGS: SETTINGS, SETTING_NAMES: SETTING_NAMES, validSettings: validSettings, contextSettings: contextSettings, validSizing: validSizing, validPower: validPower, versionNote: versionNote, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_HOSTS: MAX_HOSTS, computePool: computePool, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
+  return { STEPS: STEPS, newRunId: newRunId, recording: recording, recordActions: recordActions, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, isCommit: isCommit, siteConfig: siteConfig, SETTINGS: SETTINGS, SETTING_NAMES: SETTING_NAMES, validSettings: validSettings, contextSettings: contextSettings, validSizing: validSizing, validPower: validPower, validEstimate: validEstimate, versionNote: versionNote, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_HOSTS: MAX_HOSTS, computePool: computePool, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
     PLATFORMS: PLATFORMS, RUNIN_DEFAULT: RUNIN_DEFAULT, PLACES: PLACES, validRunIn: validRunIn, isDefaultRunIn: isDefaultRunIn, scriptsIn: scriptsIn, support: support, forRunIn: forRunIn,
     REACHABILITY_HOSTS: REACHABILITY_HOSTS, rateLatency: rateLatency, classifyReachability: classifyReachability, launchTarget: launchTarget, launchUrl: launchUrl };
 });

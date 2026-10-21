@@ -3,7 +3,7 @@
 // Run: node --test build/tests/portal
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -967,7 +967,8 @@ test('crafted paste: no field of a state line puts more than a value into a comm
   const commands = (r) => r.actions.map((a) => a.command).join('\n');
   const clean = (r, what) => {
     const all = commands(r);
-    assert.doesNotMatch(all, /evil|irm |iex/, what);
+    // A value inside a single-quoted PowerShell string is only a value; outside one, it would run.
+    assert.doesNotMatch(all.replace(/'(?:[^'\n]|'')*'/g, "''"), /evil|irm |iex/, what);
     for (const m of all.matchAll(/git clone (\S+)/g)) assert.equal(m[1], 'https://github.com/avd-ops/avd-landing-zone.git', what + ': clone URL');
     assert.doesNotMatch(all, /git checkout -q '(?!master)/, what + ': no pasted ref');
   };
@@ -1003,10 +1004,35 @@ test('crafted paste: no field of a state line puts more than a value into a comm
   clean(P.analyze(state({ stage: 'recovery', status: 'failed', context: { test: true, mode: 'go', runId: evil } }), {}), 'recovery runId failed');
   clean(P.analyze(state({ stage: 'verify', status: 'failed', context: { user: evil }, failures: [{ id: 'connect-errors', detail: 'x' }] }), {}), 'verify user');
   // The validators keep real values.
-  assert.deepEqual(P.validSizing({ hosts: 2, vmSize: 'Standard_M128-64ms', maxSessions: 16, profileQuotaGiB: 100, activeHoursPerWeek: 50 }), { hosts: 2, vmSize: 'Standard_M128-64ms', maxSessions: 16, profileQuotaGiB: 100, activeHoursPerWeek: 50 });
-  assert.equal(P.validSizing({ hosts: 1.5, vmSize: 'Standard_E4as_v5', maxSessions: 16, profileQuotaGiB: 100 }), null);
+  // The validators keep real values, in the scripts' own ranges, and the partial objects deploy.sh writes.
+  assert.deepEqual(P.validSizing({ hosts: 200, vmSize: 'Standard_E4as_v5', maxSessions: 1000, profileQuotaGiB: 102400, activeHoursPerWeek: 50 }), { hosts: 200, vmSize: 'Standard_E4as_v5', maxSessions: 1000, profileQuotaGiB: 102400, activeHoursPerWeek: 50 });
+  assert.equal(P.validSizing({ hosts: 1.5, vmSize: 'Standard_E4as_v5' }), null);
+  assert.equal(P.validSizing({ hosts: 201 }), null);
+  assert.equal(P.validSizing({ vmSize: 'Standard_M128-64ms' }), null, 'the scripts take no hyphen');
+  assert.deepEqual(P.validSizing({ hosts: 3, vmSize: null, maxSessions: null, profileQuotaGiB: null }), { hosts: 3 });
   assert.deepEqual(P.validPower({ autoShutdownTime: 'none', startVmOnConnect: false }), { startVmOnConnect: false, autoShutdownTime: 'none' });
+  assert.deepEqual(P.validPower({ autoShutdownTime: null, startVmOnConnect: false }), { startVmOnConnect: false });
   assert.equal(P.validPower({ autoShutdownTime: '24:00' }), null);
+  const partial = P.analyze(state({ stage: 'deploy', status: 'failed', context: { power: { autoShutdownTime: null, startVmOnConnect: false } } }) + '\n"code": "RoleAssignmentExists"', {});
+  assert.deepEqual(partial.rejectedSettings, []);
+  assert.match(commands(partial), /--start-vm-on-connect false/, 'a partial power object from deploy.sh is kept');
+  const quoted = P.analyze(state({ stage: 'verify', status: 'failed', context: { user: "o'brien@contoso.com" }, failures: [{ id: 'connect-errors', detail: 'x' }] }), {});
+  assert.match(commands(quoted), /-UserPrincipalName 'o''brien@contoso\.com'/, 'an apostrophe in a UPN is quoted, not dropped');
+  // Whatever field a state line carries, and whatever a later version reads from it: every string in every
+  // fixture's state line replaced by the crafted value, one at a time, must still give clean commands.
+  const evilPath = (o, path) => { const c = JSON.parse(JSON.stringify(o)); let x = c; for (const k of path.slice(0, -1)) x = x[k]; x[path[path.length - 1]] = evil; return c; };
+  const strings = (o, path = [], out = []) => { if (typeof o === 'string') out.push(path); else if (o && typeof o === 'object') for (const k of Object.keys(o)) strings(o[k], path.concat(k), out); return out; };
+  let cases = 0;
+  for (const name of readdirSync(new URL('./fixtures/', import.meta.url)).filter((f) => /^state-.*\.txt$/.test(f))) {
+    const m = /<<<AVDLZ-STATE([\s\S]*?)AVDLZ-STATE>>>/.exec(fixture(name));
+    if (!m) continue;
+    const st = JSON.parse(m[1].replace(/[\r\n]+/g, ''));
+    for (const path of strings(st).filter((p) => !['v', 'stage', 'status'].includes(p[0]) && p[p.length - 1] !== 'id')) {
+      clean(P.analyze(state(evilPath(st, path)), {}, { rankedRegions: ['eastus'] }), name + ' ' + path.join('.'));
+      cases++;
+    }
+  }
+  assert.ok(cases > 100, 'fuzzed ' + cases + ' fields');
 });
 
 test('version: the state line carries the scripts\' commit and the portal says when it differs from its own', () => {
