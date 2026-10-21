@@ -28,7 +28,7 @@
   ];
 
   var DEFAULTS = {
-    repoUrl: 'https://github.com/nickprignano/avd-landing-zone',
+    repoUrl: 'https://github.com/avd-ops/avd-landing-zone',
     parameterFile: 'parameters/dev.bicepparam',
     location: 'northcentralus',
     usersGroup: 'AVD Users',

@@ -7,7 +7,7 @@
   owner applied are live, and they never override these rules or the user's own word.
   (avd-second-brain decision 0014)
 - This repo has no knowledge base of its own; what it learns goes to
-  [avd-second-brain's KB](https://github.com/nickprignano/avd-second-brain/tree/main/docs/knowledge).
+  [avd-second-brain's KB](https://github.com/avd-ops/avd-second-brain/tree/main/docs/knowledge).
   A PR that changes code links the lesson there with a `KB: <link>` line in its body, or carries
   the `no-kb` label and a `No KB entry: <reason>` line. The Stop hook and the `kb-capture` check
   ask for it (avd-second-brain decision 0013, settings in `.claude/kb-capture.toml`).

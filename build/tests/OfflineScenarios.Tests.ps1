@@ -9,7 +9,8 @@ BeforeAll {
   $script:pwsh = (Get-Process -Id $PID).Path
   function Invoke-OfflineScenario([string] $Name) {
     $file = Join-Path $PSScriptRoot "offline/$Name.Scenario.ps1"
-    $out = & $script:pwsh -NoProfile -NonInteractive -File $file 2>&1 | Out-String
+    # Out-String ends lines with CRLF on Windows; the assertions read LF, as on Linux and macOS.
+    $out = (& $script:pwsh -NoProfile -NonInteractive -File $file 2>&1 | Out-String) -replace "`r`n", "`n"
     if ($LASTEXITCODE -ne 0) { throw "Scenario $Name crashed (exit $LASTEXITCODE):`n$out" }
     $out
   }

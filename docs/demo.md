@@ -12,7 +12,7 @@ Every block below is self-contained. Paste it into a fresh [Cloud Shell (PowerSh
 **1. Pre-deployment preflight for dev, with `-Fix`, until it says Ready.** This registers the providers and the EncryptionAtHost feature (about 15 minutes, once per subscription), creates the groups, and recovers a soft-deleted Key Vault.
 
 ```powershell
-if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' })[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -PreDeployment -ParameterFile parameters/dev.bicepparam -Location northcentralus -UsersGroup 'AVD Users' -AdminsGroup 'AVD Admins' -Fix
 ```
@@ -20,7 +20,7 @@ Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l '
 **2. Deploy dev.** Note the start and end times.
 
 ```powershell
-if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' })[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 bash ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus --users-group 'AVD Users' --admins-group 'AVD Admins'
 ```
@@ -28,7 +28,7 @@ bash ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus -
 **3. Post-deployment setup for dev, with `-Fix`.** It covers admin consent for the storage app, the Conditional Access exclusion and the profile share permissions. It asks for a Microsoft Graph device code.
 
 ```powershell
-if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' })[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -NamePrefix avdlz -Environment dev -Fix -AllowHostStart
 ```
@@ -45,7 +45,7 @@ az deployment operation sub list -n $name --query "[].{step:properties.targetRes
 **6. Pre-deployment preflight for test.** It confirms there is quota for a second host: two `Standard_E4as_v5` hosts need 8 vCPUs of the *Standard EASv5 Family*. If quota is short, the portal builds the increase request, and small increases are usually approved in minutes. Don't deploy test tonight.
 
 ```powershell
-if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' })[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -PreDeployment -ParameterFile parameters/test.bicepparam -Location northcentralus -UsersGroup 'AVD Users' -AdminsGroup 'AVD Admins' -Fix
 ```
@@ -83,7 +83,7 @@ Dev's scheduled stop deallocates the host at 20:00 Central. That is expected: St
 Remove test and keep dev:
 
 ```powershell
-if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' })[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 ./scripts/ops/Remove-AvdDemo.ps1 -NamePrefix avdlz -Environment test -IncludeLandingZone -WhatIf
 ```

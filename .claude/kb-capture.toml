@@ -4,7 +4,7 @@
 # `no-kb` label and a `No KB entry: <reason>` line. AVD pilot through 2026-10-31, review 2026-11-01.
 
 capture_hook = "block"
-kb_repos = ["nickprignano/avd-second-brain"]
+kb_repos = ["avd-ops/avd-second-brain"]
 
 # Auto-merge for low-risk PRs (avd-second-brain decision 0015), read by scripts/kb/auto_merge.py through the
 # kb-auto-merge workflow. Off until the owner has turned on "Allow auto-merge" and the ruleset;

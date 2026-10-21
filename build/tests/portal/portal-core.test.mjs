@@ -15,7 +15,7 @@ const last = (cmd) => cmd.trim().split('\n').pop();
 // Every command must work in a fresh Cloud Shell session (build/lessons/0015).
 function assertSelfContained(r) {
   for (const a of r.actions.filter((x) => x.command && /scripts\//.test(x.command))) {
-    assert.match(a.command, /git clone https:\/\/github\.com\/nickprignano\/avd-landing-zone\.git ~\/avd-landing-zone/, a.title);
+    assert.match(a.command, /git clone https:\/\/github\.com\/avd-ops\/avd-landing-zone\.git ~\/avd-landing-zone/, a.title);
     assert.match(a.command, /Set-Location ~\/avd-landing-zone/, a.title);
   }
 }
@@ -1033,7 +1033,7 @@ test('record: recordActions lists the five steps in order, each self-contained',
 });
 
 // ---------------------------------------------------------------- run in (avd-ops docs/design-system.md, "Run in")
-const runCfg = { ...P.DEFAULTS, repoUrl: 'https://github.com/nickprignano/avd-landing-zone', record: { runId: 'run-20261021-1700-abcd', mode: 'azure' } };
+const runCfg = { ...P.DEFAULTS, repoUrl: 'https://github.com/avd-ops/avd-landing-zone', record: { runId: 'run-20261021-1700-abcd', mode: 'azure' } };
 const everyCommand = (cfg) => [
   ...P.STEPS.flatMap((s) => P.actionsForStep(s.id, cfg)), ...P.recordActions(cfg),
   { command: P.commands.runStatus(cfg) }, { command: P.commands.power(cfg, 'Stop') }, { command: P.commands.recoveryStatus(cfg) },
@@ -1060,7 +1060,7 @@ test('run in: Cloud Shell PowerShell is the default and leaves every command exa
 
 test('run in: Bash clones in bash, exports the run variables and runs each PowerShell stretch in one pwsh', () => {
   const out = P.forRunIn(P.commands.predeploy(runCfg, true), { where: 'cloudshell', shell: 'bash' }).split('\n');
-  assert.equal(out[0], '[ -d ~/avd-landing-zone ] || git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone');
+  assert.equal(out[0], '[ -d ~/avd-landing-zone ] || git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone');
   assert.equal(out[1], 'cd ~/avd-landing-zone && git checkout -q master && git pull -q --ff-only');
   assert.equal(out[2], "export AVDLZ_RECORD='azure' AVDLZ_RUN_ID='run-20261021-1700-abcd'");
   const rest = out.slice(3).join('\n');

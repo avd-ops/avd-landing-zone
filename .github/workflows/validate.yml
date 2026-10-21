@@ -134,17 +134,18 @@ jobs:
       - name: shellcheck (deploy script, session hook, pre-commit hook)
         run: shellcheck scripts/deploy/deploy.sh .claude/hooks/session-start.sh .githooks/pre-commit build/snapshot-diff.sh
 
-  # Runs anywhere (avd-ops docs/run-anywhere.md): deploy.sh against the fake az on macOS (Homebrew
-  # bash; stock /bin/bash 3.2 must stop with a clear message) and in Git Bash on Windows.
-  deploy-sh-other-os:
-    name: deploy.sh on ${{ matrix.name }}
+  # Runs anywhere (avd-ops docs/run-anywhere.md, decision 0006): the whole Pester suite (unit tests,
+  # offline scenarios, template guards) on macOS and Windows, with deploy.sh in Homebrew bash on macOS
+  # (stock /bin/bash 3.2 must stop with a clear message) and in Git Bash on Windows.
+  tests-other-os:
+    name: Tests on ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { name: macOS, os: macos-latest }
-          - { name: Windows (Git Bash), os: windows-latest }
+          - { name: macOS, os: macos-latest, bicep: bicep-osx-arm64 }
+          - { name: Windows, os: windows-latest, bicep: bicep-win-x64.exe }
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
@@ -156,28 +157,36 @@ jobs:
           echo "$out"
           [ "$code" -eq 1 ] && grep -q 'needs Bash 4 or later' <<<"$out"
 
-      - name: Pick the bash under test
+      - name: Pick the bash under test, install Bicep
         shell: pwsh
+        env:
+          BICEP_ASSET: ${{ matrix.bicep }}
         run: |
+          $bin = Join-Path $env:RUNNER_TEMP 'bin'
+          New-Item -ItemType Directory -Path $bin -Force | Out-Null
           if ($IsMacOS) {
             if (-not (Test-Path "$(brew --prefix)/bin/bash")) { brew install bash }
-            "AVDLZ_TEST_BASH=$(brew --prefix)/bin/bash" >> $env:GITHUB_ENV
+            $bash = "$(brew --prefix)/bin/bash"
+            $bicep = Join-Path $bin 'bicep'
           } else {
-            "AVDLZ_TEST_BASH=$env:ProgramFiles\Git\bin\bash.exe" >> $env:GITHUB_ENV
+            # Git Bash first on PATH, so scripts that call bash (host rotation) get it rather than WSL.
+            $bash = "$env:ProgramFiles\Git\bin\bash.exe"
+            "$env:ProgramFiles\Git\bin" >> $env:GITHUB_PATH
+            $bicep = Join-Path $bin 'bicep.exe'
           }
+          "AVDLZ_TEST_BASH=$bash" >> $env:GITHUB_ENV
+          Invoke-WebRequest -UseBasicParsing -OutFile $bicep "https://github.com/Azure/bicep/releases/download/$env:BICEP_VERSION/$env:BICEP_ASSET"
+          if ($IsMacOS) { chmod +x $bicep }
+          & $bicep --version
+          $bin >> $env:GITHUB_PATH
 
-      - name: deploy.sh offline scenario
+      - name: Pester
         shell: pwsh
         run: |
           & $env:AVDLZ_TEST_BASH --version | Select-Object -First 1
           Install-Module Pester -RequiredVersion $env:PESTER_VERSION -Scope CurrentUser -Force -SkipPublisherCheck
           Import-Module Pester -RequiredVersion $env:PESTER_VERSION
-          $c = New-PesterConfiguration
-          $c.Run.Path = './build/tests/OfflineScenarios.Tests.ps1'
-          $c.Filter.FullName = 'deploy.sh*'
-          $c.Run.Exit = $true
-          $c.Output.Verbosity = 'Detailed'
-          Invoke-Pester -Configuration $c
+          Invoke-Pester -Path ./build/tests -CI -Output Detailed
 
   portal:
     name: Deployment portal tests
