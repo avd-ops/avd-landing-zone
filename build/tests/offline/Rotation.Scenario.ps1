@@ -143,7 +143,7 @@ Show-Rotation 'back-finish'
 
 # Rolled back before Remove: the original hosts take sessions again, the new ones drain and go.
 Reset-Rotation
-Invoke-ScenarioStep 'rb-deploy' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -ImageId $v2 }
+Invoke-ScenarioStep 'rb-deploy' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -ImageId $v2 -StopBefore Drain }
 Show-Rotation 'rb-deploy'
 # Not while Azure is still deploying the hosts the rollback would remove.
 Set-RotationRun 'Running'
@@ -151,12 +151,16 @@ Invoke-ScenarioStep 'rb-running' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p
 Show-Rotation 'rb-running'
 Set-RotationRun 'Succeeded'
 Add-Generation 'Available'
-# -StopBefore pauses at each cutover point: before the old hosts drain (nothing on the pool changes), then,
-# with no one left on them, before they are removed.
-Invoke-ScenarioStep 'rb-paused' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -StopBefore Drain }
+# -StopBefore pauses once at each cutover point: before the old hosts drain (nothing on the pool changes;
+# the rotation recorded the pause, so this run needs no switch), then, with no one left on them, before
+# they are removed. Once past a point, asking to stop before it is refused.
+Invoke-ScenarioStep 'rb-paused' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
 Show-Rotation 'rb-paused'
+Write-Host "RESULT rb-paused-stop $(($global:St.rotation.tags['avdlz-rotation'] | ConvertFrom-Json).stop)"
 $global:St.rotation.hosts['avdlzdsh-001'].sessions = 0
 Invoke-ScenarioStep 'rb-drain' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -StopBefore Remove }
+Show-Rotation 'rb-drain'
+Invoke-ScenarioStep 'stop-past' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -StopBefore Drain }
 Show-Rotation 'rb-drain'
 # A preview changes nothing.
 $global:Calls.Clear()
