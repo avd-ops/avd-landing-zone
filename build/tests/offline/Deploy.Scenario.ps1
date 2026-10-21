@@ -29,6 +29,7 @@ function Invoke-Deploy([string] $Step, [string[]] $Extra) {
   Write-Host "RESULT $Step-idpaths $(@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -match '^az vm (start|deallocate)' } | ForEach-Object { if ($_ -match '--ids (\S+)') { [bool]($Matches[1] -like '/subscriptions/*') } }) -join ',')"
   Write-Host "RESULT $Step-unmocked $([bool]($out -match 'unmocked call'))"
   Write-Host "RESULT $Step-env $(@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -like 'deploy-env *' }) -join ';')"
+  Write-Host "RESULT $Step-runbook $(@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -like 'runbook-env *' } | ForEach-Object { $_.Substring(12) }) -join ';')"
   Write-Host "RESULT $Step-jumpbox $(@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -like 'jumpbox-env *' }) -join ';')"
 }
 
@@ -154,5 +155,20 @@ $env:FAKE_SUB_TENANT = ''
 # No runbook pin and no commit git can find on a remote: refused, never read from master (avd-ops decision 0008).
 $pin = $env:AVD_RUNBOOK_URI; $env:AVD_RUNBOOK_URI = ''; $env:GIT_DIR = Join-Path ([IO.Path]::GetTempPath()) "avdlz-no-git-$PID"
 Invoke-Deploy 'runbook-unpinned'
-$env:GIT_DIR = $null; $env:AVD_RUNBOOK_URI = $pin
+# A what-if deploys nothing: it previews with master and says a deployment would stop.
+Invoke-Deploy 'runbook-unpinned-whatif' @('--what-if')
+# A commit a remote has: pinned to that commit (a throwaway repo stands in for the clone).
+$repo = Join-Path ([IO.Path]::GetTempPath()) "avdlz-git-$PID"
+$env:GIT_DIR = $null
+git init -q $repo; git -C $repo -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m t
+git -C $repo remote add origin https://github.com/contoso/avd-landing-zone.git; git -C $repo update-ref refs/remotes/origin/master HEAD
+$env:GIT_DIR = Join-Path $repo '.git'; $script:pinnedSha = git -C $repo rev-parse HEAD
+Invoke-Deploy 'runbook-pinned'
+Write-Host "RESULT runbook-pinned-sha $script:pinnedSha"
+# A preset pin must be a raw URL at a commit or a v* tag, never a branch.
+$env:GIT_DIR = $null
+$env:AVD_RUNBOOK_URI = 'https://raw.githubusercontent.com/contoso/avd-landing-zone/master/scripts/automation/Invoke-AvdPowerAction.ps1'
+Invoke-Deploy 'runbook-branch'
+Remove-Item -Recurse -Force $repo -ErrorAction SilentlyContinue
+$env:AVD_RUNBOOK_URI = $pin
 Remove-Item $log -ErrorAction SilentlyContinue

@@ -385,8 +385,22 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
   }
   It 'never reads the runbook from master: refuses a commit no remote has unless AVD_RUNBOOK_URI is set' {
     Get-StepExit $out 'runbook-unpinned' | Should -Be 1
-    Get-Result 'runbook-unpinned-calls' | Should -Not -Match 'deployment-'
     $out | Should -Match "can't pin the auto-shutdown runbook"
+    Get-Result 'runbook-unpinned-calls' | Should -Be ''
+  }
+  It 'previews an unpinned commit with master in what-if, and says a deployment would stop' {
+    Get-StepExit $out 'runbook-unpinned-whatif' | Should -Be 0
+    Get-Result 'runbook-unpinned-whatif-runbook' | Should -Match '/master/scripts/automation/Invoke-AvdPowerAction\.ps1$'
+    $out | Should -Match 'A deployment would stop here'
+  }
+  It 'pins the runbook to the deployed commit when a remote has it' {
+    Get-StepExit $out 'runbook-pinned' | Should -Be 0
+    Get-Result 'runbook-pinned-runbook' | Should -Be "https://raw.githubusercontent.com/contoso/avd-landing-zone/$(Get-Result 'runbook-pinned-sha')/scripts/automation/Invoke-AvdPowerAction.ps1"
+  }
+  It 'refuses an AVD_RUNBOOK_URI that names a branch' {
+    Get-StepExit $out 'runbook-branch' | Should -Be 1
+    Get-Result 'runbook-branch-calls' | Should -Be ''
+    $out | Should -Match 'AVD_RUNBOOK_URI must be'
   }
 }
 

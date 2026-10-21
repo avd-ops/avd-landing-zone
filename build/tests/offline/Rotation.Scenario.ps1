@@ -65,6 +65,8 @@ Invoke-ScenarioStep 'cli-sub' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -I
 Show-Rotation 'cli-sub'
 $env:FAKE_AZ_SUB = ''
 
+# deploy.sh never reads the runbook from master (avd-ops decision 0008): pin it as an operator can.
+$env:AVD_RUNBOOK_URI = 'https://raw.githubusercontent.com/contoso/avd-landing-zone/0000000/scripts/automation/Invoke-AvdPowerAction.ps1'
 # Deploy: deploy.sh adds generation a with the last deployment's settings; the new hosts haven't registered.
 Invoke-ScenarioStep 'deploy' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -ImageId $v2 -DeadlineHours 24 }
 Show-Rotation 'deploy'
