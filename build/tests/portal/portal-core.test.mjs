@@ -253,7 +253,10 @@ test('portal commands only use parameters the scripts define', () => {
     'Remove-AvdDemo.ps1': psParams('scripts/ops/Remove-AvdDemo.ps1'),
     'Invoke-AvdPowerAction.ps1': psParams('scripts/automation/Invoke-AvdPowerAction.ps1'),
     'Test-AvdUserConnection.ps1': psParams('scripts/ops/Test-AvdUserConnection.ps1'),
-    'Connect-AvdLandingZone.ps1': psParams('scripts/ops/Connect-AvdLandingZone.ps1')
+    'Connect-AvdLandingZone.ps1': psParams('scripts/ops/Connect-AvdLandingZone.ps1'),
+    'Get-AvdRunStatus.ps1': psParams('scripts/ops/Get-AvdRunStatus.ps1'),
+    'Start-AvdRunRecorder.ps1': psParams('scripts/ops/Start-AvdRunRecorder.ps1'),
+    'Stop-AvdRunRecorder.ps1': psParams('scripts/ops/Stop-AvdRunRecorder.ps1')
   };
   const cfg = { ...P.DEFAULTS, testUserUpn: 'alex@contoso.com' };
   const commands = [
@@ -268,7 +271,12 @@ test('portal commands only use parameters the scripts define', () => {
   commands.push(P.commands.demo({ ...cfg, graphClientId: '11111111-2222-3333-4444-555555555555' }));
   let checked = 0;
   // The Graph sign-in line runs before the script (decision 0016); check its parameters too.
-  const lines = commands.flatMap((c) => { const l = c.trim().split('\n'); return l.length > 1 && l.at(-2).includes('Connect-AvdLandingZone') ? [l.at(-2), l.at(-1)] : [l.at(-1)]; });
+  // The run recorder's blocks, sized and in both modes, and Where did I leave off.
+  const rec = { runId: 'run-20261021-0517-ab12', mode: 'azure' };
+  for (const c of [{ ...cfg, record: rec }, { ...sizedCfg, record: { ...rec, mode: 'on' } }]) {
+    commands.push(P.commands.runStatus(c), ...P.recordActions(c).map((a) => a.command));
+  }
+  const lines = commands.flatMap((c) => c.trim().split('\n').filter((l) => Object.keys(scripts).some((s) => l.includes(s))));
   for (const line of lines) {
     const script = Object.keys(scripts).find((s) => line.includes(s));
     if (script) {
@@ -915,4 +923,62 @@ test('published copy: commands point an existing clone at the pinned repo and ch
   assert.match(master, /git checkout -q master; git pull -q --ff-only/);
   // An invalid ref (from anywhere) never reaches the command.
   assert.match(P.actionsForStep('predeploy', Object.assign({}, base, { repoUrl: P.DEFAULTS.repoUrl, ref: "x'; iex y" }))[0].command, /git checkout -q master/);
+});
+
+// Recording a run (run recorder, phase 2): the run ID rides in every command once recording is on.
+const REC = { ...P.DEFAULTS, record: { runId: 'run-20261021-0517-ab12', mode: 'azure' } };
+
+test('record: newRunId is UTC and matches the recorder format', () => {
+  assert.equal(P.newRunId(new Date(Date.UTC(2026, 9, 21, 5, 7)), 'AB-12'), 'run-20261021-0507-ab12');
+  assert.match(P.newRunId(), /^run-\d{8}-\d{4}-[a-z0-9]{4}$/);
+});
+
+test('record: recording accepts only a valid run ID and defaults the mode to azure', () => {
+  assert.equal(P.recording({}), null);
+  assert.equal(P.recording({ record: { runId: 'run-1; Remove-Item' } }), null);
+  assert.deepEqual(P.recording({ record: { runId: 'run-20261021-0517-ab12', mode: 'x' } }), { runId: 'run-20261021-0517-ab12', mode: 'azure' });
+  assert.equal(P.recording({ record: { runId: 'run-20261021-0517-ab12', mode: 'on' } }).mode, 'on');
+});
+
+test('record: every script block sets the run ID when recording, and none when not', () => {
+  const plain = P.commands.runStatus({ ...P.DEFAULTS });
+  assert.doesNotMatch(plain, /AVDLZ_/);
+  const rec = P.commands.runStatus(REC);
+  assert.match(rec, /\$env:AVDLZ_RECORD = 'azure'; \$env:AVDLZ_RUN_ID = 'run-20261021-0517-ab12'/);
+  assert.equal(rec.replace(/\n\$env:AVDLZ_RECORD[^\n]*/, ''), plain);
+  // Turned off after a recorded block: the variables are cleared.
+  assert.match(P.commands.runStatus({ ...P.DEFAULTS, record: { mode: 'azure' } }), /\nRemove-Item Env:AVDLZ_RECORD, Env:AVDLZ_RUN_ID -ErrorAction SilentlyContinue\n/);
+});
+
+test('record: open and stop commands carry the run ID and the right flags', () => {
+  const start = last(P.commands.recordStart(REC));
+  const sizedRec = { ...REC, sizing: P.toSizing(P.computePool({ users: 50, vmSize: '', hostCount: 'auto', profileGiBPerUser: 10 }, 'dev')) };
+  const sizedStart = P.commands.recordStart(sizedRec).trim().split('\n');
+  assert.match(sizedStart.at(-3), /AVD_SESSION_HOST_COUNT = '\d+'; .*AVD_SESSION_HOST_VM_SIZE = 'Standard_\w+'; .*AVD_MAX_SESSION_LIMIT = '\d+'; .*AVD_PROFILE_QUOTA_GIB = '\d+'/);
+  assert.match(sizedStart.at(-2), /Start-AvdRunRecorder\.ps1/);
+  assert.equal(sizedStart.at(-1), 'Remove-Item Env:AVD_SESSION_HOST_COUNT, Env:AVD_SESSION_HOST_VM_SIZE, Env:AVD_MAX_SESSION_LIMIT, Env:AVD_PROFILE_QUOTA_GIB -ErrorAction SilentlyContinue');
+  assert.match(start, /^\.\/scripts\/ops\/Start-AvdRunRecorder\.ps1 -RunId run-20261021-0517-ab12 -ParameterFile parameters\/dev\.bicepparam -Location \S+ -Hours 3 -Cap 10$/);
+  assert.match(last(P.commands.recordStop(REC, 'before-cleanup')), /-RunId run-20261021-0517-ab12 .*-BeforeCleanup$/);
+  assert.match(last(P.commands.recordStop(REC, 'end')), /-Status torn-down$/);
+  assert.match(last(P.commands.recordStop(REC, 'copy')), /-CopyTo github$/);
+  assert.match(last(P.commands.recordStop(REC, 'cost')), /-UpdateCost$/);
+  assert.equal(P.commands.recordStop(REC, 'nope'), '');
+  assert.equal(P.commands.recordStart({ ...P.DEFAULTS }), '');
+  const local = { ...P.DEFAULTS, record: { runId: 'run-20261021-0517-ab12', mode: 'on' } };
+  assert.match(last(P.commands.recordStart(local)), / -Local$/);
+});
+
+test('record: Cloud Shell only promises no cost reading', () => {
+  const a = P.recordActions({ ...REC, record: { ...REC.record, mode: 'on' } });
+  assert.equal(a.length, 4);
+  assert.ok(!a.some((x) => /UpdateCost/.test(x.command)));
+  assert.match(a[2].why, /reads no actual cost/);
+});
+
+test('record: recordActions lists the five steps in order, each self-contained', () => {
+  assert.deepEqual(P.recordActions({}), []);
+  const a = P.recordActions(REC);
+  assert.deepEqual(a.map((x) => x.title), ['Open the run', 'Before cleanup: keep the logs', 'After cleanup: close the run', 'Copy it to your private repo', 'Later: read the cost again']);
+  assertSelfContained({ actions: a });
+  for (const x of a) assert.match(x.command, /AVDLZ_RUN_ID = 'run-20261021-0517-ab12'/);
 });

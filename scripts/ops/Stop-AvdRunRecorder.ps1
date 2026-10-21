@@ -116,7 +116,18 @@ if (($UpdateCost -or (-not $BeforeCleanup -and -not $CopyTo)) -and -not $Local) 
   }
   else {
     $reading = Get-AvdCostQueryReading -Response ($resp.Content | ConvertFrom-Json -Depth 20)
-    $cost = Add-AvdRunCostReading -Cost $cost -ReadAt $now -Total $reading.Total -ByMeter $reading.ByMeter -BillingAfterTeardown:($after -and $reading.Total -gt 0)
+    # Billing after teardown: the landing zone's resource groups only (the run store stays on purpose), from
+    # the day after teardown. Cost Management dates are whole UTC days, so the teardown day holds the run's
+    # own spend and is never counted; on that day this can't tell yet.
+    $billingAfter = $false
+    if ($after -and $lz -and $run.ended -and $now -ge (& $utc $run.ended).Date.AddDays(1)) {
+      Write-Host '  Checking for cost after teardown...' -ForegroundColor DarkGray
+      $afterBody = Get-AvdCostQueryBody -From (& $utc $run.ended).Date.AddDays(1) -To $now -ResourceGroup @($lz.ResourceGroups.Values)
+      $afterResp = Invoke-AzRestMethod -Path "/subscriptions/$($ctx.Subscription.Id)/providers/Microsoft.CostManagement/query?api-version=2023-11-01" -Method POST -Payload ($afterBody | ConvertTo-Json -Depth 10 -Compress)
+      if ($afterResp.StatusCode -lt 400) { $billingAfter = (Get-AvdCostQueryReading -Response ($afterResp.Content | ConvertFrom-Json -Depth 20)).Total -gt 0 }
+      else { Add-AvdCheckResult 'Run' 'Cost after teardown' 'Warn' -Id 'run-cost-after' -Detail "Cost Management returned $($afterResp.StatusCode): $($afterResp.Content)" -Remediation 'Run -UpdateCost later.' }
+    }
+    $cost = Add-AvdRunCostReading -Cost $cost -ReadAt $now -Total $reading.Total -ByMeter $reading.ByMeter -BillingAfterTeardown:$billingAfter
     $last = @($cost.actuals)[-1]
     $unexpected = @($cost.comparison.unexpectedMeters)
     Add-AvdCheckResult 'Run' "Actual cost so far $($reading.Total) $($cost.currency) (expected $($cost.expected.total))" $(if ($unexpected.Count) { 'Warn' } else { 'Pass' }) -Id 'run-cost-actual' `
