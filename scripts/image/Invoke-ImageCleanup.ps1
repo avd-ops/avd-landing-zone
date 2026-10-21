@@ -17,6 +17,6 @@ foreach ($path in "$env:SystemRoot\SoftwareDistribution\Download", "$env:Program
     $before = @(Get-ChildItem -Path $path -Recurse -Force -ErrorAction SilentlyContinue).Count
     Get-ChildItem -Path $path -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
     $after = @(Get-ChildItem -Path $path -Recurse -Force -ErrorAction SilentlyContinue).Count
-    Write-Output "$path: removed $($before - $after) of $before item(s); items in use are left."
+    Write-Output "${path}: removed $($before - $after) of $before item(s); items in use are left."
   }
 }
