@@ -1,4 +1,4 @@
-/* avd-ops theme and drawer v2.0.1 (https://avd-ops.dev/, nickprignano/avd-ops site/assets/theme.js). MIT.
+/* avd-ops theme and drawer v2.1.0 (https://avd-ops.dev/, nickprignano/avd-ops site/assets/theme.js). MIT.
    Personal project, not for production, as is; not affiliated with the author's employer or Microsoft.
    Load it in <head> without defer: it applies a saved theme before the page paints, then wires the shell's theme
    button (.theme) and menu button (.menu, the drawer for the side list below 64rem). No libraries, no requests.
@@ -36,14 +36,14 @@
     if (!menu || !side) return;
     // While the drawer is open the page behind it is inert, so Tab stays in the side list.
     var behind = document.querySelectorAll('.shell header.bar, .shell .notice, .shell main, .shell footer.foot');
-    function setOpen(open) {
+    function setOpen(open, quiet) {
       body.classList.toggle('drawer-open', open);
       for (var i = 0; i < behind.length; i++) { if (open) behind[i].setAttribute('inert', ''); else behind[i].removeAttribute('inert'); }
       menu.setAttribute('aria-expanded', open ? 'true' : 'false');
       if (open) {
         var first = side.querySelector('[aria-current]') || side.querySelector('a');
         if (first) first.focus();
-      } else {
+      } else if (!quiet) {
         menu.focus();
       }
     }
@@ -52,10 +52,11 @@
     document.addEventListener('keydown', function (e) {
       if (e.key === 'Escape' && body.classList.contains('drawer-open')) setOpen(false);
     });
-    // Closing on a wide screen keeps the side list in place if the window grows while the drawer is open.
+    // Closing on a wide screen keeps the side list in place if the window grows while the drawer is open; focus
+    // stays where it was, since the menu button is hidden there.
     try {
       window.matchMedia('(min-width: 64.0625rem)').addEventListener('change', function (m) {
-        if (m.matches && body.classList.contains('drawer-open')) setOpen(false);
+        if (m.matches && body.classList.contains('drawer-open')) setOpen(false, true);
       });
     } catch (e) { /* old browser */ }
   }

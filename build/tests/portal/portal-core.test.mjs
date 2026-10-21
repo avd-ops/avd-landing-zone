@@ -1031,3 +1031,62 @@ test('record: recordActions lists the five steps in order, each self-contained',
   assertSelfContained({ actions: a });
   for (const x of a) assert.match(x.command, /AVDLZ_RUN_ID = 'run-20261021-0517-ab12'/);
 });
+
+// ---------------------------------------------------------------- run in (avd-ops docs/design-system.md, "Run in")
+const runCfg = { ...P.DEFAULTS, repoUrl: 'https://github.com/nickprignano/avd-landing-zone', record: { runId: 'run-20261021-1700-abcd', mode: 'azure' } };
+const everyCommand = (cfg) => [
+  ...P.STEPS.flatMap((s) => P.actionsForStep(s.id, cfg)), ...P.recordActions(cfg),
+  { command: P.commands.runStatus(cfg) }, { command: P.commands.power(cfg, 'Stop') }, { command: P.commands.recoveryStatus(cfg) },
+  { command: P.commands.exportConfig(cfg, true) }, { command: P.commands.rotation(cfg) }, { command: P.commands.recoveryTest(cfg) }, { command: P.commands.removeDemo(cfg) }
+].map((a) => a.command).filter(Boolean);
+
+test('run in: the engine carries scripts/platforms.json, and it lists every script a command runs', () => {
+  const file = JSON.parse(readFileSync(new URL('../../../scripts/platforms.json', import.meta.url), 'utf8'));
+  assert.equal(file.version, 1);
+  assert.deepEqual(P.PLATFORMS, file.scripts, 'site/portal/portal-core.js PLATFORMS matches scripts/platforms.json');
+  for (const [s, e] of Object.entries(file.scripts)) {
+    for (const k of ['cloudshell-pwsh', 'cloudshell-bash', 'windows', 'macos']) assert.match(e[k], /^(tested|untested|no)$/, `${s} ${k}`);
+    if (Object.values(e).includes('tested')) assert.ok(e.evidence, `${s}: tested needs evidence`);
+  }
+  for (const c of everyCommand(runCfg)) for (const s of P.scriptsIn(c)) assert.ok(file.scripts[s], `${s} is missing from scripts/platforms.json`);
+});
+
+test('run in: Cloud Shell PowerShell is the default and leaves every command exactly as it was', () => {
+  assert.deepEqual(P.validRunIn(null), { where: 'cloudshell', shell: 'pwsh' });
+  assert.deepEqual(P.validRunIn({ where: 'windows', shell: 'bash' }), { where: 'windows', shell: 'pwsh' }, 'Windows runs PowerShell 7');
+  assert.deepEqual(P.validRunIn({ where: 'nowhere', shell: 'zsh' }), { where: 'cloudshell', shell: 'pwsh' });
+  for (const c of everyCommand(runCfg)) assert.equal(P.forRunIn(c, null), c);
+});
+
+test('run in: Bash clones in bash, exports the run variables and runs each PowerShell stretch in one pwsh', () => {
+  const out = P.forRunIn(P.commands.predeploy(runCfg, true), { where: 'cloudshell', shell: 'bash' }).split('\n');
+  assert.equal(out[0], '[ -d ~/avd-landing-zone ] || git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone');
+  assert.equal(out[1], 'cd ~/avd-landing-zone && git checkout -q master && git pull -q --ff-only');
+  assert.equal(out[2], "export AVDLZ_RECORD='azure' AVDLZ_RUN_ID='run-20261021-1700-abcd'");
+  const rest = out.slice(3).join('\n');
+  assert.equal((rest.match(/^pwsh -NoLogo -Command '/gm) || []).length, 1, 'the Graph sign-in and the preflight share one pwsh');
+  assert.match(rest, /Connect-AvdLandingZone\.ps1\n\.\/scripts\/ops\/Test-AvdLandingZoneReadiness\.ps1/);
+  assert.match(rest, /-UsersGroup '\\''AVD Users'\\''/, 'inner quotes survive bash');
+  assert.doesNotMatch(rest, /\$env:|Set-Location|Test-Path/);
+  const del = P.forRunIn(P.commands.deploy({ ...runCfg, usersGroup: "O'Brien users" }), { where: 'macos', shell: 'bash' });
+  assert.match(del, /^az account show -o none 2>\/dev\/null \|\| az login --use-device-code -o none$/m, 'a local machine signs in to the az CLI first');
+  assert.match(del, /^bash \.\/scripts\/deploy\/deploy\.sh .* --users-group 'O'\\''Brien users' /m, "PowerShell's '' becomes bash's '\\''");
+  const rec = P.forRunIn(P.commands.recordStart({ ...runCfg, sizing: { hosts: 2, vmSize: 'Standard_E4as_v5', maxSessions: 4, profileQuotaGiB: 100 } }), { where: 'cloudshell', shell: 'bash' });
+  assert.match(rec, /^export AVD_SESSION_HOST_COUNT='2' AVD_SESSION_HOST_VM_SIZE='Standard_E4as_v5'/m);
+  assert.match(rec, /^unset AVD_SESSION_HOST_COUNT AVD_SESSION_HOST_VM_SIZE AVD_MAX_SESSION_LIMIT AVD_PROFILE_QUOTA_GIB$/m);
+});
+
+test('run in: Windows and macOS PowerShell sign in first; a script that does not run there hides the block', () => {
+  const win = P.forRunIn(P.commands.postdeploy(runCfg, true), { where: 'windows' }).split('\n');
+  assert.match(win[0], /^if \(-not \(Test-Path ~\/avd-landing-zone\)\)/);
+  assert.equal(win[2], 'if (-not (Get-AzContext)) { Connect-AzAccount -UseDeviceAuthentication | Out-Null }');
+  const dep = P.commands.deploy(runCfg);
+  assert.deepEqual(P.support(dep, { where: 'windows' }).blockedBy, ['scripts/deploy/deploy.sh']);
+  assert.equal(P.support(dep, { where: 'windows' }).status, 'no');
+  assert.equal(P.support(dep, null).status, 'tested');
+  assert.deepEqual(P.support(dep, null).requires, [], 'Cloud Shell has everything');
+  const mac = P.support(P.commands.demo(runCfg), { where: 'macos', shell: 'pwsh' });
+  assert.equal(mac.status, 'untested');
+  assert.ok(mac.requires.includes('the Microsoft.Graph modules'));
+  assert.equal(P.support(P.commands.deployStatus(runCfg), { where: 'cloudshell', shell: 'bash' }).status, 'untested', 'inline commands are proven only where they were written');
+});

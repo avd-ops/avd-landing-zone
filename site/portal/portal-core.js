@@ -402,6 +402,117 @@
     }
   };
 
+  // ---------------------------------------------------------------- run in (avd-ops docs/design-system.md, "Run in")
+  // Where the operator runs the commands: Cloud Shell, Windows or macOS, in PowerShell or Bash. The commands
+  // above are written for Cloud Shell PowerShell, the default, and stay exactly as they are there; forRunIn()
+  // rewrites a block for the other places. Where each script works: scripts/platforms.json (copied here; a test
+  // keeps them equal). tested: a real run proved it; untested: should work, no real run yet; no: hidden.
+  var PLATFORMS = {
+    "scripts/ops/Connect-AvdLandingZone.ps1": {"cloudshell-pwsh": "tested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules", "evidence": "build/lessons/0030-graph-unlisted-delegated-scope.md"},
+    "scripts/ops/Test-AvdLandingZoneReadiness.ps1": {"cloudshell-pwsh": "tested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules", "evidence": "build/tests/portal/fixtures/real-predeploy-ready.txt, real-postdeploy-ready.txt"},
+    "scripts/deploy/deploy.sh": {"cloudshell-pwsh": "tested", "cloudshell-bash": "untested", "windows": "no", "macos": "untested", "requires": "bash, the az CLI with Bicep", "evidence": "build/tests/portal/fixtures/real-deploy-dcr-tables.txt, build/lessons/0006-provider-registration.md"},
+    "scripts/ops/Deploy-AvdDemo.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules"},
+    "scripts/ops/Test-AvdUserConnection.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules"},
+    "scripts/ops/Get-AvdRunStatus.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules"},
+    "scripts/ops/Start-AvdRunRecorder.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules"},
+    "scripts/ops/Stop-AvdRunRecorder.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules"},
+    "scripts/ops/Get-AvdRecoveryStatus.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules"},
+    "scripts/ops/Export-AvdConfiguration.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules"},
+    "scripts/ops/Invoke-AvdHostRotation.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules"},
+    "scripts/ops/Start-AvdRecoveryTest.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules"},
+    "scripts/ops/Remove-AvdDemo.ps1": {"cloudshell-pwsh": "tested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules", "evidence": "build/lessons/0029-device-cleanup-rerun.md"},
+    "scripts/automation/Invoke-AvdPowerAction.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules"}
+  };
+  var RUNIN_DEFAULT = { where: 'cloudshell', shell: 'pwsh' };
+  var PLACES = { cloudshell: 'Cloud Shell', windows: 'Windows', macos: 'macOS' };
+  // Windows runs PowerShell 7 only; Bash there means WSL, which is its own Linux machine.
+  function validRunIn(r) {
+    r = r || {};
+    var where = PLACES.hasOwnProperty(r.where) ? r.where : RUNIN_DEFAULT.where;
+    var shell = r.shell === 'bash' && where !== 'windows' ? 'bash' : 'pwsh';
+    return { where: where, shell: shell };
+  }
+  function isDefaultRunIn(r) { r = validRunIn(r); return r.where === 'cloudshell' && r.shell === 'pwsh'; }
+  function platformKey(r) { return r.where === 'cloudshell' ? 'cloudshell-' + r.shell : r.where; }
+  function scriptsIn(command) {
+    var seen = {}, out = [];
+    String(command || '').replace(/\.\/(scripts\/[\w.\/-]+\.(?:ps1|sh))/g, function (m, p) { if (!seen[p]) { seen[p] = 1; out.push(p); } return m; });
+    return out;
+  }
+  // How well a block works where the operator runs it: the weakest of its scripts. A block with no script
+  // (inline az or PowerShell) is tested where it was written and untested elsewhere.
+  function support(command, runIn) {
+    var r = validRunIn(runIn), key = platformKey(r), rank = { tested: 0, untested: 1, no: 2 }, status = 'tested', requires = [], blockedBy = [];
+    var scripts = scriptsIn(command);
+    if (!scripts.length && !isDefaultRunIn(r)) status = 'untested';
+    scripts.forEach(function (s) {
+      var p = PLATFORMS[s], v = p ? p[key] : 'untested';
+      if (!rank.hasOwnProperty(v)) v = 'untested';
+      if (v === 'no') blockedBy.push(s);
+      if (rank[v] > rank[status]) status = v;
+      if (p && p.requires) String(p.requires).split(/,\s*/).forEach(function (q) { if (q && requires.indexOf(q) < 0) requires.push(q); });
+    });
+    if (r.where === 'cloudshell') requires = [];
+    return { status: status, requires: requires, blockedBy: blockedBy, place: PLACES[r.where], shell: r.shell };
+  }
+  function bashQuote(s) { return "'" + String(s).replace(/'/g, "'\\''") + "'"; }
+  // PowerShell's $env: assignments and Remove-Item Env: become export and unset, so pwsh and bash scripts
+  // started from the same bash prompt both see them.
+  function envToBash(line) {
+    var sets = line.split(/;\s*/), out = [];
+    for (var i = 0; i < sets.length; i++) {
+      var m = /^\$env:([A-Z0-9_]+) = '([^']*)'$/.exec(sets[i].trim());
+      if (!m) return null;
+      out.push(m[1] + "='" + m[2] + "'");
+    }
+    return 'export ' + out.join(' ');
+  }
+  function unsetToBash(line) {
+    var m = /^Remove-Item ((?:Env:[A-Z0-9_]+(?:, )?)+) -ErrorAction SilentlyContinue$/.exec(line.trim());
+    return m ? 'unset ' + m[1].split(/,\s*/).map(function (v) { return v.replace(/^Env:/, ''); }).join(' ') : null;
+  }
+  var AZ_SIGNIN_PS = 'if (-not (Get-AzContext)) { Connect-AzAccount -UseDeviceAuthentication | Out-Null }';
+  var AZ_CLI_SIGNIN_PS = 'az account show -o none 2>$null; if ($LASTEXITCODE -ne 0) { az login --use-device-code -o none }';
+  var AZ_CLI_SIGNIN_BASH = 'az account show -o none 2>/dev/null || az login --use-device-code -o none';
+  // Rewrites a Cloud Shell PowerShell block for another place and shell. Cloud Shell PowerShell returns it as is.
+  function forRunIn(command, runIn) {
+    var r = validRunIn(runIn);
+    if (!command || isDefaultRunIn(r)) return command || '';
+    var lines = String(command).split('\n'), pre = [], body = lines;
+    var clone = /^if \(-not \(Test-Path (~\/\S+)\)\) \{ git clone (\S+) \S+ \}$/.exec(lines[0] || '');
+    var into = clone && /^Set-Location (~\/\S+); (.*)$/.exec(lines[1] || '');
+    if (into) { body = lines.slice(2); }
+    var local = r.where !== 'cloudshell';
+    var usesCli = body.some(function (l) { return /^bash \.\/|(^|[;(]\s*)az /.test(l); });
+    // Az PowerShell: the scripts and the Az cmdlets; a block of az commands needs only the az CLI sign-in.
+    var azPs = function (l) { return /\.ps1\b|-Az[A-Z]|Get-AzContext/.test(l); };
+    var usesPs = body.some(azPs);
+    if (r.shell === 'pwsh') {
+      if (into) pre = [lines[0], lines[1]];
+      if (local && usesPs) pre.push(AZ_SIGNIN_PS);
+      if (local && usesCli) pre.push(AZ_CLI_SIGNIN_PS);
+      return pre.concat(body).join('\n');
+    }
+    // Bash: the clone and checkout in bash, then each run of PowerShell lines in one pwsh process (a Graph
+    // sign-in and the script that uses it must share it), and bash scripts as they are.
+    if (into) pre = ['[ -d ' + into[1] + ' ] || git clone ' + clone[2] + ' ' + clone[1], 'cd ' + into[1] + ' && ' + into[2].split(/;\s*/).join(' && ')];
+    if (local && usesCli) pre.push(AZ_CLI_SIGNIN_BASH);
+    var out = [], ps = [];
+    var flush = function () {
+      if (!ps.length) return;
+      if (local && ps.some(azPs)) ps.unshift(AZ_SIGNIN_PS);
+      out.push('pwsh -NoLogo -Command ' + bashQuote(ps.join('\n'))); ps = [];
+    };
+    body.forEach(function (l) {
+      var b = envToBash(l) || unsetToBash(l);
+      if (b) { flush(); out.push(b); }
+      else if (/^bash \.\//.test(l)) { flush(); out.push(l.replace(/'((?:[^']|'')*)'/g, function (m, s) { return bashQuote(s.replace(/''/g, "'")); })); }
+      else ps.push(l);
+    });
+    flush();
+    return pre.concat(out).join('\n');
+  }
+
   // ---------------------------------------------------------------- reading the paste
   function extractStates(text) {
     var states = [], re = /<<<AVDLZ-STATE([\s\S]*?)AVDLZ-STATE>>>/g, m;
@@ -989,5 +1100,6 @@
   }
 
   return { STEPS: STEPS, newRunId: newRunId, recording: recording, recordActions: recordActions, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, isCommit: isCommit, siteConfig: siteConfig, SETTINGS: SETTINGS, SETTING_NAMES: SETTING_NAMES, validSettings: validSettings, versionNote: versionNote, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_HOSTS: MAX_HOSTS, computePool: computePool, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
+    PLATFORMS: PLATFORMS, RUNIN_DEFAULT: RUNIN_DEFAULT, PLACES: PLACES, validRunIn: validRunIn, isDefaultRunIn: isDefaultRunIn, scriptsIn: scriptsIn, support: support, forRunIn: forRunIn,
     REACHABILITY_HOSTS: REACHABILITY_HOSTS, rateLatency: rateLatency, classifyReachability: classifyReachability, launchTarget: launchTarget, launchUrl: launchUrl };
 });
