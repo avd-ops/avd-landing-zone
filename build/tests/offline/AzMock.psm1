@@ -44,7 +44,8 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
   $ok = { param($o) [pscustomobject]@{StatusCode=200;Content=($o|ConvertTo-Json -Depth 20)} }
   # ---- Host rotation (Invoke-AvdHostRotation.ps1; image pipeline spec section 6.5). Only when $global:St.rotation is
   # set: tags (the host pool's), hosts (VM name -> @{ status; sessions; allowNew; healthy; deleted }), vmsGone (VMs
-  # deleted), galleryTags (what was tagged on gallery versions), deployment (the last succeeded record's parameters).
+  # deleted), vmsSlow (VMs whose first delete doesn't finish), galleryTags (what was tagged on gallery versions),
+  # deployment (the last succeeded record's parameters), runs (the rotation's own deployments: @{ name; state; timestamp }).
   # ARM leaves out what it doesn't have (lesson 0021): a pool with no tags has no tags property.
   $ro = $global:St.rotation
   if ($ro) {
@@ -80,14 +81,26 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
       if ($Method -eq 'PATCH') { $h.allowNew = ($Payload | ConvertFrom-Json).properties.allowNewSession; return & $ok @{} }
       if ($Method -eq 'DELETE') { $h.deleted = $true; return & $ok @{} }
     }
+    if ($Method -eq 'GET' -and $Path -match "^$([regex]::Escape($vmBase))\?") {
+      return & $ok @{ value=@($ro.hosts.Keys | Sort-Object | Where-Object { $ro.vmsGone -notcontains $_ } | ForEach-Object { @{ name=$_; id="$vmBase/$_" } }) }
+    }
     if ($Path -match "^$([regex]::Escape($vmBase))/([^/?]+)\?") {
       $vm = $Matches[1]
-      if ($Method -eq 'DELETE') { $ro.vmsGone += $vm; return [pscustomobject]@{ StatusCode=202; Content='' } }
+      if ($Method -eq 'DELETE') {
+        if ($ro.vmsSlow -contains $vm) { $ro.vmsSlow = @($ro.vmsSlow | Where-Object { $_ -ne $vm }) } else { $ro.vmsGone += $vm }
+        return [pscustomobject]@{ StatusCode=202; Content='' }
+      }
       if ($ro.vmsGone -contains $vm -or -not $ro.hosts.ContainsKey($vm)) { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"ResourceNotFound"}}' } }
       return & $ok @{ name=$vm }
     }
     if ($Method -eq 'GET' -and $Path -match '^/subscriptions/[^/]+/providers/Microsoft\.Resources/deployments\?') {
-      return & $ok @{ value=@(@{ name='avdlz-dev-20261020-120000'; properties=@{ provisioningState='Succeeded'; timestamp='2026-10-20T12:00:00Z'; parameters=$ro.deployment } }) }
+      # The demo's record has no host pool output; another landing zone's record names another pool.
+      $other = $hpId -replace 'vdpool-avdlz-dev', 'vdpool-other-dev'
+      return & $ok @{ value=@(
+          @{ name='avdlz-dev-20261020-120000'; properties=@{ provisioningState='Succeeded'; timestamp='2026-10-20T12:00:00Z'; parameters=$ro.deployment; outputs=@{ hostPoolResourceId=@{ type='String'; value=$hpId } } } },
+          @{ name='avdlz-dev-20261020-130000'; properties=@{ provisioningState='Succeeded'; timestamp='2026-10-20T13:00:00Z'; parameters=@{ sessionHostNamePrefix=@{ value='otherdsh' } }; outputs=@{ hostPoolResourceId=@{ type='String'; value=$other } } } },
+          @{ name='avdlz-demo-20261020-140000'; properties=@{ provisioningState='Succeeded'; timestamp='2026-10-20T14:00:00Z' } }
+        ) + @($ro.runs | Where-Object { $_ } | ForEach-Object { @{ name=$_.name; properties=@{ provisioningState=$_.state; timestamp=$_.timestamp } } }) }
     }
   }
   # ---- Recovery (Get-AvdRecoveryStatus, Export-AvdConfiguration, Start-AvdRecoveryTest, Test-AvdRecoveryCopies;

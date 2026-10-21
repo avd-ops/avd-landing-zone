@@ -277,7 +277,9 @@
     // Blue/green host rotation (build/specs/image-pipeline-spec.md section 6.5): each run continues where the last stopped.
     rotation: function (cfg, opts) {
       opts = opts || {};
-      return block(cfg, ['./scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment +
+      // The parameter file the rotation deploys with travels in the state line; the default one is left out.
+      var pf = cfg.parameterFile && cfg.parameterFile !== 'parameters/' + cfg.environment + '.bicepparam' ? ' -ParameterFile ' + psQuote(cfg.parameterFile) : '';
+      return block(cfg, ['./scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment + pf +
         (opts.logOff ? ' -LogOffAtDeadline' : '') + (opts.rollback ? ' -Rollback' : '')]);
     },
     recoveryTest: function (cfg) {
@@ -623,21 +625,22 @@
     }
     if (S === 'rotation') {
       // Invoke-AvdHostRotation.ps1: refused before anything changed, waiting (run it again), done or failed.
+      // Rotation runs on a deployed landing zone, so its actions show on the post-deployment slide.
       var ro = state.context || {}, wait = byId(warnings, 'rotation-waiting')[0];
       if (state.status === 'refused') {
         note('The rotation did not start', ((failures[0] || {}).detail || '') + ' ' + ((failures[0] || {}).remediation || '') + ' Nothing was changed.', '');
-        return { step: 'rotation', actions: a };
+        return { step: 'postdeploy', actions: a };
       }
       if (state.status === 'failed') {
         note('The new hosts did not deploy', ((failures[0] || {}).detail || '') + ' Fix what deploy.sh reported and run the rotation again (it continues), or roll back.', cmd.rotation(cfg));
         note('Or roll back', 'The original hosts take sessions again and the new ones are removed.', cmd.rotation(cfg, { rollback: true }));
-        return { step: 'rotation', actions: a };
+        return { step: 'postdeploy', actions: a };
       }
       if (state.status === 'waiting') {
         var afterDeadline = wait && /-LogOffAtDeadline/.test((wait.detail || '') + ' ' + (wait.remediation || ''));
         note(ro.phase === 'Wait' ? 'Users are moving to the new hosts' : 'Run the rotation again', ((wait || {}).detail || '') + ' It continues from phase ' + (ro.phase || 'Deploy') + '.', cmd.rotation(cfg, { logOff: afterDeadline }));
         if (!ro.rollback && ro.phase !== 'Remove') note('Or roll back', 'Before the old hosts are removed, a rollback puts users back on them and removes the new ones.', cmd.rotation(cfg, { rollback: true }));
-        return { step: 'rotation', actions: a };
+        return { step: 'postdeploy', actions: a };
       }
       var left = byId(warnings, 'devices-left');
       if (left.length) {
@@ -645,7 +648,7 @@
         note('Delete the old device objects', 'Entra ID and Intune still hold ' + (dn.join(', ') || 'the removed hosts') + '. Delete them there by hand once you have checked they are these hosts.', '');
       }
       note(ro.rollback ? 'The rollback is complete' : 'The rotation is complete', ro.rollback ? 'The original hosts take every session; the new ones are removed.' : 'Every session host runs ' + (ro.version || 'the new version') + '. To go back, rotate to the previous version.', ro.rollback ? '' : cmd.rotation(cfg, { rollback: true }));
-      return { step: 'rotation', actions: a };
+      return { step: 'postdeploy', actions: a };
     }
     if (S === 'recovery') {
       // Get-AvdRecoveryStatus.ps1 and Start-AvdRecoveryTest.ps1: one action for the first thing that isn't met.

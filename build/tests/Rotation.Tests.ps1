@@ -110,6 +110,16 @@ Describe 'Each phase''s next step' {
     $h[2] = New-SessionHost 'avdlzdshb-002' 'b'
     (Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $h -ExpectedCount 2 -Now $now).Action | Should -Be 'drain'
   }
+  It 'follows the rotation''s own deployment: waits while it runs, deploys again after a failure, never twice at once' {
+    $old = @((New-SessionHost 'avdlzdsha-001' 'a'), (New-SessionHost 'avdlzdsha-002' 'a'))
+    (Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $old -ExpectedCount 2 -Now $now -DeploymentState running).Action | Should -Be 'wait-hosts'
+    (Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $old -ExpectedCount 2 -Now $now -DeploymentState none).Action | Should -Be 'deploy'
+    (Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $old -ExpectedCount 2 -Now $now -DeploymentState failed).Action | Should -Be 'deploy'
+    (Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $old -ExpectedCount 2 -Now $now -DeploymentState succeeded).Action | Should -Be 'wait-hosts'
+    $one = $old + @(New-SessionHost 'avdlzdshb-001' 'b')
+    (Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $one -ExpectedCount 2 -Now $now -DeploymentState failed).Action | Should -Be 'deploy'
+    (Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $one -ExpectedCount 2 -Now $now -DeploymentState succeeded).Action | Should -Be 'wait-hosts'
+  }
   It 'removes once no session is left on the old hosts, and otherwise waits for the deadline' {
     $h = @((New-SessionHost 'avdlzdsha-001' 'a' -Sessions 2 -Allow $false), (New-SessionHost 'avdlzdshb-001' 'b' -Sessions 5))
     $r = Get-AvdRotationStep -State (& $s 'Wait' @{ deadline = '2026-10-23T12:00Z' }) -SessionHosts $h -Now $now

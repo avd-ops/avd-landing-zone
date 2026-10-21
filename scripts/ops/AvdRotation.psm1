@@ -64,7 +64,7 @@ function ConvertTo-AvdRotationTag {
   [CmdletBinding()]
   param([Parameter(Mandatory)] $State)
   $o = [ordered]@{}
-  foreach ($k in 'phase', 'from', 'to', 'version', 'deadline', 'notice', 'rollback', 'by') {
+  foreach ($k in 'phase', 'from', 'to', 'version', 'deadline', 'notice', 'deployAt', 'rollback', 'by') {
     $v = if ($State -is [System.Collections.IDictionary]) { $State[$k] } else { $State.$k }
     if ($null -ne $v -and "$v" -ne '') { $o[$k] = if ($v -is [bool]) { $v } else { "$v" } }
   }
@@ -181,7 +181,10 @@ function Get-AvdRotationStep {
     [int] $ExpectedCount,
     [Parameter(Mandatory)][datetime] $Now,
     [switch] $LogOffAtDeadline,
-    [int] $NoticeMinutes = 15
+    [int] $NoticeMinutes = 15,
+    # The rotation's own deployment, from the subscription's deployment records: none (not started, or
+    # not found), running, failed or succeeded. A rerun waits for a running one and retries a failed one.
+    [ValidateSet('none', 'running', 'failed', 'succeeded')][string] $DeploymentState = 'none'
   )
   $old = @($SessionHosts | Where-Object { $_ -and $_.Generation -eq "$($State.from)" })
   $new = @($SessionHosts | Where-Object { $_ -and $_.Generation -eq "$($State.to)" })
@@ -189,9 +192,16 @@ function Get-AvdRotationStep {
   switch ($State.phase) {
     'Check' { return & $out 'deploy' 'Deploy' 'Checks passed; deploying the new hosts.' }
     'Deploy' {
-      if ($new.Count -eq 0) { return & $out 'deploy' 'Deploy' "No generation $($State.to) host registered yet." }
+      if ($DeploymentState -eq 'running') { return & $out 'wait-hosts' 'Deploy' "The deployment of generation $($State.to) is still running in Azure." }
+      if ($new.Count -eq 0) {
+        if ($DeploymentState -eq 'succeeded') { return & $out 'wait-hosts' 'Deploy' "The deployment succeeded; no generation $($State.to) host registered yet." }
+        return & $out 'deploy' 'Deploy' "No generation $($State.to) host registered yet$(if ($DeploymentState -eq 'failed') { '; the last deployment failed, deploying again' })."
+      }
       $ready = @($new | Where-Object { $_.Available -and $_.Healthy })
       if ($ExpectedCount -gt 0 -and $ready.Count -lt $ExpectedCount) {
+        if ($DeploymentState -eq 'failed' -and $new.Count -lt $ExpectedCount) {
+          return & $out 'deploy' 'Deploy' "$($new.Count) of $ExpectedCount new host(s) registered and the deployment failed; deploying again."
+        }
         return & $out 'wait-hosts' 'Deploy' "$($ready.Count) of $ExpectedCount new host(s) Available with every health check passing."
       }
       if ($ready.Count -lt $new.Count) { return & $out 'wait-hosts' 'Deploy' "$($ready.Count) of $($new.Count) new host(s) ready." }

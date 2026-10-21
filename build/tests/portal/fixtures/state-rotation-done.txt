@@ -1,4 +1,4 @@
-Host rotation - avdlz-dev in 'Fake subscription'
+AVD host rotation - avdlz-dev in 'Fake subscription'
 == Remove
   [PASS ] Old hosts removed
 Deployment portal: paste this output into https://nickprignano.github.io/avd-landing-zone/portal/ for the next step.

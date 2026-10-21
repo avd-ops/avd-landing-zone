@@ -816,6 +816,21 @@ test('state: rotation refused -> what to fix, nothing changed, no command', () =
   assert.equal(r.actions[0].command, '');
 });
 
+test('state: rotation -> its actions show on a slide that has a command slot', () => {
+  for (const f of ['state-rotation-refused.txt', 'state-rotation-waiting.txt', 'state-rotation-done.txt']) {
+    const r = analyze(f);
+    assert.equal(r.step, 'postdeploy', f);
+    assert.ok(P.STEPS.some((s) => s.id === r.step), f);
+  }
+});
+
+test('state: rotation with its own parameter file -> every command keeps it', () => {
+  const text = fixture('state-rotation-waiting.txt').replace('"environment":"dev",', '"environment":"dev","parameterFile":"parameters/dev-eu.bicepparam",');
+  const r = P.analyze(text, {}, {});
+  assert.equal(last(r.actions[0].command), "./scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -ParameterFile 'parameters/dev-eu.bicepparam'");
+  assert.match(last(r.actions[1].command), /-ParameterFile 'parameters\/dev-eu\.bicepparam' -Rollback$/);
+});
+
 test('state: rotation waiting for sessions -> run it again, or roll back', () => {
   const r = analyze('state-rotation-waiting.txt');
   assert.equal(r.status, 'waiting');

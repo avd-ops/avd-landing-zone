@@ -48,6 +48,12 @@ test('redact: extra terms and settings', () => {
   assert.equal(r.text, 'Contact <custom-1> at the <custom-2> office; prefix <name-2>, group <name-1>; acmex stays');
 });
 
+test('redact: the host rotation header hides the subscription name', () => {
+  const t = R.redact("AVD host rotation - avdlz-dev in 'Fabrikam Production'\n  [Deploy] No generation a host registered yet.").text;
+  assert.doesNotMatch(t, /Fabrikam Production/);
+  assert.match(t, /^AVD host rotation - avdlz-dev in '<subscription-1>'/);
+});
+
 test('redact: running it again finds nothing new and keeps numbering', () => {
   const once = R.redact(fixture('pii-sample.txt')).text;
   const twice = R.redact(once);

@@ -74,6 +74,10 @@ Invoke-Deploy 'pool-tags-new-generation' @('--generation', 'b', '--image-id', $v
 $env:FAKE_POOL_TAGS = "{`n  `"avdlz-generation`": `"a`",`n  `"avdlz-image`": `"$v1`",`n  `"avdlz-image-next`": `"$v2`",`n  `"avdlz-rotation`": `"{\`"phase\`":\`"Deploy\`"}`"`n}"
 Invoke-Deploy 'pool-rotating'
 Invoke-Deploy 'pool-rotation-deploy' @('--generation', 'b', '--image-id', $v2, '--rotation')
+# A host pool that can't be read is not a missing one: stop, with what Azure said.
+$env:FAKE_POOL_READ_ERROR = '(AuthorizationFailed) The client does not have authorization to perform action Microsoft.DesktopVirtualization/hostpools/read.'
+Invoke-Deploy 'pool-unreadable'
+$env:FAKE_POOL_READ_ERROR = ''
 $env:FAKE_POOL_TAGS = ''
 $env:FAKE_HOSTS_RG_EXISTS = 'false'
 Invoke-Deploy 'first-image' @('--image-id', $v1, '--generation', 'a')

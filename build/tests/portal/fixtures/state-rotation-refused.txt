@@ -1,4 +1,4 @@
-Host rotation - avdlz-dev in 'Fake subscription'
+AVD host rotation - avdlz-dev in 'Fake subscription'
 == Check
   [FAIL ] Target differs from the current image
           The pool already runs win11-avd 2026.1004.1.

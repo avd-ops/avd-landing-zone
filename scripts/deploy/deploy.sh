@@ -250,11 +250,24 @@ if [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(az group exists -n "$HOSTS
   # The host pool's tags record which image and generation its hosts run; only the rotation script
   # changes them. Without --image-id and --generation the deployment keeps both, and it passes the
   # rotation tags back so they survive the deployment.
-  POOL_STATE=$(az resource show -g "rg-$NAME_PREFIX-$ENV_NAME-avd" -n "vdpool-$NAME_PREFIX-$ENV_NAME" \
+  # Only a pool that doesn't exist counts as having no tags: any other read error stops here, because
+  # deploying on a guess could change the hosts' image or names (lesson 0012: report what Azure said).
+  POOL_ERR=$(mktemp)
+  if ! POOL_STATE=$(az resource show -g "rg-$NAME_PREFIX-$ENV_NAME-avd" -n "vdpool-$NAME_PREFIX-$ENV_NAME" \
     --resource-type Microsoft.DesktopVirtualization/hostPools \
     --query '{"avdlz-image": tags."avdlz-image", "avdlz-generation": tags."avdlz-generation", "avdlz-image-next": tags."avdlz-image-next", "avdlz-image-previous": tags."avdlz-image-previous", "avdlz-rotation": tags."avdlz-rotation"}' \
-    -o json 2>/dev/null || true)
+    -o json 2>"$POOL_ERR"); then
+    if grep -qE 'ResourceNotFound|ResourceGroupNotFound|was not found' "$POOL_ERR"; then
+      POOL_STATE=""
+    else
+      echo "==> Could not read the host pool vdpool-$NAME_PREFIX-$ENV_NAME to keep its image and generation. Not deploying." >&2
+      cat "$POOL_ERR" >&2; rm -f "$POOL_ERR"
+      exit 1
+    fi
+  fi
+  rm -f "$POOL_ERR"
   if [[ -n "$POOL_STATE" ]]; then
+    POOL_FOUND=true
     # Keep the tags that are set, as a JSON object (absent tags come back null and are left out).
     POOL_STATE=$(tr -d '\n' <<<"$POOL_STATE"); kept=()
     for tag in avdlz-image avdlz-generation avdlz-image-next avdlz-image-previous avdlz-rotation; do
@@ -283,6 +296,13 @@ if [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(az group exists -n "$HOSTS
   fi
   echo "==> Checking the session hosts' power state in $HOSTS_RG"
   mapfile -t STOPPED_HOSTS < <(az vm list -d -g "$HOSTS_RG" --query "[?powerState!='VM running'].id" -o tsv)
+fi
+# A new host pool records the image and generation its first hosts get, so later deployments keep them.
+if ! ${POOL_FOUND:-false} && [[ -n "$IMAGE_ID$GENERATION" ]]; then
+  first=()
+  [[ -n "$IMAGE_ID" ]] && first+=("\"avdlz-image\":$(json_str "$IMAGE_ID")")
+  [[ -n "$GENERATION" ]] && first+=("\"avdlz-generation\":$(json_str "$GENERATION")")
+  AVD_HOST_POOL_STATE_TAGS="{$(IFS=,; echo "${first[*]}")}"
 fi
 # Image and generation (empty = the marketplace image and the original host names).
 AVD_SESSION_HOST_IMAGE_ID="$IMAGE_ID" AVD_SESSION_HOST_GENERATION="$GENERATION" AVD_HOST_POOL_STATE_TAGS="${AVD_HOST_POOL_STATE_TAGS:-}"

@@ -61,11 +61,12 @@ $ctx = Initialize-AvdAzContext -SubscriptionId $SubscriptionId
 Clear-AvdCheckResult
 $now = [datetime]::UtcNow
 $sub = "/subscriptions/$($ctx.Subscription.Id)"
-Write-Host "Host rotation - $NamePrefix-$Environment in '$($ctx.Subscription.Name)'" -ForegroundColor White
+# The portal's issue report redacts the subscription name in this header form (site/portal/report.js).
+Write-Host "AVD host rotation - $NamePrefix-$Environment in '$($ctx.Subscription.Name)'" -ForegroundColor White
 Write-Host '  Reading the host pool, its session hosts and the last deployment...' -ForegroundColor DarkGray
 $lz = Get-AvdLandingZone -NamePrefix $NamePrefix -Environment $Environment
 
-$context = [ordered]@{ namePrefix = $lz.NamePrefix; environment = $Environment }
+$context = [ordered]@{ namePrefix = $lz.NamePrefix; environment = $Environment; parameterFile = $ParameterFile }
 function Complete-Rotation([string] $Status, [int] $Code) {
   $state = Get-AvdPortalState -Stage rotation -Status $Status -Context $context
   $null = Write-AvdSummary
@@ -77,6 +78,18 @@ if (-not $lz.HostPool) {
   Complete-Rotation 'refused' 1
 }
 $poolId = $lz.HostPool.ResourceId
+
+# deploy.sh takes the landing zone's name from the parameter file, so the file must name this pool.
+$pfPath = if ([IO.Path]::IsPathRooted($ParameterFile)) { $ParameterFile } else { Join-Path $repo $ParameterFile }
+$pfText = if (Test-Path $pfPath) { Get-Content $pfPath -Raw } else { '' }
+$pfPrefix = if ($pfText -match "(?m)^param namePrefix = '([^']*)'") { $Matches[1].Replace('-', '').ToLower() } else { '' }
+$pfEnv = if ($pfText -match "(?m)^param environmentName = '([^']*)'") { $Matches[1] } else { '' }
+if ($pfPrefix -ne $lz.NamePrefix -or $pfEnv -ne $Environment) {
+  Add-AvdCheckResult 'Rotation' 'Parameter file names this landing zone' 'Fail' -Id 'rotation-parameter-file' `
+    -Detail "$ParameterFile deploys '$(if ($pfPrefix) { $pfPrefix } else { '?' })-$(if ($pfEnv) { $pfEnv } else { '?' })', not '$($lz.NamePrefix)-$Environment'." `
+    -Remediation 'Pass -ParameterFile with the file this landing zone was deployed from.'
+  Complete-Rotation 'refused' 1
+}
 
 function Get-PoolTag {
   $p = Invoke-AvdArm -Path "$($poolId)?api-version=$apiAvd"
@@ -102,8 +115,10 @@ function Remove-PoolTag {
 }
 function Save-State($State) { Set-PoolTag @{ 'avdlz-rotation' = (ConvertTo-AvdRotationTag $State) } }
 
+# The settings to keep come from the last succeeded deployment of this host pool, found by its output
+# (not by name: another landing zone can share the parameter file name, and the demo deploys too).
 $deployment = @(Get-AvdArmList -Path "$sub/providers/Microsoft.Resources/deployments?api-version=2021-04-01" |
-    Where-Object { $_.name -match "^avdlz-$([regex]::Escape($Environment))-\d{8}-\d{6}$" -and "$($_.properties.provisioningState)" -eq 'Succeeded' }) |
+    Where-Object { "$($_.properties.provisioningState)" -eq 'Succeeded' -and "$($_.properties.outputs.hostPoolResourceId.value)" -eq $poolId }) |
   Sort-Object { [datetime]$_.properties.timestamp } -Descending | Select-Object -First 1
 $params = if ($deployment) { $deployment.properties.parameters } else { $null }
 $basePrefix = if ($params -and $params.sessionHostNamePrefix.value) { "$($params.sessionHostNamePrefix.value)" } else { "$($lz.NamePrefix)$($Environment.Substring(0, 1))sh".Substring(0, [Math]::Min(11, "$($lz.NamePrefix)$($Environment.Substring(0, 1))sh".Length)) }
@@ -122,6 +137,27 @@ function Read-SessionHost {
         Sessions = [int]$_.properties.sessions
       }
     })
+}
+# The rotation's own deployment: deploy.sh names it avdlz-<parameter file>-<time>, after deployAt.
+function Get-RotationDeploymentState($State) {
+  if (-not $State.deployAt) { return 'none' }
+  $since = [datetime]::Parse($State.deployAt, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal).AddMinutes(-2)
+  $base = [IO.Path]::GetFileNameWithoutExtension($ParameterFile)
+  $d = @(Get-AvdArmList -Path "$sub/providers/Microsoft.Resources/deployments?api-version=2021-04-01" |
+      Where-Object { "$($_.name)" -like "avdlz-$base-*" -and [datetime]$_.properties.timestamp -ge $since }) |
+    Sort-Object { [datetime]$_.properties.timestamp } -Descending | Select-Object -First 1
+  switch ("$($d.properties.provisioningState)") {
+    '' { 'none' } 'Succeeded' { 'succeeded' } { $_ -in 'Failed', 'Canceled' } { 'failed' } default { 'running' }
+  }
+}
+# deploy.sh runs with Azure CLI, whose subscription is separate from Az PowerShell's: select the same one.
+function Test-CliSubscription {
+  $id = "$($ctx.Subscription.Id)"
+  $out = & az account set --subscription $id 2>&1
+  if ($LASTEXITCODE -ne 0) { return "az account set --subscription $id failed: $out" }
+  $now = "$(& az account show --query id -o tsv 2>&1)".Trim()
+  if ($now -ne $id) { return "Azure CLI is on subscription '$now', not '$id'." }
+  $null
 }
 function Send-HostMessage($SessionHost, [string] $Title, [string] $Body) {
   foreach ($us in @(Get-AvdArmList -Path "$($SessionHost.Path)/userSessions?api-version=$apiAvd")) {
@@ -152,7 +188,9 @@ if ($Rollback -and $state) {
   # The original hosts take sessions again; the pool's tags go back to what they recorded before.
   foreach ($h in @($hosts | Where-Object { $_.Generation -eq "$($state.to)" -and -not $_.AllowNewSession })) {
     Write-Host "  Taking new sessions again on $($h.VmName)" -ForegroundColor DarkGray
-    Invoke-AvdArm -Method PATCH -Path "$($h.Path)?api-version=$apiAvd" -Body @{ properties = @{ allowNewSession = $true } } | Out-Null
+    if ($PSCmdlet.ShouldProcess($h.VmName, 'Allow new sessions')) {
+      Invoke-AvdArm -Method PATCH -Path "$($h.Path)?api-version=$apiAvd" -Body @{ properties = @{ allowNewSession = $true } } | Out-Null
+    }
   }
   $back = @{}
   if ("$($state.to)") { $back['avdlz-generation'] = "$($state.to)" } else { Remove-PoolTag 'avdlz-generation' }
@@ -186,7 +224,9 @@ elseif (-not $state) {
     catch { $free = $null; Write-Host "  Could not read quota: $_" -ForegroundColor DarkYellow }
   }
   $checks = Get-AvdRotationCheck -PoolTags $tags -TargetImageId $ImageId -BasePrefix $basePrefix -HostCount $count -VcpuPerHost $vcpu -QuotaFree $free -Rollback:$Rollback
-  if (-not $deployment) { $checks += [pscustomobject]@{ Id = 'rotation-deployment'; Status = 'Fail'; Check = 'A succeeded deployment to copy settings from'; Detail = "No succeeded avdlz-$Environment-* deployment record."; Remediation = 'Deploy the landing zone with deploy.sh first.'; Data = $null } }
+  if (-not $deployment) { $checks += [pscustomobject]@{ Id = 'rotation-deployment'; Status = 'Fail'; Check = 'A succeeded deployment to copy settings from'; Detail = "No succeeded deployment record with hostPoolResourceId $(($poolId -split '/')[-1])."; Remediation = 'Deploy the landing zone with deploy.sh first.'; Data = $null } }
+  $cli = Test-CliSubscription
+  if ($cli) { $checks += [pscustomobject]@{ Id = 'rotation-cli-subscription'; Status = 'Fail'; Check = 'Azure CLI on the same subscription'; Detail = $cli; Remediation = 'Run az login, then this again.'; Data = $null } }
   foreach ($c in $checks) { Add-AvdCheckResult 'Rotation' $c.Check $c.Status -Id $c.Id -Detail $c.Detail -Remediation $c.Remediation -Data $c.Data }
   if (@($checks | Where-Object Status -eq 'Fail').Count) { Complete-Rotation 'refused' 1 }
   $by = try { "$($ctx.Account.Id)" } catch { '' }
@@ -205,7 +245,8 @@ for ($i = 0; $i -lt 20; $i++) {
   $hosts = Read-SessionHost
   $expected = if ($params -and $params.sessionHostCount.value) { [int]$params.sessionHostCount.value } else { 0 }
   if ($state.phase -eq 'Deploy') { $expected = [Math]::Max($expected, @($hosts | Where-Object { $_.Generation -eq "$($state.from)" }).Count) }
-  $step = Get-AvdRotationStep -State $state -SessionHosts $hosts -ExpectedCount $expected -Now $now -LogOffAtDeadline:$LogOffAtDeadline
+  $deployState = if ($state.phase -eq 'Deploy' -and -not $deployed) { Get-RotationDeploymentState $state } else { 'succeeded' }
+  $step = Get-AvdRotationStep -State $state -SessionHosts $hosts -ExpectedCount $expected -Now $now -LogOffAtDeadline:$LogOffAtDeadline -DeploymentState $deployState
   $context.phase = "$($state.phase)"
   Write-Host "  [$($state.phase)] $($step.Detail)" -ForegroundColor DarkGray
   switch ($step.Action) {
@@ -220,6 +261,14 @@ for ($i = 0; $i -lt 20; $i++) {
       Write-AvdSection 'Deploy'
       Write-Host "  Deploying generation $($state.to) from $(Get-AvdImageLabel $target) beside the current hosts (deploy.sh, 20-40 minutes)." -ForegroundColor White
       if ($PSCmdlet.ShouldProcess("generation $($state.to) of $($lz.BaseName)", 'Deploy')) {
+        $cli = Test-CliSubscription
+        if ($cli) {
+          Add-AvdCheckResult 'Rotation' 'Azure CLI on the same subscription' 'Fail' -Id 'rotation-cli-subscription' -Detail $cli -Remediation 'Run az login, then this again (it continues).'
+          Complete-Rotation 'failed' 1
+        }
+        # Recorded first, so a rerun after a disconnect finds this deployment instead of starting another.
+        $state | Add-Member -NotePropertyName deployAt -NotePropertyValue ([datetime]::UtcNow.ToString('yyyy-MM-ddTHH:mmZ')) -Force
+        Save-State $state
         Push-Location $repo
         try { & bash ./scripts/deploy/deploy.sh @deployArgs | Out-Host; $code = $LASTEXITCODE }
         finally { Pop-Location }
@@ -252,7 +301,7 @@ for ($i = 0; $i -lt 20; $i++) {
         }
       }
       $state.phase = 'Wait'
-      $state | Add-Member -NotePropertyName deadline -NotePropertyValue ($now.AddHours($(if ($state.rollback) { 1 } else { $DeadlineHours })).ToString('yyyy-MM-ddTHH:mmZ')) -Force
+      $state | Add-Member -NotePropertyName deadline -NotePropertyValue ($now.AddHours($(if ($state.version -eq 'rollback') { 1 } else { $DeadlineHours })).ToString('yyyy-MM-ddTHH:mmZ')) -Force
       Save-State $state
       Add-AvdCheckResult 'Rotation' 'Old hosts draining' 'Pass' -Id 'rotation-drained' -Detail "Deadline $($state.deadline) UTC."
     }
@@ -284,27 +333,40 @@ for ($i = 0; $i -lt 20; $i++) {
     'remove' {
       if ($state.phase -eq 'Wait') { $state.phase = 'Remove'; Save-State $state }
       Write-AvdSection 'Remove'
+      # The retiring generation, from its session hosts and from the VMs themselves: a rerun after an
+      # interrupted removal still finds a VM whose session host is already gone.
       $gone = @($hosts | Where-Object { $_.Generation -eq "$($state.from)" })
+      $vms = @(Get-AvdArmList -Path "$($lz.ResourceGroupIds.Hosts)/providers/Microsoft.Compute/virtualMachines?api-version=$apiVm" |
+          Where-Object { (Get-AvdHostGeneration -VmName "$($_.name)" -BasePrefix $basePrefix) -eq "$($state.from)" -and $gone.VmName -notcontains "$($_.name)" })
+      $gone += @($vms | ForEach-Object { [pscustomobject]@{ Path = $null; VmId = "$($_.id)"; VmName = "$($_.name)" } })
       foreach ($h in $gone) {
-        Write-Host "  Removing $($h.VmName): session host, then VM (its disk and NIC go with it)" -ForegroundColor DarkGray
+        Write-Host "  Removing $($h.VmName): $(if ($h.Path) { 'session host, then ' })VM (its disk and NIC go with it)" -ForegroundColor DarkGray
         if ($PSCmdlet.ShouldProcess($h.VmName, 'Remove')) {
-          Invoke-AvdArm -Method DELETE -Path "$($h.Path)?api-version=$apiAvd&force=true" | Out-Null
+          if ($h.Path) { Invoke-AvdArm -Method DELETE -Path "$($h.Path)?api-version=$apiAvd&force=true" | Out-Null }
           if ($h.VmId) { Invoke-AvdArm -Method DELETE -Path "$($h.VmId)?api-version=$apiVm" -AllowNotFound | Out-Null }
         }
       }
+      if ($WhatIfPreference) { Complete-Rotation 'waiting' 0 }
       # "Removed" means gone: wait for each VM delete, up to 15 minutes (lesson 0006).
-      $deadline = [datetime]::UtcNow.AddMinutes(15)
       foreach ($h in @($gone | Where-Object VmId)) {
-        while ((Invoke-AvdArm -Path "$($h.VmId)?api-version=$apiVm" -AllowNotFound) -and [datetime]::UtcNow -lt $deadline) { Start-Sleep -Seconds 15 }
+        for ($n = 0; $n -lt 60 -and (Invoke-AvdArm -Path "$($h.VmId)?api-version=$apiVm" -AllowNotFound); $n++) { Start-Sleep -Seconds 15 }
       }
       $left = @($gone | Where-Object { $_.VmId -and (Invoke-AvdArm -Path "$($_.VmId)?api-version=$apiVm" -AllowNotFound) })
       if ($left.Count) {
         Add-AvdCheckResult 'Rotation' 'Old VMs deleted' 'Warn' -Id 'rotation-waiting' -Detail "Still deleting: $($left.VmName -join ', ')." -Remediation 'Run this again to finish.'
+        # The next run no longer sees the hosts deleted now, so their device names are reported here.
+        $done = @($gone | Where-Object { $left.VmName -notcontains $_.VmName })
+        if ($done.Count) {
+          Add-AvdCheckResult 'Rotation' 'Device objects of the removed hosts' 'Warn' -Id 'devices-left' -Detail "Entra ID and Intune still hold devices named $($done.VmName -join ', ')." `
+            -Remediation 'Delete them in Entra ID and Intune once you have checked they are these hosts; automatic removal by ID comes with the in-host check (image pipeline step 4).' -Data @{ devices = @($done.VmName) }
+        }
         Complete-Rotation 'waiting' 0
       }
       $tags = Get-PoolTag
       # The version the removed hosts ran is no longer in use by this pool.
-      Set-GalleryInUse "$($tags[$(if ($state.rollback) { 'avdlz-image-next' } else { 'avdlz-image-previous' })])" -Clear
+      # A reversal (version 'rollback') removes the hosts of avdlz-image-next; any other rotation, including
+      # one back to the previous version, removes the hosts of avdlz-image-previous.
+      Set-GalleryInUse "$($tags[$(if ($state.version -eq 'rollback') { 'avdlz-image-next' } else { 'avdlz-image-previous' })])" -Clear
       Remove-PoolTag 'avdlz-rotation', 'avdlz-image-next'
       Add-AvdCheckResult 'Rotation' 'Old hosts removed' 'Pass' -Id 'rotation-removed' -Detail "$($gone.Count) host(s) of generation $(if ($state.from) { $state.from } else { 'none' }) removed."
       if ($gone.Count) {

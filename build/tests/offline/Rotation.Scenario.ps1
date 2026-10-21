@@ -1,7 +1,7 @@
 # Blue/green host rotation (scripts/ops/Invoke-AvdHostRotation.ps1, image pipeline spec section 6.5) against the
 # mocked landing zone: two hosts on version 1 (avdlzdsh-001 with one session, 002 idle) move to version 2 as
 # generation a, run by run, the way an operator runs it again after each wait. Then a rotation rolled back
-# before Remove. deploy.sh runs against the fake az in deploybin, as in Deploy.Scenario.ps1.
+# before Remove, and one back to the previous version after it. deploy.sh runs against the fake az in deploybin, as in Deploy.Scenario.ps1.
 . (Join-Path $PSScriptRoot 'Initialize-OfflineScenario.ps1')
 $global:St.unregistered = @()
 $env:PATH = (Join-Path $PSScriptRoot 'deploybin') + [IO.Path]::PathSeparator + $env:PATH
@@ -15,7 +15,7 @@ function Reset-Rotation {
   $global:St.rotation = @{
     tags = @{ 'avdlz-image' = $v1 }
     hosts = @{ 'avdlzdsh-001' = @{ status = 'Available'; sessions = 1; allowNew = $true }; 'avdlzdsh-002' = @{ status = 'Available'; sessions = 0; allowNew = $true } }
-    vmsGone = @(); galleryTags = @(); messages = 0; signedOut = 0
+    vmsGone = @(); vmsSlow = @(); galleryTags = @(); runs = @(); messages = 0; signedOut = 0
     deployment = @{
       sessionHostNamePrefix = @{ value = 'avdlzdsh' }; sessionHostCount = @{ value = 2 }; sessionHostVmSize = @{ value = 'Standard_D4as_v5' }
       maxSessionLimit = @{ value = 4 }; avdUsersGroupObjectId = @{ value = '11111111-1111-1111-1111-111111111111' }
@@ -23,8 +23,12 @@ function Reset-Rotation {
     }
   }
 }
-function Add-Generation([string] $Status) {
-  foreach ($n in 'avdlzdsha-001', 'avdlzdsha-002') { $global:St.rotation.hosts[$n] = @{ status = $Status; sessions = 0; allowNew = $true } }
+function Add-Generation([string] $Status, [string[]] $Names = @('avdlzdsha-001', 'avdlzdsha-002')) {
+  foreach ($n in $Names) { $global:St.rotation.hosts[$n] = @{ status = $Status; sessions = 0; allowNew = $true } }
+}
+# The rotation's own deployment record, as Azure keeps it after Cloud Shell disconnects.
+function Set-RotationRun([string] $State) {
+  $global:St.rotation.runs = @(@{ name = 'avdlz-dev-20261021-000000'; state = $State; timestamp = [datetime]::UtcNow.ToString('o') })
 }
 # Moves the recorded deadline or notice into the past, as if the operator came back later.
 function Set-RotationTime([string] $Key) {
@@ -50,10 +54,27 @@ Show-Rotation 'same-image'
 Invoke-ScenarioStep 'no-quota' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -ImageId $v2 }
 Show-Rotation 'no-quota'
 $global:St.quotaLimit = 40
+# A parameter file for another landing zone, and Azure CLI on another subscription: refused before any tag changes.
+Invoke-ScenarioStep 'wrong-file' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -ImageId $v2 -ParameterFile parameters/test.bicepparam }
+Show-Rotation 'wrong-file'
+$env:FAKE_AZ_SUB = '99999999-0000-0000-0000-000000000099'
+Invoke-ScenarioStep 'cli-sub' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -ImageId $v2 }
+Show-Rotation 'cli-sub'
+$env:FAKE_AZ_SUB = ''
 
 # Deploy: deploy.sh adds generation a with the last deployment's settings; the new hosts haven't registered.
 Invoke-ScenarioStep 'deploy' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -ImageId $v2 }
 Show-Rotation 'deploy'
+# Cloud Shell disconnected while Azure still deploys: wait for it, don't start another.
+Set-RotationRun 'Running'
+Invoke-ScenarioStep 'deploy-running' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
+Show-Rotation 'deploy-running'
+# It failed with one of two hosts registered: deploy again.
+Set-RotationRun 'Failed'
+Add-Generation 'Available' @('avdlzdsha-001')
+Invoke-ScenarioStep 'deploy-retry' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
+Show-Rotation 'deploy-retry'
+Set-RotationRun 'Succeeded'
 # Registered but not yet Available: wait, without deploying again.
 Add-Generation 'Unavailable'
 Invoke-ScenarioStep 'hosts-wait' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
@@ -71,9 +92,19 @@ Show-Rotation 'notice'
 Set-RotationTime 'notice'
 Invoke-ScenarioStep 'logoff' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -LogOffAtDeadline }
 Show-Rotation 'logoff'
-# Remove: the old session hosts and VMs go; the device objects are listed to delete by hand.
+# Remove: the old session hosts and VMs go; the device objects are listed to delete by hand. One VM is still
+# deleting when the run stops; the next run finds it by its name although its session host is gone.
+$global:St.rotation.vmsSlow = @('avdlzdsh-002')
 Invoke-ScenarioStep 'remove' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
 Show-Rotation 'remove'
+Invoke-ScenarioStep 'remove-resume' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
+Show-Rotation 'remove-resume'
+# After Remove, a rollback is a rotation back to the previous version: it frees the version it leaves.
+$global:St.rotation.galleryTags = @()
+Invoke-ScenarioStep 'back-deploy' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -Rollback }
+Add-Generation 'Available' @('avdlzdshb-001', 'avdlzdshb-002')
+Invoke-ScenarioStep 'back-finish' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
+Show-Rotation 'back-finish'
 
 # Rolled back before Remove: the original hosts take sessions again, the new ones drain and go.
 Reset-Rotation
@@ -82,6 +113,10 @@ Show-Rotation 'rb-deploy'
 Add-Generation 'Available'
 Invoke-ScenarioStep 'rb-drain' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
 Show-Rotation 'rb-drain'
+# A preview changes nothing.
+$global:Calls.Clear()
+Invoke-ScenarioStep 'rollback-whatif' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -Rollback -WhatIf }
+Write-Host "RESULT rollback-whatif-writes $(@($global:Calls | Where-Object { $_ -match '^ARM (PATCH|PUT|POST|DELETE)' }).Count)"
 Invoke-ScenarioStep 'rollback' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -Rollback }
 Show-Rotation 'rollback'
 $global:St.rotation = $null
