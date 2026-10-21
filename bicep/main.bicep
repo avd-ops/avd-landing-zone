@@ -249,6 +249,26 @@ param autoShutdownBudgetPercent int = 100
 @description('Where Automation downloads the runbook from. deploy.sh pins it to the commit being deployed (AVD_RUNBOOK_URI).')
 param autoShutdownRunbookUri string = 'https://raw.githubusercontent.com/nickprignano/avd-landing-zone/master/scripts/automation/Invoke-AvdPowerAction.ps1'
 
+// ---------- Operator jumpbox (decision 0018) ----------
+@description('Add an operator jumpbox: a small Linux VM in the spoke with the Cloud Shell toolchain, reached in the browser through Azure Bastion Developer (no charge, no public IP). Off by default. Bastion Developer exists only in some regions (Get-AvdBastionDeveloperRegion).')
+param deployJumpbox bool = false
+
+@description('Jumpbox subnet (inside the spoke).')
+param jumpboxSubnetPrefix string = '10.100.2.32/28'
+
+@description('Jumpbox VM size: the smallest burstable size with room for PowerShell and the Az modules (2 vCPUs, 4 GiB).')
+param jumpboxVmSize string = 'Standard_B2als_v2'
+
+@description('Daily stop of the jumpbox (HHmm, in autoShutdownTimeZone). It always has one unless jumpboxKeepRunningUntil is set (avd-second-brain decision 0017).')
+param jumpboxAutoShutdownTime string = '2000'
+
+@description('Keep the jumpbox running past its daily stop until this UTC time (yyyy-MM-ddTHH:mmZ), recorded on the VM\'s avdlz-keep-running-until tag. Empty: the daily stop applies.')
+param jumpboxKeepRunningUntil string = ''
+
+@description('The jumpbox\'s local account password. Random per deployment and applied only when the VM is created; nobody knows it. scripts/ops/Connect-AvdJumpbox.ps1 sets a one-time password on each connect.')
+@secure()
+param jumpboxAdminPassword string = newGuid()
+
 @description('Enable Microsoft Defender for Cloud plans (Servers P2, Storage, Key Vault) on the subscription.')
 param enableDefenderForCloud bool = true
 
@@ -296,6 +316,7 @@ var names = {
   rgStorage: 'rg-${baseName}-storage'
   rgControlPlane: 'rg-${baseName}-avd'
   rgHosts: 'rg-${baseName}-hosts'
+  rgJumpbox: 'rg-${baseName}-jumpbox'
   vnet: 'vnet-${baseName}'
   logAnalytics: 'log-${baseName}'
   keyVault: take('kv${cleanPrefix}${environmentName}${uniq}', 24)
@@ -305,6 +326,8 @@ var names = {
   appGroup: 'vdag-${baseName}-desktop'
   workspace: 'vdws-${baseName}'
   scalingPlan: 'vdscaling-${baseName}'
+  bastion: 'bas-${baseName}'
+  jumpbox: 'vm-${baseName}-jumpbox'
 }
 
 var profileShareName = 'profiles'
@@ -350,6 +373,12 @@ resource rgControlPlane 'Microsoft.Resources/resourceGroups@2024-03-01' = {
 
 resource rgHosts 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   name: names.rgHosts
+  location: location
+  tags: allTags
+}
+
+resource rgJumpbox 'Microsoft.Resources/resourceGroups@2024-03-01' = if (deployJumpbox) {
+  name: names.rgJumpbox
   location: location
   tags: allTags
 }
@@ -415,6 +444,8 @@ module network 'modules/network.bicep' = {
     deployImageBuildSubnets: deployImageBuildSubnets
     imageBuildSubnetPrefix: imageBuildSubnetPrefix
     imageBuildAciSubnetPrefix: imageBuildAciSubnetPrefix
+    deployJumpboxSubnet: deployJumpbox
+    jumpboxSubnetPrefix: jumpboxSubnetPrefix
   }
 }
 
@@ -594,6 +625,40 @@ module autoShutdownRbacHosts 'modules/autoShutdownRbac.bicep' = if (enableAutoSh
   }
 }
 
+// =====================================================================
+// 9. OPERATOR JUMPBOX — opt-in, through Bastion Developer (decision 0018)
+// =====================================================================
+module bastion 'modules/bastionDeveloper.bicep' = if (deployJumpbox) {
+  name: 'avdlz-bastion'
+  scope: rgNetwork
+  params: {
+    location: location
+    tags: allTags
+    name: names.bastion
+    vnetResourceId: network.outputs.vnetResourceId
+    adminsGroupObjectId: avdAdminsGroupObjectId
+  }
+}
+
+module jumpbox 'modules/jumpbox.bicep' = if (deployJumpbox) {
+  name: 'avdlz-jumpbox'
+  scope: rgJumpbox
+  params: {
+    location: location
+    tags: allTags
+    vmName: names.jumpbox
+    vmSize: jumpboxVmSize
+    subnetResourceId: network.outputs.jumpboxSubnetResourceId
+    encryptionAtHost: encryptionAtHost
+    adminUsername: 'avdoperator'
+    adminPassword: jumpboxAdminPassword
+    autoShutdownTime: jumpboxAutoShutdownTime
+    autoShutdownTimeZone: autoShutdownTimeZone
+    keepRunningUntil: jumpboxKeepRunningUntil
+    adminsGroupObjectId: avdAdminsGroupObjectId
+  }
+}
+
 // ---------- Outputs ----------
 output resourceGroups object = {
   network: rgNetwork.name
@@ -601,6 +666,7 @@ output resourceGroups object = {
   storage: rgStorage.name
   controlPlane: rgControlPlane.name
   hosts: rgHosts.name
+  jumpbox: deployJumpbox ? names.rgJumpbox : ''
 }
 output hostPoolResourceId string = controlPlane.outputs.hostPoolResourceId
 output workspaceResourceId string = controlPlane.outputs.workspaceResourceId
@@ -609,3 +675,4 @@ output storageAccountResourceId string = storage.outputs.resourceId
 output keyVaultName string = keyVault.outputs.name
 output logAnalyticsWorkspaceResourceId string = monitoring.outputs.logAnalyticsWorkspaceResourceId
 output sessionHostNames string[] = sessionHosts.outputs.names
+output jumpboxName string = deployJumpbox ? names.jumpbox : ''

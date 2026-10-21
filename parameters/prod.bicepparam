@@ -32,6 +32,11 @@ param privateEndpointSubnetPrefix = '10.100.2.0/27'
 // Golden image build subnets (build/specs/image-pipeline-spec.md): only in the image build environment.
 // AVD_IMAGE_BUILD_SUBNETS=true adds them (empty = off).
 param deployImageBuildSubnets = empty(readEnvironmentVariable('AVD_IMAGE_BUILD_SUBNETS', '')) ? false : bool(readEnvironmentVariable('AVD_IMAGE_BUILD_SUBNETS', ''))
+// Operator jumpbox through Bastion Developer (decision 0018), off by default: deploy.sh --jumpbox sets
+// AVD_DEPLOY_JUMPBOX=true, and --jumpbox-keep-running <yyyy-MM-ddTHH:mmZ> skips its daily stop until then
+// (empty = off and the daily stop; lesson 0004).
+param deployJumpbox = empty(readEnvironmentVariable('AVD_DEPLOY_JUMPBOX', '')) ? false : bool(readEnvironmentVariable('AVD_DEPLOY_JUMPBOX', ''))
+param jumpboxKeepRunningUntil = readEnvironmentVariable('AVD_JUMPBOX_KEEP_RUNNING_UNTIL', '')
 
 // ---- Session hosts ----
 // Sizing: the deployment portal's sizing step, deploy.sh (--hosts, --vm-size, --max-sessions,

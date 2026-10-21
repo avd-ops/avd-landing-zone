@@ -9,6 +9,8 @@
 // Optionally (deployImageBuildSubnets), two subnets for the golden image build
 // (build/specs/image-pipeline-spec.md): the Azure Image Builder build VM, and the
 // container instance that drives an isolated build. Same egress as the hosts.
+// Optionally (deployJumpboxSubnet), the operator jumpbox's subnet (decision 0018): reached only
+// through Azure Bastion Developer, which needs the jumpbox in this VNet. Same egress as the hosts.
 
 param location string
 param tags object
@@ -39,6 +41,12 @@ param imageBuildSubnetPrefix string = '10.100.2.128/27'
 
 @description('Image build container subnet, delegated to Azure Container Instances (a /27).')
 param imageBuildAciSubnetPrefix string = '10.100.2.160/27'
+
+@description('Add the operator jumpbox subnet (snet-jumpbox, decision 0018).')
+param deployJumpboxSubnet bool = false
+
+@description('Jumpbox subnet (a /28 in the spoke\'s free range).')
+param jumpboxSubnetPrefix string = '10.100.2.32/28'
 
 var isHub = connectivityMode == 'HubPeered'
 var useRouteTable = isHub && !empty(hubFirewallPrivateIp)
@@ -203,6 +211,51 @@ module imageBuildNsg 'br/public:avm/res/network/network-security-group:0.5.3' = 
   }
 }
 
+// Jumpbox subnet (decision 0018): no public IP and nothing from the internet. Bastion Developer
+// reaches the jumpbox over the VNet (the default AllowVnetInBound rule), so the subnet needs no
+// rule of its own for it. Like the hosts, the jumpbox may not RDP or SSH onward (it manages the
+// hosts through Azure: Run Command, not a session).
+module jumpboxNsg 'br/public:avm/res/network/network-security-group:0.5.3' = if (deployJumpboxSubnet) {
+  name: 'nsg-jumpbox'
+  params: {
+    name: 'nsg-${vnetName}-jumpbox'
+    location: location
+    tags: tags
+    securityRules: [
+      {
+        name: 'Deny-Internet-Inbound'
+        properties: {
+          priority: 4000
+          direction: 'Inbound'
+          access: 'Deny'
+          protocol: '*'
+          sourceAddressPrefix: 'Internet'
+          sourcePortRange: '*'
+          destinationAddressPrefix: '*'
+          destinationPortRange: '*'
+        }
+      }
+      {
+        name: 'Deny-VirtualNetwork-RDP-SSH-Outbound'
+        properties: {
+          priority: 4000
+          direction: 'Outbound'
+          access: 'Deny'
+          protocol: 'Tcp'
+          sourceAddressPrefix: '*'
+          sourcePortRange: '*'
+          destinationAddressPrefix: 'VirtualNetwork'
+          destinationPortRanges: [
+            '22'
+            '3389'
+          ]
+        }
+      }
+    ]
+    diagnosticSettings: diagnostics
+  }
+}
+
 // ---------- Egress ----------
 module natGateway 'br/public:avm/res/network/nat-gateway:2.1.1' = if (!isHub) {
   name: 'nat-gateway'
@@ -289,6 +342,17 @@ module vnet 'br/public:avm/res/network/virtual-network:0.10.2' = {
             delegation: 'Microsoft.ContainerInstance/containerGroups'
           }
         ]
+      : [], deployJumpboxSubnet
+      ? [
+          {
+            name: 'snet-jumpbox'
+            addressPrefix: jumpboxSubnetPrefix
+            defaultOutboundAccess: false
+            networkSecurityGroupResourceId: jumpboxNsg!.outputs.resourceId
+            natGatewayResourceId: isHub ? null : natGateway!.outputs.resourceId
+            routeTableResourceId: useRouteTable ? routeTable!.outputs.resourceId : null
+          }
+        ]
       : [])
     peerings: isHub
       ? [
@@ -312,3 +376,5 @@ output sessionHostSubnetResourceId string = vnet.outputs.subnetResourceIds[0]
 output privateEndpointSubnetResourceId string = vnet.outputs.subnetResourceIds[1]
 output imageBuildSubnetResourceId string = deployImageBuildSubnets ? vnet.outputs.subnetResourceIds[2] : ''
 output imageBuildAciSubnetResourceId string = deployImageBuildSubnets ? vnet.outputs.subnetResourceIds[3] : ''
+// The jumpbox subnet comes after the image build subnets when both are there.
+output jumpboxSubnetResourceId string = deployJumpboxSubnet ? vnet.outputs.subnetResourceIds[deployImageBuildSubnets ? 4 : 2] : ''

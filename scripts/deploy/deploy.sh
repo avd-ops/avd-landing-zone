@@ -7,7 +7,8 @@
 #       --users-group "AVD Users" --admins-group "AVD Admins" [--what-if] \
 #       [--hosts 3 --vm-size Standard_D8as_v5 --max-sessions 16 --profile-quota 600] \
 #       [--auto-shutdown 20:00|none --start-vm-on-connect true|false] [--unlock] \
-#       [--image-id <gallery image version ID> [--generation a|b]]
+#       [--image-id <gallery image version ID> [--generation a|b]] \
+#       [--jumpbox [--jumpbox-keep-running <yyyy-MM-ddTHH:mmZ>]]
 #
 # -l is the region the landing zone is deployed to (it sets AVD_LOCATION, which
 # the parameter files read). The sizing flags (from the deployment portal's sizing
@@ -19,6 +20,8 @@
 # that the host pool's avdlz-image and avdlz-generation tags decide, and only host rotation
 # (build/specs/image-pipeline-spec.md section 6.5) changes them: deploy.sh never replaces software.
 # The rotation script alone passes --rotation and --deployment-name (the name it then looks up).
+# --jumpbox adds the operator jumpbox and Bastion Developer (build/decisions/0018); once it exists,
+# later deployments keep it. --jumpbox-keep-running skips its daily stop until that UTC time.
 #
 # Environment variables (any flag above overrides):
 #   AVD_USERS_GROUP_ID, AVD_ADMINS_GROUP_ID   Entra group object IDs
@@ -45,10 +48,12 @@ GENERATION=""
 GENERATION_SET=false
 ROTATION=false
 DEPLOY_NAME=""
+JUMPBOX=false
+JUMPBOX_KEEP_RUNNING=""
 AVD_APP_ID="9cdead84-a844-4324-93f2-b2e6bb768d07"   # Azure Virtual Desktop first-party app
 
 usage() {
-  sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'
   exit 1
 }
 
@@ -70,6 +75,8 @@ while [[ $# -gt 0 ]]; do
     --generation) GENERATION="$2"; GENERATION_SET=true; shift 2 ;;
     --rotation) ROTATION=true; shift ;;   # only Invoke-AvdHostRotation.ps1 passes this
     --deployment-name) DEPLOY_NAME="$2"; shift 2 ;;   # and this
+    --jumpbox) JUMPBOX=true; shift ;;
+    --jumpbox-keep-running) JUMPBOX_KEEP_RUNNING="$2"; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -87,6 +94,22 @@ done
 # A gallery image version, never a definition or latest (image pipeline spec section 6.1).
 [[ -z "$IMAGE_ID" || "$IMAGE_ID" =~ ^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.Compute/galleries/[^/]+/images/[^/]+/versions/[0-9]+\.[0-9]+\.[0-9]+$ ]] \
   || { echo "--image-id takes a Compute Gallery image version resource ID (.../images/<definition>/versions/<x.y.z>): '$IMAGE_ID'"; exit 1; }
+
+[[ -z "$JUMPBOX_KEEP_RUNNING" || "$JUMPBOX_KEEP_RUNNING" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z$ ]] \
+  || { echo "--jumpbox-keep-running takes a UTC time, yyyy-MM-ddTHH:mmZ: '$JUMPBOX_KEEP_RUNNING'"; exit 1; }
+if [[ -n "$JUMPBOX_KEEP_RUNNING" ]]; then
+  $JUMPBOX || { echo "--jumpbox-keep-running needs --jumpbox"; exit 1; }
+  # Never leave the meter running (avd-second-brain decision 0017): an opt-out has an end, in the future.
+  until_s=$(date -u -d "${JUMPBOX_KEEP_RUNNING/T/ }" +%s 2>/dev/null) || { echo "Not a time: '$JUMPBOX_KEEP_RUNNING'"; exit 1; }
+  (( until_s > $(date -u +%s) )) || { echo "--jumpbox-keep-running is in the past: '$JUMPBOX_KEEP_RUNNING'"; exit 1; }
+fi
+# Regions with Azure Bastion Developer (Microsoft Learn, bastion-sku-comparison; the same list as
+# Get-AvdBastionDeveloperRegion in scripts/ops/AvdLandingZone.psm1, a test checks they match).
+BASTION_DEVELOPER_REGIONS=" brazilsouth canadacentral canadaeast centralus centraluseuap eastus2 eastus2euap mexicocentral northcentralus westcentralus westus francecentral germanywestcentral italynorth northeurope norwayeast spaincentral swedencentral switzerlandnorth uksouth ukwest westeurope australiacentral australiaeast australiasoutheast centralindia eastasia japaneast japanwest koreacentral koreasouth southindia southeastasia southafricanorth uaenorth "
+if $JUMPBOX && [[ "$BASTION_DEVELOPER_REGIONS" != *" ${LOCATION,,} "* ]]; then
+  echo "Azure Bastion Developer isn't offered in $LOCATION, so --jumpbox can't be used there. Regions:$BASTION_DEVELOPER_REGIONS"
+  exit 1
+fi
 
 echo "==> Checking az and Bicep"
 az bicep version >/dev/null 2>&1 || az bicep install
@@ -330,6 +353,19 @@ if ! ${POOL_FOUND:-false} && [[ -n "$IMAGE_ID$GENERATION" ]]; then
   [[ -n "$GENERATION" ]] && first+=("\"avdlz-generation\":$(json_str "$GENERATION")")
   AVD_HOST_POOL_STATE_TAGS="{$(IFS=,; echo "${first[*]}")}"
 fi
+# --- Operator jumpbox (decision 0018) ---
+# Once the jumpbox exists, a deployment without --jumpbox would try to remove its subnet while the VM
+# is in it, and fail: keep it. Remove-AvdDemo.ps1 -IncludeJumpbox removes it.
+if ! $JUMPBOX && [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(az group exists -n "rg-$NAME_PREFIX-$ENV_NAME-jumpbox")" == "true" ]]; then
+  JUMPBOX=true
+  echo "==> Keeping the jumpbox in rg-$NAME_PREFIX-$ENV_NAME-jumpbox (Remove-AvdDemo.ps1 -IncludeJumpbox removes it)."
+fi
+AVD_DEPLOY_JUMPBOX=$($JUMPBOX && echo true || echo '') AVD_JUMPBOX_KEEP_RUNNING_UNTIL="$JUMPBOX_KEEP_RUNNING"
+export AVD_DEPLOY_JUMPBOX AVD_JUMPBOX_KEEP_RUNNING_UNTIL
+if $JUMPBOX; then
+  echo "    Jumpbox: on, $([[ -n "$JUMPBOX_KEEP_RUNNING" ]] && echo "kept running until $JUMPBOX_KEEP_RUNNING (no daily stop)" || echo 'stops daily'); connect with ./scripts/ops/Connect-AvdJumpbox.ps1"
+fi
+
 # Image and generation (empty = the marketplace image and the original host names).
 AVD_SESSION_HOST_IMAGE_ID="$IMAGE_ID" AVD_SESSION_HOST_GENERATION="$GENERATION" AVD_HOST_POOL_STATE_TAGS="${AVD_HOST_POOL_STATE_TAGS:-}"
 export AVD_SESSION_HOST_IMAGE_ID AVD_SESSION_HOST_GENERATION AVD_HOST_POOL_STATE_TAGS
