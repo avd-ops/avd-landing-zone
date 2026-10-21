@@ -503,6 +503,91 @@ function Test-AvdBatchGroupStart {
   }
 }
 
+# =====================================================================
+# Health before spend
+# =====================================================================
+function Get-AvdHostDevicePrefix {
+  <# The computer name prefixes a landing zone's hosts get: session hosts (bicep/main.bicep) and demo hosts (bicep/demo/main.bicep). #>
+  param([string] $NamePrefix = 'avdlz', [string] $Environment = 'dev')
+  $clean = ($NamePrefix -replace '-', '').ToLowerInvariant()
+  foreach ($suffix in 'sh', 'demo') { $n = "$clean$($Environment.Substring(0, 1))$suffix"; $n.Substring(0, [math]::Min(11, $n.Length)) }
+}
+
+function Get-AvdStaleHostDevice {
+  <#
+    Entra devices an earlier run left: the name is exactly a landing zone host name (<prefix>-<n>,
+    or a blue/green generation's take(<prefix>, 10) + a or b, bicep/main.bicep) and no VM carries it. A new host with the same name can't join while one is there. The caller
+    passes VM names and computer names from every subscription it can read, so a host that lives
+    in another subscription is never called stale.
+  #>
+  param($Devices, [string[]] $Prefix, [string[]] $VmName)
+  $vms = @($VmName | Where-Object { $_ } | ForEach-Object { $_.ToLowerInvariant() })
+  foreach ($d in @($Devices | Where-Object { $_ -and $_.displayName })) {
+    $name = "$($d.displayName)".ToLowerInvariant()
+    $hosts = @($Prefix | Where-Object { $_ } | ForEach-Object { $p = $_.ToLowerInvariant(); "^($([regex]::Escape($p))|$([regex]::Escape($p.Substring(0, [math]::Min(10, $p.Length))))[ab])-\d+$" })
+    if (@($hosts | Where-Object { $name -match $_ }).Count -and $name -notin $vms) { $d }
+  }
+}
+
+function Test-AvdArmAction {
+  <# True when ARM permissions (the caller's Microsoft.Authorization/permissions list) allow Action. #>
+  param($Permissions, [Parameter(Mandatory)][string] $Action)
+  # ARM omits an empty notActions (lesson 0021); JSON gives objects, tests give hashtables.
+  $get = { param($o, $k) if ($o -is [System.Collections.IDictionary]) { $o[$k] } elseif ($o.PSObject.Properties[$k]) { $o.$k } }
+  foreach ($p in @($Permissions | Where-Object { $_ })) {
+    $allowed = @(& $get $p 'actions' | Where-Object { $_ -and $Action -like $_ }).Count
+    $denied = @(& $get $p 'notActions' | Where-Object { $_ -and $Action -like $_ }).Count
+    if ($allowed -and -not $denied) { return $true }
+  }
+  $false
+}
+
+function Get-AvdSandboxHealthResult {
+  <#
+    Pass or fail per check, from facts Test-AvdSandboxHealth.ps1 read in Azure, each failure with
+    what fixes it. Read only: it never grants a permission or deletes anything, so a missing
+    permission or a leftover ends in a step for a person.
+  #>
+  param([Parameter(Mandatory)][hashtable] $Facts)
+  $f = @{}
+  foreach ($k in 'signedIn', 'signInError', 'subscriptionName', 'permissions', 'permissionsError', 'graphStatus', 'graphError', 'staleDevices',
+    'leftoverGroups', 'groupsError', 'namePrefix', 'environment', 'needsRunStore', 'runStore', 'runStoreError', 'monthlyCap', 'runCap', 'estimate') { $f[$k] = $Facts[$k] }
+  $r = [System.Collections.Generic.List[object]]::new()
+  $add = { param($Check, $Ok, $Detail, $Fix) $r.Add([ordered]@{ check = $Check; ok = [bool]$Ok; detail = $Detail; fix = $(if ($Ok) { '' } else { $Fix }) }) }
+  $lz = "-NamePrefix $($f.namePrefix) -Environment $($f.environment)"
+
+  & $add 'Azure sign-in' $f.signedIn $(if ($f.signedIn) { "Signed in to '$($f.subscriptionName)'." } else { "Not signed in to Azure: $($f.signInError)" }) `
+    'Sign in as the sandbox owner (Connect-AzAccount, or a new Cloud Shell) with the sandbox subscription selected (Set-AzContext).'
+  if (-not $f.signedIn) { return $r.ToArray() }
+  $grant = 'Ask an owner of the sandbox subscription for Contributor and Role Based Access Control Administrator (or Owner) on it.'
+  $deploy = Test-AvdArmAction $f.permissions 'Microsoft.Resources/deployments/write'
+  & $add 'Can deploy' $deploy $(if ($deploy) { 'Deployments allowed on the subscription.' } elseif ($f.permissionsError) { "Could not read your permissions: $($f.permissionsError)" } else { 'No Microsoft.Resources/deployments/write on the subscription (Contributor).' }) $grant
+  $roles = Test-AvdArmAction $f.permissions 'Microsoft.Authorization/roleAssignments/write'
+  & $add 'Can assign roles' $roles $(if ($roles) { 'Role assignments allowed (the landing zone assigns roles).' } elseif ($f.permissionsError) { "Could not read your permissions: $($f.permissionsError)" } else { 'No Microsoft.Authorization/roleAssignments/write (Role Based Access Control Administrator).' }) $grant
+  $graph = $f.graphStatus -eq 200
+  & $add 'Microsoft Graph devices' $graph $(if ($graph) { 'Devices readable.' } else { "Reading devices returned $($f.graphStatus): $($f.graphError)" }) `
+    'Your account needs to read devices in Entra ID (any directory reader role; deleting them at teardown needs Cloud Device Administrator).'
+  if ($graph) {
+    $left = @($f.staleDevices | Where-Object { $_ } | ForEach-Object { $_.displayName })
+    & $add 'Devices from earlier runs' (-not $left.Count) $(if ($left.Count) { "Still there with no VM of that name in any subscription you can read: $($left -join ', '). A new host with the same name can't join Entra ID." } else { 'None left by an earlier run.' }) `
+      "Delete them in the Entra admin center (Devices, All devices) and in Intune if they are enrolled, then run this check again. Nothing here deletes them for you."
+  }
+  $groups = @($f.leftoverGroups | Where-Object { $_ })
+  & $add 'Resource groups from earlier runs' (-not $groups.Count -and -not $f.groupsError) $(if ($f.groupsError) { "Could not list resource groups: $($f.groupsError)" } elseif ($groups.Count) { "Still there: $($groups -join ', '). They may still bill." } else { 'None.' }) `
+    "Tear down the group that left them (Invoke-AvdSandboxBatch.ps1 -TeardownOnly), or remove the landing zone: ./scripts/ops/Remove-AvdDemo.ps1 $lz -IncludeLandingZone -Force (it refuses to delete the logs until they are kept; then add -DiscardLastCopy)."
+  if ($f.needsRunStore) {
+    & $add 'Run store' ([bool]$f.runStore) $(if ($f.runStore) { "Run store $($f.runStore) in avdlz-runs-rg." } elseif ($f.runStoreError) { "Could not read the run store: $($f.runStoreError)" } else { 'No run store (avdlz-runs-rg): needed for records, kept output and recorded runs.' }) `
+      'Set it up once (cents a month): ./scripts/ops/Initialize-AvdRunStore.ps1'
+  }
+  $capsSet = [double]$f.monthlyCap -gt 0 -and [double]$f.runCap -gt 0
+  & $add 'Spend caps' $capsSet $(if ($capsSet) { "Monthly cap $(Format-AvdBatchMoney $f.monthlyCap), run cap $(Format-AvdBatchMoney $f.runCap)." } else { 'A monthly or run cap is not set.' }) 'Pass -MonthlyCap and -RunCap, or set SPEND_MONTHLY_CAP and SPEND_RUN_CAP.'
+  if ($capsSet -and $null -ne $f.estimate) {
+    $fits = [double]$f.estimate -le [double]$f.runCap
+    & $add 'Estimate within the run cap' $fits "Estimate $(Format-AvdBatchMoney $f.estimate), run cap $(Format-AvdBatchMoney $f.runCap)." 'Split the group or rebuild the batch: a run past its cap never starts.'
+  }
+  $r.ToArray()
+}
+
 function Format-AvdBatchTime {
   <# A time from a record (ISO text, or a date ConvertFrom-Json already parsed) as yyyy-MM-dd HH:mm UTC. #>
   param($Value)
@@ -516,4 +601,5 @@ function Format-AvdBatchMoney {
   '${0:N2}' -f [double]$Amount
 }
 
-Export-ModuleMember -Function ConvertFrom-AvdBatchItemFile, Get-AvdBatchStepState, Test-AvdBatchGroupStart, ConvertFrom-AvdBatchIssueBody, ConvertFrom-AvdBatchRecordField, Get-AvdBatchItem, Get-AvdBatchGroup, Get-AvdBatchPlan, Get-AvdBatchHash, Get-AvdBatch, Get-AvdBatchApproval, Test-AvdBatchApproval, Get-AvdBatchNextStep, Get-AvdBatchRunId, Get-AvdBatchRecorderCall, Format-AvdBatchMoney, Format-AvdBatchTime
+Export-ModuleMember -Function ConvertFrom-AvdBatchItemFile, Get-AvdBatchStepState, Test-AvdBatchGroupStart, ConvertFrom-AvdBatchIssueBody, ConvertFrom-AvdBatchRecordField, Get-AvdBatchItem, Get-AvdBatchGroup, Get-AvdBatchPlan, Get-AvdBatchHash, Get-AvdBatch, Get-AvdBatchApproval, Test-AvdBatchApproval, Get-AvdBatchNextStep, Get-AvdBatchRunId, Get-AvdBatchRecorderCall, Format-AvdBatchMoney, Format-AvdBatchTime,
+  Get-AvdHostDevicePrefix, Get-AvdStaleHostDevice, Test-AvdArmAction, Get-AvdSandboxHealthResult

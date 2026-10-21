@@ -31,6 +31,8 @@ pwsh -NoLogo -Command 'if (-not (Test-Path ~/avd-landing-zone)) { git clone http
 The script prints `batch.md`: the groups, the total and the blocks to approve and run each group. Quote the total and the exact go phrase back to the person, with what each group deploys and for how long. Then stop and wait.
 
 ## 4. When a run stopped
+A group that refuses to start because the sandbox isn't healthy claimed and spent nothing: read the `[FAIL ]` lines of `Test-AvdSandboxHealth.ps1` and their fixes with the person. Never delete a leftover device or resource group for them; the check only reports.
+
 Ask for the output of `./scripts/ops/Get-AvdSandboxBatchStatus.ps1`. It prints the next block: `-Resume` for a group Cloud Shell dropped, `-TeardownOnly` to stop and clean up, `-ContinueAfterStop` only after the reason an earlier group stopped the batch is dealt with. A spend run still open may be billing: say so first.
 
 ## 5. After

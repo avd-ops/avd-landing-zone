@@ -443,3 +443,49 @@ Describe 'Resuming after Cloud Shell drops' {
     Format-AvdBatchTime ([datetime]::new(2026, 10, 21, 1, 5, 0, [DateTimeKind]::Utc)) | Should -Be '2026-10-21 01:05 UTC'
   }
 }
+
+Describe 'Health before spend' {
+  BeforeAll {
+    $script:Healthy = @{ signedIn = $true; subscriptionName = 'Sandbox'; namePrefix = 'avdlz'; environment = 'dev'
+      permissions = @(@{ actions = @('*') }); graphStatus = 200; staleDevices = @(); leftoverGroups = @(); monthlyCap = 150; runCap = 25; estimate = 2.75 }
+    function script:Get-Failed([hashtable] $Over = @{}) { $f = $Healthy.Clone(); foreach ($k in $Over.Keys) { $f[$k] = $Over[$k] }; @(Get-AvdSandboxHealthResult -Facts $f | Where-Object { -not $_.ok }) }
+  }
+  It 'passes a healthy sandbox' {
+    @(Get-Failed).Count | Should -Be 0
+  }
+  It 'stops at the sign-in when there is none' {
+    $r = @(Get-AvdSandboxHealthResult -Facts @{ signedIn = $false; signInError = 'Not signed in' })
+    $r.Count | Should -Be 1
+    $r[0].fix | Should -Match 'Connect-AzAccount'
+  }
+  It 'reads ARM permissions with notActions, which ARM leaves out when empty' {
+    Test-AvdArmAction @(@{ actions = @('*'); notActions = @('Microsoft.Authorization/*/Write') }) 'Microsoft.Authorization/roleAssignments/write' | Should -BeFalse
+    Test-AvdArmAction @([pscustomobject]@{ actions = @('*') }) 'Microsoft.Resources/deployments/write' | Should -BeTrue
+    Test-AvdArmAction @() 'Microsoft.Resources/deployments/write' | Should -BeFalse
+    (Get-Failed @{ permissions = @(@{ actions = @('*/read') }) }).check | Should -Be @('Can deploy', 'Can assign roles')
+  }
+  It 'never reads a failed list as nothing there' {
+    (Get-Failed @{ permissions = @(); permissionsError = 'GET failed (403)' })[0].detail | Should -Match 'Could not read your permissions: GET failed \(403\)'
+    (Get-Failed @{ groupsError = 'POST failed (500)' }).detail | Should -Match 'Could not list resource groups'
+    (Get-Failed @{ graphStatus = 403; graphError = 'denied' }).detail | Should -Match 'returned 403'
+  }
+  It 'names leftover devices and groups, and deletes nothing' {
+    $f = Get-Failed @{ staleDevices = @(@{ displayName = 'avdlzdsh-001' }); leftoverGroups = @('rg-avdlz-dev-hosts') }
+    $f.check | Should -Be @('Devices from earlier runs', 'Resource groups from earlier runs')
+    $f[0].fix | Should -Match 'Nothing here deletes them'
+    $f[1].fix | Should -Match 'Remove-AvdDemo\.ps1 -NamePrefix avdlz -Environment dev -IncludeLandingZone'
+  }
+  It 'checks the caps, the estimate and the run store only when asked' {
+    (Get-Failed @{ runCap = 0 }).check | Should -Be 'Spend caps'
+    (Get-Failed @{ estimate = 30 }).check | Should -Be 'Estimate within the run cap'
+    (Get-Failed @{ needsRunStore = $true; runStore = '' }).check | Should -Be 'Run store'
+  }
+  It 'names host devices the way the templates do' {
+    Get-AvdHostDevicePrefix | Should -Be @('avdlzdsh', 'avdlzddemo')
+    Get-AvdHostDevicePrefix -NamePrefix 'contoso-lab' -Environment test | Should -Be @('contosolabt', 'contosolabt')
+  }
+  It 'calls a device stale only when its name is exactly a host name and no VM carries it' {
+    $d = @(@{ id = '1'; displayName = 'avdlzdsh-001' }, @{ id = '2'; displayName = 'avdlzdsh-002' }, @{ id = '3'; displayName = 'AVDLZDDEMO-001' }, @{ id = '4'; displayName = 'avdlzdsh-001-old' }, @{ id = '5'; displayName = 'avdlzdshx-001' }, @{ id = '6'; displayName = 'avdlzdsha-002' })
+    @(Get-AvdStaleHostDevice -Devices $d -Prefix (Get-AvdHostDevicePrefix) -VmName @('AVDLZDSH-002') | ForEach-Object id) | Should -Be @('1', '3', '6')
+  }
+}

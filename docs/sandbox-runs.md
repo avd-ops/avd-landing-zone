@@ -13,6 +13,7 @@ Two levels:
 | `Stop-AvdSpendRun.ps1` | After teardown: compares the subscription with the baseline. Anything new is a leftover; the run stays open and the script exits 1 until it's gone (or named with `-Keep`). |
 | `New-AvdSandboxBatch.ps1` | Builds a batch from the ready queue items: pins each source to a commit, groups by deployment key, prices the groups, applies the batch, run and monthly caps, and writes `batch.json` and `batch.md` (with the Cloud Shell blocks to approve and run it). |
 | `Approve-AvdSandboxBatch.ps1` | A person types the go phrase, `go batch <id> $<total>`. It must name the batch and its exact total, and the approval is bound to the batch's hash: any later change voids it. |
+| `Test-AvdSandboxHealth.ps1` | Is the sandbox ready to spend? Read-only checks with the fix for each failure: your permissions, Entra devices and resource groups an earlier run left, the run store, the caps. A new group runs it first. |
 | `Invoke-AvdSandboxBatch.ps1` | Runs one group of an approved batch. `-Resume` continues a group Cloud Shell dropped; `-TeardownOnly` is the safety net. |
 | `Get-AvdSandboxBatchStatus.ps1` | Where every batch and group stands, which spend runs are still open, and the block to run next. Read-only. |
 
@@ -117,7 +118,20 @@ Set-Location ~/avd-landing-zone; git pull -q --ff-only
 ./scripts/ops/Invoke-AvdSandboxBatch.ps1 -BatchId b20261021-1700 -Group G1 -MonthlyCap 150 -RunCap 25
 ```
 
-Exit 0: closed clean and every test passed. Exit 3: closed clean with a failed test or deploy; the next group may run. Exit 2: stop the batch (the spend run didn't open, the close found leftovers, the deadline passed, output couldn't be kept, or it refused to start); deal with the reason before the next group.
+A group starts with the health check below; a failure claims, deploys and spends nothing, so the same block runs again once it's fixed. Exit 0: closed clean and every test passed. Exit 3: closed clean with a failed test or deploy; the next group may run. Exit 2: stop the batch (the spend run didn't open, the close found leftovers, the deadline passed, output couldn't be kept, or it refused to start); deal with the reason before the next group.
+
+### Health before spend
+
+`Test-AvdSandboxHealth.ps1` runs before a new group (or by itself, before a run by hand):
+
+```powershell
+Set-Location ~/avd-landing-zone
+./scripts/ops/Test-AvdSandboxHealth.ps1 -MonthlyCap 150 -RunCap 25 -Estimate 2.75
+```
+
+It checks that you're signed in; that you may deploy and assign roles on the subscription (your ARM permissions); that Entra devices are readable and none is named exactly like this landing zone's hosts (`<prefix><e>sh-<n>`, `<prefix><e>demo-<n>`) while no VM in any subscription you can read carries that name, since a new host of the same name can't join; that no resource group `rg-<prefix>-<env>-*` is left from an earlier run; the run store (`-NeedsRunStore`); and the caps and the estimate. A recorded group is checked under its own `-NamePrefix` and `-Environment`, any other under the defaults.
+
+It reads and never writes: it grants nothing and deletes nothing, leftover devices included. API errors are printed as they came back, never read as "nothing there". Each failure prints what fixes it. `-SkipHealth` on `Invoke-AvdSandboxBatch.ps1` skips it, for example when your account can't read devices and you've checked them another way.
 
 ### When Cloud Shell drops
 
