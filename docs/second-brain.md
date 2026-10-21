@@ -1,10 +1,10 @@
 # This repo and avd-second-brain
 
-**[avd-second-brain](https://github.com/nickprignano/avd-second-brain)** is the second brain for the whole AVD lifecycle: assess (a separate assessment project), inventory (avd-current-state), deploy and operate (this repo). Its [architecture](https://github.com/nickprignano/avd-second-brain/blob/main/docs/architecture.md) and [contracts](https://github.com/nickprignano/avd-second-brain/blob/main/docs/contracts.md) are the source of truth; this page lists this repo's part.
+**[avd-second-brain](https://github.com/avd-ops/avd-second-brain)** is the second brain for the whole AVD lifecycle: assess (a separate assessment project), inventory (avd-current-state), deploy and operate (this repo). Its [architecture](https://github.com/avd-ops/avd-second-brain/blob/main/docs/architecture.md) and [contracts](https://github.com/avd-ops/avd-second-brain/blob/main/docs/contracts.md) are the source of truth; this page lists this repo's part.
 
 | What | Where | Status |
 |---|---|---|
-| The operations brain's **spec** and red team | avd-second-brain [`docs/operations-spec.md`](https://github.com/nickprignano/avd-second-brain/blob/main/docs/operations-spec.md) (moved from here, section numbers unchanged) | Proposed |
+| The operations brain's **spec** and red team | avd-second-brain [`docs/operations-spec.md`](https://github.com/avd-ops/avd-second-brain/blob/main/docs/operations-spec.md) (moved from here, section numbers unchanged) | Proposed |
 | The operations brain's **runtime**: `brain.bicep`, detections, playbooks, exceptions, executor, kill switch | This repo, once built ([decision 0012](../build/decisions/0012-second-brain.md)) | Not built |
 | Lessons and decisions | This repo; avd-second-brain searches them in place and cites `avd-landing-zone@<commit>:<path>` (contract C7) | Built |
 

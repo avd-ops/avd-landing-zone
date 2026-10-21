@@ -2,7 +2,7 @@
   "description": "Vendored contracts, each byte-identical to its source repo at the pinned commit: C15 (fact register) and C17 (run records) from avd-assess, which authors them since avd-second-brain decision 0021; C14 (target state and approval) from avd-second-brain. build/tests/TargetState.Tests.ps1 checks the hashes. To update: copy the files from the source at a new commit, then update that source's commit and the hashes in the same PR.",
   "sources": {
     "avd-assess": {
-      "url": "https://github.com/nickprignano/avd-assess",
+      "url": "https://github.com/avd-ops/avd-assess",
       "commit": "b4209a753ef25b509b728f1e03be5d09c68e1842",
       "files": [
         "fact-register.json",
@@ -14,7 +14,7 @@
       ]
     },
     "avd-second-brain": {
-      "url": "https://github.com/nickprignano/avd-second-brain",
+      "url": "https://github.com/avd-ops/avd-second-brain",
       "commit": "ddb84a24a4ae992efb4aa87dc514593e2e2b32bb",
       "files": [
         "examples/target-approval.example.json",

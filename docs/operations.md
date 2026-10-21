@@ -29,7 +29,7 @@ They share `AvdLandingZone.psm1`. The landing zone's resources, Entra groups and
 
 ```powershell
 # Cloud Shell (PowerShell), in the landing zone subscription
-git clone https://github.com/nickprignano/avd-landing-zone.git
+git clone https://github.com/avd-ops/avd-landing-zone.git
 cd avd-landing-zone
 Set-AzContext -Subscription '<landing zone subscription>'
 
@@ -66,7 +66,7 @@ Scopes: `Application.ReadWrite.All`, `DelegatedPermissionGrant.ReadWrite.All`, `
 **The operator app (recommended).** Without it, the scripts sign in through Microsoft's shared "Microsoft Graph Command Line Tools" app, which needs consent for these scopes: an administrator's, for the ReadWrite ones. An administrator runs this once per tenant:
 
 ```powershell
-if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 ./scripts/ops/Initialize-AvdGraphApp.ps1 -SaveToProfile    # -OperatorsGroup 'AVD Admins' by default; -WhatIf to preview
 ```
@@ -99,20 +99,20 @@ Optional, off by default ([decision 0019](../build/decisions/0019-jumpbox-bastio
 
 ```powershell
 # Cloud Shell (PowerShell): preflight with the jumpbox (region, size, cost)
-if (Test-Path ~/avd-landing-zone) { Set-Location ~/avd-landing-zone; git pull -q } else { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone; Set-Location ~/avd-landing-zone }
+if (Test-Path ~/avd-landing-zone) { Set-Location ~/avd-landing-zone; git pull -q } else { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone; Set-Location ~/avd-landing-zone }
 ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -PreDeployment -ParameterFile parameters/dev.bicepparam -Location northcentralus -UsersGroup 'AVD Users' -AdminsGroup 'AVD Admins' -Jumpbox
 ```
 
 ```bash
 # Cloud Shell (Bash): deploy (or update) the landing zone with the jumpbox
-cd ~/avd-landing-zone 2>/dev/null || { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone && cd ~/avd-landing-zone; }
+cd ~/avd-landing-zone 2>/dev/null || { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone && cd ~/avd-landing-zone; }
 git pull -q
 bash ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus --users-group 'AVD Users' --admins-group 'AVD Admins' --jumpbox
 ```
 
 ```powershell
 # Cloud Shell (PowerShell): get a one-time password and the Connect > Bastion link
-if (Test-Path ~/avd-landing-zone) { Set-Location ~/avd-landing-zone; git pull -q } else { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone; Set-Location ~/avd-landing-zone }
+if (Test-Path ~/avd-landing-zone) { Set-Location ~/avd-landing-zone; git pull -q } else { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone; Set-Location ~/avd-landing-zone }
 ./scripts/ops/Connect-AvdJumpbox.ps1 -NamePrefix avdlz -Environment dev
 ```
 
@@ -120,14 +120,14 @@ Open the link, choose SSH with Authentication type Password (RDP on Windows), an
 
 ```bash
 # On the jumpbox (Bash): the repo and the Azure CLI sign-in deploy.sh uses
-cd ~/avd-landing-zone 2>/dev/null || { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone && cd ~/avd-landing-zone; }
+cd ~/avd-landing-zone 2>/dev/null || { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone && cd ~/avd-landing-zone; }
 git pull -q
 az login --use-device-code
 ```
 
 ```powershell
 # On the jumpbox (start pwsh): the Azure and Graph sign-ins the PowerShell scripts use
-if (Test-Path ~/avd-landing-zone) { Set-Location ~/avd-landing-zone; git pull -q } else { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone; Set-Location ~/avd-landing-zone }
+if (Test-Path ~/avd-landing-zone) { Set-Location ~/avd-landing-zone; git pull -q } else { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone; Set-Location ~/avd-landing-zone }
 Connect-AzAccount -UseDeviceAuthentication
 ./scripts/ops/Connect-AvdLandingZone.ps1
 ```
@@ -228,7 +228,7 @@ Group SIDs are the synced group's on-premises SID when it has one, otherwise the
 - Pooled host pool (validation ring), desktop app group, workspace.
 - `-SessionHostCount` hosts (default 1), built by the landing zone's own `controlPlane` and `sessionHosts` modules.
 - The existing spoke, profile share, Log Analytics, DCR, private DNS, groups and AVD service principal.
-- No scaling plan, so the host stays up while you test, until 20:00 Central: the demo hosts have their own daily shutdown, since the landing zone's auto shutdown covers only its own host pool (never leave the meter running, [avd-second-brain decision 0017](https://github.com/nickprignano/avd-second-brain/blob/main/docs/knowledge/decisions/0017-never-leave-the-meter-running.md)). Start VM on Connect starts them again. The host pool private endpoint lives in the demo RG, so cleanup removes it.
+- No scaling plan, so the host stays up while you test, until 20:00 Central: the demo hosts have their own daily shutdown, since the landing zone's auto shutdown covers only its own host pool (never leave the meter running, [avd-second-brain decision 0017](https://github.com/avd-ops/avd-second-brain/blob/main/docs/knowledge/decisions/0017-never-leave-the-meter-running.md)). Start VM on Connect starts them again. The host pool private endpoint lives in the demo RG, so cleanup removes it.
 
 It then validates sign-in readiness:
 
@@ -254,7 +254,7 @@ If the Microsoft Graph sign-in times out, the script keeps the deployment record
 
 It supports `-WhatIf`.
 
-With `-IncludeLandingZone`, the landing zone holds the only copy of its FSLogix profiles, their backups and its Log Analytics workspace (AVD diagnostics, host logs and the activity log export). The script refuses unless you also pass `-DiscardLastCopy`, which `-Force` never implies: copy what you want to keep outside the landing zone first and check the copy ([never delete the last copy](https://github.com/nickprignano/avd-second-brain/blob/main/docs/knowledge/decisions/0016-never-delete-the-last-copy.md)). Then you type the landing zone name to confirm (`-Force` skips this). It then removes:
+With `-IncludeLandingZone`, the landing zone holds the only copy of its FSLogix profiles, their backups and its Log Analytics workspace (AVD diagnostics, host logs and the activity log export). The script refuses unless you also pass `-DiscardLastCopy`, which `-Force` never implies: copy what you want to keep outside the landing zone first and check the copy ([never delete the last copy](https://github.com/avd-ops/avd-second-brain/blob/main/docs/knowledge/decisions/0016-never-delete-the-last-copy.md)). Then you type the landing zone name to confirm (`-Force` skips this). It then removes:
 1. **Profile backup.** It disables vault immutability and soft delete, which would otherwise block the delete. It stops protection, deletes the recovery points, and unregisters the storage account, which releases the backup delete lock.
 2. **The five landing zone resource groups**, in dependency order. First it deletes the Log Analytics workspace permanently. Deleting its resource group would only soft-delete it for 14 days, and the next deployment under the same name would recover it and fail on the AVD Insights data collection rule ([lesson 0023](../build/lessons/0023-log-analytics-soft-delete.md)).
 3. **Subscription-level resources:** `avdlz-*` policy assignments with their role assignments, the budget, the activity-log diagnostic setting, and deployment records.
@@ -284,7 +284,7 @@ The landing zone deploys an Azure Automation runbook, [`scripts/automation/Invok
 Run it by hand from Cloud Shell, with your own sign-in (`-WhatIf` shows what it would do):
 
 ```powershell
-if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 ./scripts/automation/Invoke-AvdPowerAction.ps1 -Action Resume -NamePrefix avdlz -Environment dev
 ```
@@ -330,7 +330,7 @@ If the portal gives the wrong advice or you are stuck, use **Report a problem** 
 You don't need this: the portal on GitHub Pages works for everyone. Publish a copy when you want it in your own subscription, for a fork, or pinned to a release ([decision 0017](../build/decisions/0017-portal-hosting.md)):
 
 ```powershell
-if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 ./scripts/ops/Publish-AvdPortal.ps1 -NamePrefix avdlz -Environment dev -Location eastus2
 ```
@@ -369,7 +369,7 @@ Same-tenant recovery is part of the landing zone and works on its own: any regio
 **1. Where do you stand?** Read-only.
 
 ```powershell
-if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 ./scripts/ops/Get-AvdRecoveryStatus.ps1 -NamePrefix avdlz -Environment dev -RecoveryTier R0
 ```
@@ -377,7 +377,7 @@ Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 **2. Take a configuration snapshot, then copy it to your private companion repo.** The snapshot counts once a copy has been read back. `-IncludeIdentity` needs the Graph sign-in.
 
 ```powershell
-if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 ./scripts/ops/Connect-AvdLandingZone.ps1
 ./scripts/ops/Export-AvdConfiguration.ps1 -NamePrefix avdlz -Environment dev -IncludeIdentity
@@ -388,7 +388,7 @@ Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 **3. Test a profile restore.** The first run only plans and prints the estimate. Add `-Go` when you accept it, and clean up right after: the test's storage account bills until it is gone.
 
 ```powershell
-if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 ./scripts/ops/Start-AvdRecoveryTest.ps1 -NamePrefix avdlz -Environment dev          # plan and estimate
 ./scripts/ops/Start-AvdRecoveryTest.ps1 -NamePrefix avdlz -Environment dev -Go      # restore and measure
@@ -400,7 +400,7 @@ The restore goes to a new storage account in the **vault's region** (Azure Backu
 **4. Once a month, read the copies back.**
 
 ```powershell
-if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 ./scripts/ops/Test-AvdRecoveryCopies.ps1 -NamePrefix avdlz -Environment dev -PrivateRepo '<owner>/<private companion repo>'
 ```
@@ -416,7 +416,7 @@ Preflight and demo return **0** when nothing failed and **1** otherwise, so you 
 Confirms from the connection logs that a real sign-in reached the desktop ([decision 0014](../build/decisions/0014-verify-access.md), [spec](../build/specs/verify-access-spec.md) §6.5). Open the desktop first, as yourself, then run it in Cloud Shell:
 
 ```powershell
-if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 ./scripts/ops/Test-AvdUserConnection.ps1 -NamePrefix avdlz -Environment dev
 ```

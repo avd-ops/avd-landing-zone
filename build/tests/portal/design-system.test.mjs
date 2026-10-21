@@ -1,4 +1,4 @@
-// The portal and the other pages in site/ use the avd-ops design system (nickprignano/avd-ops,
+// The portal and the other pages in site/ use the avd-ops design system (avd-ops/avd-ops,
 // docs/design-system.md), vendored in site/assets/ so the portal still contacts no other site. Tokens, fonts
 // and the logo slot come from there; the portal's <style> holds only its own components.
 // Run: node --test "build/tests/portal/*.test.mjs"
@@ -13,7 +13,7 @@ const read = (f) => readFileSync(join(root, f), 'utf8');
 
 test('site/assets holds a versioned copy of the avd-ops design system', () => {
   const css = read('site/assets/avd-ops.css');
-  assert.match(css, /^\/\* avd-ops design system v\d+\.\d+\.\d+ \(https:\/\/avd-ops\.dev\/, nickprignano\/avd-ops site\/assets\/avd-ops\.css\)/);
+  assert.match(css, /^\/\* avd-ops design system v\d+\.\d+\.\d+ \(https:\/\/avd-ops\.dev\/, (?:avd-ops|nickprignano)\/avd-ops site\/assets\/avd-ops\.css\)/);
   for (const [, src] of css.matchAll(/url\("([^"]+)"\)/g)) assert.ok(existsSync(join(root, 'site/assets', src)), src);
   assert.ok(existsSync(join(root, 'site/assets/fonts/LICENSE')), 'font licenses');
   for (const f of ['mark.svg', 'favicon.svg']) assert.ok(existsSync(join(root, 'site/assets/brand', f)), `brand/${f}`);

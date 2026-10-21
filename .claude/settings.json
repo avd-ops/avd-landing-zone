@@ -1,4 +1,7 @@
 {
+  "env": {
+    "HANDOFF_OWNER": "nickprignano"
+  },
   "hooks": {
     "SessionStart": [
       {
