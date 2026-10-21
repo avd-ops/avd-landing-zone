@@ -916,3 +916,47 @@ test('published copy: commands point an existing clone at the pinned repo and ch
   // An invalid ref (from anywhere) never reaches the command.
   assert.match(P.actionsForStep('predeploy', Object.assign({}, base, { repoUrl: P.DEFAULTS.repoUrl, ref: "x'; iex y" }))[0].command, /git checkout -q master/);
 });
+
+// Recording a run (run recorder, phase 2): the run ID rides in every command once recording is on.
+const REC = { ...P.DEFAULTS, record: { runId: 'run-20261021-0517-ab12', mode: 'azure' } };
+
+test('record: newRunId is UTC and matches the recorder format', () => {
+  assert.equal(P.newRunId(new Date(Date.UTC(2026, 9, 21, 5, 7)), 'AB-12'), 'run-20261021-0507-ab12');
+  assert.match(P.newRunId(), /^run-\d{8}-\d{4}-[a-z0-9]{4}$/);
+});
+
+test('record: recording accepts only a valid run ID and defaults the mode to azure', () => {
+  assert.equal(P.recording({}), null);
+  assert.equal(P.recording({ record: { runId: 'run-1; Remove-Item' } }), null);
+  assert.deepEqual(P.recording({ record: { runId: 'run-20261021-0517-ab12', mode: 'x' } }), { runId: 'run-20261021-0517-ab12', mode: 'azure' });
+  assert.equal(P.recording({ record: { runId: 'run-20261021-0517-ab12', mode: 'on' } }).mode, 'on');
+});
+
+test('record: every script block sets the run ID when recording, and none when not', () => {
+  const plain = P.commands.runStatus({ ...P.DEFAULTS });
+  assert.doesNotMatch(plain, /AVDLZ_/);
+  const rec = P.commands.runStatus(REC);
+  assert.match(rec, /\$env:AVDLZ_RECORD = 'azure'; \$env:AVDLZ_RUN_ID = 'run-20261021-0517-ab12'/);
+  assert.equal(rec.replace(/\n\$env:AVDLZ_RECORD[^\n]*/, ''), plain);
+});
+
+test('record: open and stop commands carry the run ID and the right flags', () => {
+  const start = last(P.commands.recordStart(REC));
+  assert.match(start, /^\.\/scripts\/ops\/Start-AvdRunRecorder\.ps1 -RunId run-20261021-0517-ab12 -ParameterFile parameters\/dev\.bicepparam -Location \S+ -Hours 3 -Cap 10$/);
+  assert.match(last(P.commands.recordStop(REC, 'before-cleanup')), /-RunId run-20261021-0517-ab12 .*-BeforeCleanup$/);
+  assert.match(last(P.commands.recordStop(REC, 'end')), /-Status torn-down$/);
+  assert.match(last(P.commands.recordStop(REC, 'copy')), /-CopyTo github$/);
+  assert.match(last(P.commands.recordStop(REC, 'cost')), /-UpdateCost$/);
+  assert.equal(P.commands.recordStop(REC, 'nope'), '');
+  assert.equal(P.commands.recordStart({ ...P.DEFAULTS }), '');
+  const local = { ...P.DEFAULTS, record: { runId: 'run-20261021-0517-ab12', mode: 'on' } };
+  assert.match(last(P.commands.recordStart(local)), / -Local$/);
+});
+
+test('record: recordActions lists the five steps in order, each self-contained', () => {
+  assert.deepEqual(P.recordActions({}), []);
+  const a = P.recordActions(REC);
+  assert.deepEqual(a.map((x) => x.title), ['Open the run', 'Before cleanup: keep the logs', 'After cleanup: close the run', 'Copy it to your private repo', 'Later: read the cost again']);
+  assertSelfContained({ actions: a });
+  for (const x of a) assert.match(x.command, /AVDLZ_RUN_ID = 'run-20261021-0517-ab12'/);
+});

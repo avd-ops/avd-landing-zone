@@ -26,6 +26,7 @@
   code { font: .86em var(--mono); background: var(--sunken); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
   :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   .status, .muted { color: var(--muted); }
+  .resume-hint { font-size: .85rem; margin: .5rem 0 0; }
   .status { font-size: .93rem; }
   .hidden { display: none !important; }
   .eyebrow { font: 600 .72rem/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
@@ -37,12 +38,12 @@
   .brand a.home:hover { color: var(--accent); }
   .brand .sep { color: var(--line-strong); }
   .toplinks { display: flex; align-items: center; gap: 4px 14px; flex-wrap: wrap; font-size: .95rem; }
-  .toplinks > a:not(#settings-link) { color: var(--muted); text-decoration: none; }
-  .toplinks > a:not(#settings-link):hover { color: var(--accent); }
-  #settings-link { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; text-decoration: none; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 5px 11px; background: var(--surface); color: var(--fg); }
-  #settings-link:hover { border-color: var(--accent); color: var(--accent); }
-  #settings-link[aria-expanded="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
-  #settings-link svg { width: 16px; height: 16px; }
+  .toplinks > a:not(.toolbtn) { color: var(--muted); text-decoration: none; }
+  .toplinks > a:not(.toolbtn):hover { color: var(--accent); }
+  .toplinks > a.toolbtn { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; text-decoration: none; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 5px 11px; background: var(--surface); color: var(--fg); }
+  .toplinks > a.toolbtn:hover { border-color: var(--accent); color: var(--accent); }
+  .toplinks > a.toolbtn[aria-expanded="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+  .toplinks > a.toolbtn svg { width: 16px; height: 16px; }
   .intro { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px 24px; align-items: start; padding-block: 18px 6px; }
   .lede { color: var(--muted); margin: 0; max-width: 62ch; font-size: 1rem; }
   .disclaimer { font-size: .85rem; color: var(--muted); }
@@ -55,7 +56,11 @@
   section, details.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow); }
   details.panel > summary { cursor: pointer; font: 600 1rem var(--display); }
   details.panel[open] > summary { margin-bottom: 12px; }
-  #settings-panel { border-color: var(--accent); margin-top: 16px; }
+  #settings-panel, #resume-panel { border-color: var(--accent); margin-top: 16px; }
+  #record-panel { border-left: 4px solid var(--accent); }
+  #record-panel .run-id { font: 600 .95rem var(--mono); }
+  .record-row { display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; }
+  .record-row label.switch { margin-bottom: 0; flex: 1 1 320px; }
   .pool { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 14px; margin-bottom: 12px; background: var(--sunken); }
   .pool h3 { margin-bottom: 10px; }
 
@@ -248,7 +253,8 @@
   <header class="top">
     <div class="brand"><a class="home" href="https://avd-ops.dev/"><img class="mark" src="../assets/brand/mark.svg" alt="" width="26" height="26">avd-ops</a><span class="sep" aria-hidden="true">/</span><h1>AVD deployment portal</h1></div>
     <div class="toplinks"><a href="https://avd-ops.dev/family/avd-landing-zone.html">About the landing zone</a>
-    <a href="#settings" id="settings-link" role="button" aria-controls="settings-panel" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h7M13 4h1M2 12h1M7 12h7"/><circle cx="11" cy="4" r="2"/><circle cx="5" cy="12" r="2"/></svg>Deployment settings</a></div>
+    <a href="#resume" id="resume-link" class="toolbtn" role="button" aria-controls="resume-panel" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9"/><path d="M2.5 2.5v2.5H5"/><path d="M8 5v3l2 1.5"/></svg>Where did I leave off?</a>
+    <a href="#settings" id="settings-link" class="toolbtn" role="button" aria-controls="settings-panel" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h7M13 4h1M2 12h1M7 12h7"/><circle cx="11" cy="4" r="2"/><circle cx="5" cy="12" r="2"/></svg>Deployment settings</a></div>
   </header>
   <div class="intro">
   <p class="lede">
@@ -278,10 +284,28 @@
       <label class="field"><span>Test user (optional, for the demo)</span><input type="text" id="testUserUpn" autocomplete="off" placeholder="user@contoso.com"></label>
       <label class="field"><span>Graph sign-in app client ID (optional)</span><input type="text" id="graphClientId" autocomplete="off" placeholder="from Initialize-AvdGraphApp.ps1" title="The avd-opsbot app (docs/operations.md). Empty: Microsoft's default Graph app."></label>
     </div>
+    <div class="record-row" style="margin-top:14px">
+      <label class="switch"><input type="checkbox" id="record-on"><span><strong>Record this run</strong><br><span class="muted">Every command writes to a run journal, so the run can be picked up after a Cloud Shell reset and what it taught can improve the scripts and tests. Adds the steps to open and close the run.</span></span></label>
+      <label class="field" style="flex:0 1 260px"><span>Keep the run folder in</span>
+        <select id="record-mode"><option value="azure">the run store and Cloud Shell</option><option value="on">Cloud Shell only</option></select>
+      </label>
+    </div>
     <div class="row" style="margin-top:12px">
       <button class="secondary" id="reset">Start over</button>
       <span class="status">Clears the saved progress and settings.</span>
     </div>
+  </section>
+
+  <section id="resume-panel" class="hidden" aria-labelledby="resume-title">
+    <div class="headline"><h2 id="resume-title" style="margin:0">Where did I leave off?</h2><button type="button" class="linkbtn" id="resume-close" style="margin-left:auto">Close</button></div>
+    <p class="status">After a Cloud Shell reset or a break: this reads where the deployment stands from Azure (deployment history and resource groups; a recorded run's journal adds detail). It changes nothing. Run it, then paste its output in the box below and the portal picks up from there.</p>
+    <div id="resume-actions"></div>
+  </section>
+
+  <section id="record-panel" class="hidden" aria-labelledby="record-title">
+    <div class="headline"><h2 id="record-title" style="margin:0">Recording <span class="run-id" id="record-id"></span></h2><button type="button" class="linkbtn" id="record-new" style="margin-left:auto">New run ID</button></div>
+    <p class="status" id="record-note"></p>
+    <details id="record-steps"><summary>Open and close the run (5 steps)</summary><div id="record-actions" style="margin-top:12px"></div></details>
   </section>
 
   <ol class="steps" id="steps" aria-label="Deployment progress"></ol>
@@ -470,7 +494,7 @@
   $('source-ref').textContent = site.ref || 'master';
   if (site.ignored.length) $('source-line').appendChild(document.createTextNode(' This copy\'s portal-config.js has an invalid ' + site.ignored.join(' and ') + ', so the commands use the default.'));
 
-  var cfg = Object.assign({}, P.DEFAULTS, load('config', {}), { repoUrl: repoUrl, ref: site.ref, sizing: load('sizing', null), power: load('power', null), hoursWorkedPerWeek: load('hoursWorked', 50), launch: P.launchTarget(load('launch', null)) });
+  var cfg = Object.assign({}, P.DEFAULTS, load('config', {}), { repoUrl: repoUrl, ref: site.ref, sizing: load('sizing', null), power: load('power', null), hoursWorkedPerWeek: load('hoursWorked', 50), launch: P.launchTarget(load('launch', null)), record: load('record', null) });
   var step = load('step', null);
   // Furthest step reached, by id: later steps stay hidden until the deployment gets there. (Saved as an
   // index before the Cost step existed; those indexes are read against the old step list.)
@@ -611,8 +635,8 @@
   }
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; }
 
-  function renderActions(actions) {
-    var box = $('actions'); box.textContent = '';
+  function renderActions(actions, box) {
+    box = box || $('actions'); box.textContent = '';
     actions.forEach(function (a, i) {
       var d = el('div', 'action');
       d.appendChild(el('h3', '', (actions.length > 1 ? (i + 1) + '. ' : '') + a.title));
@@ -625,7 +649,54 @@
       }
       box.appendChild(d);
     });
+    // Spec section 4.3: a reset loses the shell, not the deployment.
+    if (box === $('actions') && actions.some(function (a) { return /scripts\//.test(a.command || ''); })) {
+      var hint = el('p', 'muted resume-hint', 'If Cloud Shell resets, the deployment keeps running. Use ');
+      var link = el('a', '', 'Where did I leave off?'); link.href = '#resume';
+      link.addEventListener('click', function (e) { e.preventDefault(); showResume(true); });
+      hint.appendChild(link); hint.appendChild(document.createTextNode(' at the top to pick up from there.'));
+      box.appendChild(hint);
+    }
   }
+
+  // ---------------------------------------------------------------- where did I leave off (run recorder spec section 4)
+  function showResume(open) {
+    $('resume-panel').classList.toggle('hidden', !open);
+    $('resume-link').setAttribute('aria-expanded', String(open));
+    if (open) {
+      renderActions([{ title: 'Read where the run stands', why: '', command: P.commands.runStatus(config()) }], $('resume-actions'));
+      $('resume-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+    else $('resume-link').focus({ preventScroll: true });
+  }
+  $('resume-link').addEventListener('click', function (e) { e.preventDefault(); showResume($('resume-panel').classList.contains('hidden')); });
+  $('resume-close').addEventListener('click', function () { showResume(false); });
+  if (location.hash === '#resume') showResume(true);
+
+  // ---------------------------------------------------------------- record this run (run recorder spec sections 5 and 6)
+  function renderRecord() {
+    var r = P.recording(cfg);
+    $('record-on').checked = !!r;
+    $('record-mode').value = r ? r.mode : (cfg.record && cfg.record.mode === 'on' ? 'on' : 'azure');
+    $('record-mode').disabled = !r;
+    $('record-panel').classList.toggle('hidden', !r);
+    if (!r) return;
+    $('record-id').textContent = r.runId;
+    $('record-note').textContent = 'Every command below sets this run ID, so it keeps recording after a Cloud Shell reset. Open the run before the pre-deployment preflight; the run folder is kept ' +
+      (r.mode === 'azure' ? 'in the run store (outside the landing zone, so cleanup never removes it) and in Cloud Shell.' : 'in Cloud Shell only (~/clouddrive/avdlz-runs when clouddrive is mounted).');
+    renderActions(P.recordActions(config()), $('record-actions'));
+  }
+  function setRecord(rec) {
+    cfg.record = rec; save('record', rec);
+    if (!$('resume-panel').classList.contains('hidden')) showResume(true);
+    render();
+  }
+  $('record-on').addEventListener('change', function () {
+    setRecord($('record-on').checked ? { runId: P.newRunId(), mode: $('record-mode').value === 'on' ? 'on' : 'azure' } : null);
+    if (cfg.record) $('record-steps').open = true;
+  });
+  $('record-mode').addEventListener('change', function () { if (P.recording(cfg)) setRecord({ runId: cfg.record.runId, mode: $('record-mode').value === 'on' ? 'on' : 'azure' }); });
+  $('record-new').addEventListener('click', function () { if (P.recording(cfg)) setRecord({ runId: P.newRunId(), mode: P.recording(cfg).mode }); });
 
   function renderFindings(r) {
     var box = $('findings'); box.textContent = '';
@@ -647,7 +718,7 @@
   }
 
   function render() {
-    renderSteps(); renderSlides(); renderLaunch();
+    renderSteps(); renderSlides(); renderLaunch(); renderRecord();
     var chip = $('next-chip'), head = $('next-headline');
     if (lastAnalysis) {
       var r = lastAnalysis;
@@ -716,7 +787,7 @@
   $('clear-paste').addEventListener('click', function () { $('paste').value = ''; $('paste-status').textContent = ''; maskedCount = 0; showMasked(); lastAnalysis = null; render(); refreshReport(true); });
   $('reset').addEventListener('click', function () {
     try { Object.keys(localStorage).filter(function (k) { return k.indexOf('avdlz.portal.') === 0; }).forEach(function (k) { localStorage.removeItem(k); }); } catch (e) { /* storage unavailable */ }
-    cfg = Object.assign({}, P.DEFAULTS, { repoUrl: repoUrl, ref: site.ref, sizing: null, power: null, hoursWorkedPerWeek: 50, launch: null }); step = null; reached = 0; ranked = null; lastAnalysis = null; latency = [];
+    cfg = Object.assign({}, P.DEFAULTS, { repoUrl: repoUrl, ref: site.ref, sizing: null, power: null, hoursWorkedPerWeek: 50, launch: null, record: null }); step = null; reached = 0; ranked = null; lastAnalysis = null; latency = [];
     pools = [Object.assign({}, P.HOST_POOL_DEFAULTS)]; estimate = null; renderPools(); renderCost();
     reach = null; $('reach-results').classList.add('hidden'); renderReachability();
     $('results').classList.add('hidden'); $('paste').value = ''; maskedCount = 0; showMasked(); setConfig({}); render(); showStep();

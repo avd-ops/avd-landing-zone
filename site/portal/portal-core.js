@@ -211,7 +211,22 @@
     else lines.push('Set-Location ' + dir + '; git checkout -q master; git pull -q --ff-only');
     return lines.join('\n');
   }
-  function block(cfg, lines) { return preamble(cfg) + '\n' + lines.join('\n'); }
+  // Record this run (run recorder spec sections 5 and 6): the run ID, and where the run folder goes
+  // ('azure': the run store and Cloud Shell; 'on': Cloud Shell only). Every block sets the journal's
+  // two variables again, so a command still records after a Cloud Shell reset.
+  var RUN_ID = /^run-\d{8}-\d{4}-[a-z0-9]{4}$/;
+  function recording(cfg) { var r = cfg && cfg.record; return r && RUN_ID.test(r.runId || '') ? { runId: r.runId, mode: r.mode === 'on' ? 'on' : 'azure' } : null; }
+  function newRunId(now, suffix) {
+    var d = now || new Date(), p = function (n) { return (n < 10 ? '0' : '') + n; };
+    var s = String(suffix || Math.random().toString(36).slice(2, 6)).toLowerCase().replace(/[^a-z0-9]/g, '');
+    s = (s + '0000').slice(0, 4);
+    return 'run-' + d.getUTCFullYear() + p(d.getUTCMonth() + 1) + p(d.getUTCDate()) + '-' + p(d.getUTCHours()) + p(d.getUTCMinutes()) + '-' + s;
+  }
+  function recordEnv(cfg) {
+    var r = recording(cfg);
+    return r ? ["$env:AVDLZ_RECORD = '" + r.mode + "'; $env:AVDLZ_RUN_ID = '" + r.runId + "'"] : [];
+  }
+  function block(cfg, lines) { return [preamble(cfg)].concat(recordEnv(cfg), lines).join('\n'); }
   // Steps that use Microsoft Graph sign in first, once for the session; the scripts reuse the sign-in (decision 0016).
   function signIn(cfg) {
     var id = String(cfg.graphClientId || '').trim();
@@ -274,6 +289,25 @@
     // Where did I leave off (run recorder spec section 4): reads where the run stands from Azure.
     runStatus: function (cfg) {
       return block(cfg, ['./scripts/ops/Get-AvdRunStatus.ps1' + (cfg.namePrefix ? ' -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment : '')]);
+    },
+    // Open a recorded run (Start-AvdRunRecorder.ps1): run.json and the expected cost, gated at half the cap.
+    // The parameter file reads the portal's sizing from the AVD_* variables, so the price matches what deploys.
+    recordStart: function (cfg, opts) {
+      var r = recording(cfg); if (!r) return '';
+      opts = opts || {};
+      var s = sized(cfg), env = s ? ["$env:AVD_SESSION_HOST_COUNT = '" + s.hosts + "'; $env:AVD_SESSION_HOST_VM_SIZE = '" + s.vmSize + "'"] : [];
+      var hours = opts.hours > 0 && opts.hours <= 24 ? opts.hours : 3, cap = opts.cap >= 1 && opts.cap <= 1000 ? opts.cap : 10;
+      return block(cfg, env.concat(['./scripts/ops/Start-AvdRunRecorder.ps1 -RunId ' + r.runId + ' -ParameterFile ' + cfg.parameterFile + ' -Location ' + cfg.location +
+        ' -Hours ' + hours + ' -Cap ' + cap + (r.mode === 'on' ? ' -Local' : '')]));
+    },
+    // Close a recorded run (Stop-AvdRunRecorder.ps1). mode: 'before-cleanup' (export the AVD logs while the
+    // workspace still exists), 'end' (status and the first actual cost), 'copy' (the private companion repo),
+    // 'cost' (read the actual cost again until it settles).
+    recordStop: function (cfg, mode) {
+      var r = recording(cfg); if (!r) return '';
+      var flag = { 'before-cleanup': ' -BeforeCleanup', end: ' -Status torn-down', copy: ' -CopyTo github', cost: ' -UpdateCost' }[mode];
+      if (!flag) return '';
+      return block(cfg, ['./scripts/ops/Stop-AvdRunRecorder.ps1 -RunId ' + r.runId + (cfg.namePrefix ? ' -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment : '') + flag + (r.mode === 'on' ? ' -Local' : '')]);
     },
     // Same-tenant recovery (build/specs/recovery-spec.md): read-only status, the configuration snapshot, and a
     // recovery test that only plans and prices until it is run again with -Go.
@@ -882,6 +916,20 @@
     }
   }
 
-  return { STEPS: STEPS, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, siteConfig: siteConfig, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_HOSTS: MAX_HOSTS, computePool: computePool, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
+  // The steps of a recorded run, in order, for the portal's Record this run panel.
+  function recordActions(cfg) {
+    var r = recording(cfg); if (!r) return [];
+    var store = r.mode === 'azure';
+    var a = [
+      { title: 'Open the run', why: 'Before the pre-deployment preflight. Prices the run from the parameter file at list prices and refuses if the total is more than half the cap or a line has no price. Writes run.json and cost.json to the run folder' + (store ? ' in the run store (set it up once with Initialize-AvdRunStore.ps1)' : ' in Cloud Shell') + '.', command: cmd.recordStart(cfg) },
+      { title: 'Before cleanup: keep the logs', why: 'Cleanup deletes the Log Analytics workspace, the only copy of the AVD logs. This exports them into the run folder and checks the row counts first.', command: cmd.recordStop(cfg, 'before-cleanup') },
+      { title: 'After cleanup: close the run', why: 'Records how the run ended and the first actual cost reading. Cost Management can take a day or more to settle.', command: cmd.recordStop(cfg, 'end') },
+      { title: 'Copy it to your private repo', why: 'Needs AVD_PRIVATE_REPO set to a private repository of yours and the GitHub CLI signed in (gh auth login, device code). Every file is read back and checked. It refuses a public repository.', command: cmd.recordStop(cfg, 'copy') },
+      { title: 'Later: read the cost again', why: 'Appends another actual cost reading; the cost settles once it is unchanged for 72 hours.', command: cmd.recordStop(cfg, 'cost') }
+    ];
+    return a;
+  }
+
+  return { STEPS: STEPS, newRunId: newRunId, recording: recording, recordActions: recordActions, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, siteConfig: siteConfig, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_HOSTS: MAX_HOSTS, computePool: computePool, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
     REACHABILITY_HOSTS: REACHABILITY_HOSTS, rateLatency: rateLatency, classifyReachability: classifyReachability, launchTarget: launchTarget, launchUrl: launchUrl };
 });

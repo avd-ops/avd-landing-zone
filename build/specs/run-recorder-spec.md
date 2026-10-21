@@ -86,6 +86,8 @@ Rules for the inference, each a Pester case:
 - Every command block the portal prints already ends with the state line; a short hint under each block says "If Cloud Shell resets, run *Where did I leave off?*".
 - Stage `resume` is added to `Get-AvdPortalState`'s `ValidateSet`, `portal-core.js`, `STAGE_LABEL`, the schema in `site/portal/README.md`, and their tests (R5).
 
+**Built in phase 2:** the header's **Where did I leave off?** button (and `#resume`) prints the `Get-AvdRunStatus.ps1` block, and the step's commands end with a one-line hint pointing to it. **Record this run** in Deployment settings generates a run ID (`newRunId`, UTC with a random suffix; **New run ID** replaces it), picks the mode (`azure` or `on`), adds the two variables to every block the portal prints, and lists the recorder's five steps: open the run, keep the logs before cleanup, close the run, copy it to the private repo, read the cost again. `build/tests/portal/browser/` checks both on a desktop in light mode and a phone in dark mode in Chromium (CI job `portal-browser`). Not built yet: the portal's local classification log (section 8.3) and `AVDLZ_PORTAL_STEP`.
+
 UI work follows the frontend design pass with the avd-ops design system, and is tested in a real browser with Playwright (webapp-testing), not only with Node tests.
 
 ## 5. Redaction: two levels, one implementation

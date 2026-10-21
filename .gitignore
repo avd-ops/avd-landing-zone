@@ -24,3 +24,4 @@ testResults.xml
 
 # Python bytecode (scripts/kb)
 __pycache__/
+node_modules/
