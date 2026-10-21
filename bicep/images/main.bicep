@@ -190,5 +190,5 @@ output imageDefinitionId string = images.outputs.imageDefinitionId
 output aibIdentityId string = images.outputs.aibIdentityId
 output buildSubnetId string = buildNetwork.outputs.buildSubnetId
 output buildAciSubnetId string = buildNetwork.outputs.aciSubnetId
-@description('Set as the AZURE_CLIENT_ID variable of the "images" GitHub Environment.')
+@description('Set as the AZURE_CLIENT_ID secret of the "images" GitHub Environment.')
 output buildIdentityClientId string = images.outputs.buildClientId

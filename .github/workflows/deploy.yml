@@ -30,10 +30,10 @@ jobs:
     runs-on: ubuntu-latest
     environment: ${{ inputs.environment }}
     env:
-      AVD_USERS_GROUP_ID: ${{ vars.AVD_USERS_GROUP_ID }}
-      AVD_ADMINS_GROUP_ID: ${{ vars.AVD_ADMINS_GROUP_ID }}
-      AVD_SERVICE_PRINCIPAL_ID: ${{ vars.AVD_SERVICE_PRINCIPAL_ID }}
-      AVD_ALERT_EMAIL: ${{ vars.AVD_ALERT_EMAIL }}
+      AVD_USERS_GROUP_ID: ${{ secrets.AVD_USERS_GROUP_ID }}
+      AVD_ADMINS_GROUP_ID: ${{ secrets.AVD_ADMINS_GROUP_ID }}
+      AVD_SERVICE_PRINCIPAL_ID: ${{ secrets.AVD_SERVICE_PRINCIPAL_ID }}
+      AVD_ALERT_EMAIL: ${{ secrets.AVD_ALERT_EMAIL }}
       AVD_MONTHLY_BUDGET: ${{ vars.AVD_MONTHLY_BUDGET }}
       # true only in the golden image build environment (docs/images.md); empty = no build subnets.
       AVD_IMAGE_BUILD_SUBNETS: ${{ vars.AVD_IMAGE_BUILD_SUBNETS }}

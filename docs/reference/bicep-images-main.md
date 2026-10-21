@@ -25,4 +25,4 @@ Azure Compute Gallery, image definition and identities for monthly Azure Image B
 | `aibIdentityId` | string |  |
 | `buildSubnetId` | string |  |
 | `buildAciSubnetId` | string |  |
-| `buildIdentityClientId` | string | Set as the AZURE_CLIENT_ID variable of the "images" GitHub Environment. |
+| `buildIdentityClientId` | string | Set as the AZURE_CLIENT_ID secret of the "images" GitHub Environment. |
