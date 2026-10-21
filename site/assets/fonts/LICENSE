@@ -1,4 +1,4 @@
-Fonts served with the deployment portal, unmodified from the @fontsource npm packages (latin subset).
+Fonts served with avd-ops.dev and the portals, unmodified from the @fontsource npm packages (latin subset).
 Each is licensed under the SIL Open Font License 1.1, reproduced below with its copyright line.
 
 =================== schibsted-grotesk ===================
@@ -96,8 +96,8 @@ DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
 
-=================== source-sans-3 ===================
-Copyright 2010-2020 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+=================== jetbrains-mono ===================
+Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono) JetBrainsMono-Italic[wght].ttf: Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:
@@ -191,8 +191,8 @@ DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
 
-=================== jetbrains-mono ===================
-Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono) JetBrainsMono-Italic[wght].ttf: Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
+=================== ibm-plex-mono ===================
+Copyright 2017 IBM Corp. All rights reserved.
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

@@ -1,4 +1,4 @@
-/* avd-ops app shell v2.1.0 (https://avd-ops.dev/, nickprignano/avd-ops site/assets/avd-ops-shell.css). MIT.
+/* avd-ops app shell v2.4.1 (https://avd-ops.dev/, avd-ops/avd-ops site/assets/avd-ops-shell.css). MIT.
    Personal project, not for production, as is; not affiliated with the author's employer or Microsoft.
    The frame every family page opens in: the brand bar (mark, word, the Docs, Deploy and Assess switcher, theme
    and menu buttons), the one-line research notice that opens to the full text, a side list that becomes a drawer
@@ -6,57 +6,79 @@
    class="shell" on <body>; every rule is scoped to .shell. theme.js wires the theme button and the drawer; on a portal, load it after avd-ops-portal.css so the bar's buttons keep their look; without
    it the side list sits below the page on narrow screens and the theme follows the system. */
 
-/* Brand bar: brand ink in both themes, so moving between the site and a portal keeps the same frame. */
+/* Brand bar: brand ink in both themes, so moving between the site and a portal keeps the same frame. It holds the
+   brand (the mark, the word and the tagline, as in the horizontal lockup), the switcher, the notice and the buttons. */
 .shell{background:var(--bg)}
 .shell::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--shell);z-index:30}
 .shell header.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--shell);color:var(--shell-fg);border-bottom:1px solid var(--shell-line)}
-.shell .bar-in{max-width:var(--page);margin:0 auto;display:flex;align-items:center;gap:var(--space-3);min-height:56px;
+.shell .bar-in{position:relative;max-width:var(--page);margin:0 auto;display:flex;align-items:center;gap:var(--space-3);min-height:var(--bar);
   padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
-.shell header.bar .brand{display:inline-flex;align-items:center;gap:var(--space-2);font:700 1.05rem var(--display);color:var(--shell-fg);text-decoration:none;letter-spacing:.01em;min-height:var(--tap)}
-.shell header.bar .brand .mark{width:28px;height:28px;flex:none;border-radius:6px;display:block}
-.shell .switcher{display:flex;gap:2px;padding:3px;border-radius:10px;background:var(--shell-hover);margin-left:var(--space-2)}
-.shell .switcher a{display:flex;align-items:center;min-height:36px;padding:0 .8rem;border-radius:7px;color:var(--shell-muted);text-decoration:none;font-weight:600;font-size:.92rem;transition:background var(--fast) var(--ease),color var(--fast) var(--ease)}
+.shell header.bar .brand{display:inline-flex;align-items:center;gap:var(--space-3);color:var(--shell-fg);text-decoration:none;min-height:var(--tap);flex:none}
+.shell header.bar .brand .mark{width:44px;height:44px;flex:none;border-radius:8px;display:block}
+.shell header.bar .brand .name{display:grid;line-height:1}
+.shell header.bar .brand .word{font:700 1.5rem/1 var(--wordmark);letter-spacing:.005em}
+.shell header.bar .brand .tag{font:600 .64rem/1 var(--tagline);letter-spacing:.26em;text-transform:uppercase;color:var(--brand);margin-top:6px}
+.shell .switcher{display:flex;gap:2px;padding:3px;border-radius:10px;background:var(--shell-hover);margin-left:var(--space-3);flex:none}
+.shell .switcher a{display:flex;align-items:center;min-height:36px;padding:0 .8rem;border-radius:7px;color:var(--shell-muted);text-decoration:none;font-weight:600;font-size:.86rem;transition:background var(--fast) var(--ease),color var(--fast) var(--ease)}
 .shell .switcher a:hover{color:var(--shell-fg)}
 .shell .switcher a[aria-current]{background:var(--shell-fg);color:var(--shell)}
-.shell .tools{margin-left:auto;display:flex;gap:var(--space-2)}
+.shell .tools{margin-left:auto;display:flex;gap:var(--space-2);flex:none}
 .shell header.bar .iconbtn{width:var(--tap);height:var(--tap);display:grid;place-items:center;border-radius:10px;border:1px solid var(--shell-line);background:transparent;color:var(--shell-fg);cursor:pointer;padding:0}
 .shell header.bar .iconbtn:hover{background:var(--shell-hover)}
 .shell header.bar .iconbtn svg{width:20px;height:20px}
 .shell header.bar :focus-visible{outline-color:var(--shell-fg)}
-.shell .menu{display:none}
+.shell header.bar .menu{display:none}
 .shell .theme .moon{display:none}
 :root[data-theme="dark"] .shell .theme .sun{display:none} :root[data-theme="dark"] .shell .theme .moon{display:block}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .shell .theme .sun{display:none}:root:not([data-theme="light"]) .shell .theme .moon{display:block}}
 html:not(.js) .shell .theme{display:none}
 
-/* Notice: one line that opens to the full research-only notice. The whole text stays in the page. */
-.shell details.notice{background:var(--surface);border-bottom:1px solid var(--line);font-size:.92rem;color:var(--muted)}
-.shell .notice summary{max-width:var(--page);margin:0 auto;display:flex;align-items:center;gap:var(--space-2);min-height:40px;cursor:pointer;list-style:none;
-  padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
+/* Notice: a pill in the bar, beside the buttons, that opens to the full research-only notice under the bar. The
+   whole text stays in the page. Wide screens show the full line, narrower ones "Not for production", phones the dot. */
+.shell header.bar .notice{margin-left:auto;min-width:0}
+.shell header.bar .notice+.tools{margin-left:0}
+.shell header.bar .notice summary{display:flex;align-items:center;gap:var(--space-2);min-height:var(--tap);padding:0 var(--space-3);border:1px solid var(--shell-line);border-radius:var(--pill);
+  cursor:pointer;list-style:none;font-size:.8rem;color:var(--shell-fg);white-space:nowrap;transition:background var(--fast) var(--ease)}
+.shell header.bar .notice summary:hover,.shell header.bar .notice[open] summary{background:var(--shell-hover)}
 .shell .notice summary::-webkit-details-marker{display:none}
-.shell .notice summary::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--warn-line);flex:none}
-.shell .notice summary strong{font-weight:600;color:var(--fg)}
+.shell header.bar .notice summary::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--shell-warn);flex:none}
+.shell header.bar .notice summary::after{content:"";width:6px;height:6px;border:solid var(--shell-muted);border-width:0 1.5px 1.5px 0;transform:translateY(-2px) rotate(45deg);flex:none;margin-left:2px;transition:transform var(--fast) var(--ease)}
+.shell header.bar .notice[open] summary::after{transform:translateY(1px) rotate(-135deg)}
+.shell header.bar .notice summary strong{font-weight:600;overflow:hidden;text-overflow:ellipsis}
 .shell .notice summary .short{display:none}
-.shell .notice summary .more{margin-left:auto;color:var(--accent);white-space:nowrap;padding-left:var(--space-3)}
-.shell .notice[open] summary .more{visibility:hidden}
-.shell .notice .full{max-width:var(--page);margin:0 auto;padding-block:0 var(--space-3);
-  padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
+.shell header.bar .notice .full{position:absolute;top:calc(100% + 1px);right:max(var(--gutter),env(safe-area-inset-right,0px));width:min(34rem,calc(100vw - 2 * var(--gutter)));padding-top:var(--space-2);font-size:.92rem;
+  max-height:calc(100dvh - var(--bar) - 1px - env(safe-area-inset-top,0px));overflow-y:auto;overscroll-behavior:contain}
+.shell header.bar .notice .full :focus-visible{outline-color:var(--focus)}
 .shell .notice ul{margin:0;padding:var(--space-3) var(--space-4) var(--space-3) 2.2rem;background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:var(--radius-sm);color:var(--warn-fg)}
+.shell header.bar .notice ul{box-shadow:var(--shadow-2)}
 .shell .notice ul a{color:inherit}
+/* A page made from a 2.2.0 starter keeps the notice as a row under the bar until it moves it into the bar. */
+.shell>details.notice{background:var(--surface);border-bottom:1px solid var(--line);font-size:.92rem;color:var(--muted)}
+.shell>details.notice summary{max-width:var(--page);margin:0 auto;display:flex;align-items:center;gap:var(--space-2);min-height:40px;cursor:pointer;list-style:none;
+  padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
+.shell>details.notice summary::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--warn-line);flex:none}
+.shell>details.notice summary strong{font-weight:600;color:var(--fg)}
+.shell>details.notice summary .more{margin-left:auto;color:var(--accent);white-space:nowrap;padding-left:var(--space-3)}
+.shell>details.notice[open] summary .more{visibility:hidden}
+.shell>details.notice .full{max-width:var(--page);margin:0 auto;padding-block:0 var(--space-3);
+  padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
 
 /* Side list and page column. */
 .shell .layout{max-width:var(--page);margin:0 auto;display:grid;grid-template-columns:var(--side) minmax(0,1fr);gap:var(--space-6);
   padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
-.shell .side{position:sticky;top:calc(56px + env(safe-area-inset-top,0px));align-self:start;max-height:calc(100vh - 56px);overflow-y:auto;padding-block:var(--space-5) var(--space-6);display:grid;gap:var(--space-1);align-content:start}
-.shell .side .group{font:600 .72rem var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:var(--space-4) 0 var(--space-1);padding-left:.6rem}
+.shell .side{position:sticky;top:calc(var(--bar) + 1px + env(safe-area-inset-top,0px));align-self:start;max-height:calc(100vh - var(--bar) - 1px - env(safe-area-inset-top,0px));overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent;padding-block:var(--space-5) var(--space-6);display:grid;gap:var(--space-1);align-content:start}
+.shell .side .group{font:600 .84rem var(--body);color:var(--muted);margin:var(--space-4) 0 var(--space-1);padding-left:.6rem}
 .shell .side .group:first-child{margin-top:0}
 .shell .side a{display:flex;align-items:center;min-height:36px;padding:0 .6rem;border-radius:var(--radius-sm);color:var(--fg);text-decoration:none;font-size:.95rem}
 .shell .side a:hover{background:var(--sunken)}
 .shell .side a[aria-current]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+/* A page with no side list (a single page in a sibling repo, an artifact): .layout.solo, one column. */
+.shell .layout.solo{grid-template-columns:minmax(0,1fr)}
 .shell main{min-width:0;padding-block:var(--space-5) var(--space-6)}
 .shell main>.col{max-width:var(--measure)}
 .shell main h1{margin-top:var(--space-3)}
-.shell main h1:first-child{margin-top:var(--space-4)}
+/* The page column starts on the same line as the side list: its first element takes no top margin. */
+.shell main>:first-child,.shell main>.col>:first-child{margin-top:0}
 .shell .backdrop{display:none}
 
 /* Footer */
@@ -73,7 +95,7 @@ html:not(.js) .shell .theme{display:none}
 /* Below 64rem (iPad portrait, phones) the side list is a drawer the menu button opens. */
 @media (max-width:64rem){
   .shell .layout{grid-template-columns:minmax(0,1fr);gap:0}
-  .js .shell .menu{display:grid}
+  .js .shell header.bar .menu{display:grid}
   .js .shell .side{position:fixed;top:0;bottom:0;left:0;width:min(20rem,86vw);max-height:none;z-index:40;background:var(--surface);border-right:1px solid var(--line);box-shadow:var(--shadow-2);
     padding:calc(var(--space-5) + env(safe-area-inset-top,0px)) var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom,0px)) max(var(--space-4),env(safe-area-inset-left,0px));
     transform:translateX(-105%);visibility:hidden;transition:transform var(--slow) var(--ease),visibility 0s linear var(--slow)}
@@ -81,7 +103,22 @@ html:not(.js) .shell .theme{display:none}
   .js .shell.drawer-open .backdrop{display:block;position:fixed;inset:0;z-index:35;background:var(--shell);opacity:.5;border:0;padding:0}
   html:not(.js) .shell .side{position:static;max-height:none;order:2;border-top:1px solid var(--line)}
 }
-@media (max-width:40rem){.shell .notice:not([open]) summary .long{display:none} .shell .notice:not([open]) summary .short{display:inline}}
-@media (max-width:30rem){.shell header.bar .brand .word{display:none} .shell .switcher{margin-left:0} .shell .switcher a{padding:0 .65rem}}
+@media (max-width:86rem){.shell header.bar .notice summary .long{display:none} .shell header.bar .notice summary .short{display:inline}}
+@media (max-width:40rem){.shell>details.notice:not([open]) summary .long{display:none} .shell>details.notice:not([open]) summary .short{display:inline}}
+@media (max-width:64rem){.shell header.bar .brand .tag{display:none} .shell header.bar .brand .word{font-size:1.25rem}}
+/* Phones and narrow windows (44rem): a shorter bar, the mark without the word, and the notice as a round button with its dot. Below 24rem the
+   mark gives way too (the Docs tab goes home), so the switcher, the notice and both buttons fit a 360px screen. */
+@media (max-width:44rem){
+  .shell{--bar:60px} .shell .bar-in{gap:var(--space-2)} .shell .tools{gap:6px}
+  .shell header.bar .brand .name,.shell header.bar .brand>.word{display:none} .shell header.bar .brand .mark{width:36px;height:36px}
+  .shell .switcher{margin-left:0} .shell .switcher a{padding:0 .5rem;font-size:.8rem}
+  .shell header.bar .notice summary{width:var(--tap);padding:0;justify-content:center;border-color:var(--shell-warn)}
+  .shell header.bar .notice summary::after{display:none}
+  .shell header.bar .notice summary .short{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+  .shell header.bar .notice summary::before{width:10px;height:10px}
+}
+@media (max-width:26rem){.shell .bar-in{gap:6px} .shell header.bar .brand .mark{width:32px;height:32px} .shell .switcher a{padding:0 .38rem}}
+@media (max-width:24rem){.shell header.bar .brand{display:none}}
+@media (max-width:23rem){.shell .switcher a{padding:0 .34rem;font-size:.76rem}}
 .shell .skip{position:absolute;left:-999px;top:0;z-index:50;background:var(--surface);color:var(--fg);padding:var(--space-2) var(--space-3);border-radius:var(--radius-sm)}
 .shell .skip:focus{left:max(var(--gutter),env(safe-area-inset-left,0px));top:calc(var(--space-2) + env(safe-area-inset-top,0px))}

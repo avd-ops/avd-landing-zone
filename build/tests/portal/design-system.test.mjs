@@ -51,7 +51,8 @@ test('the portal and the region latency page use it', () => {
   assert.match(portal, /<body class="shell">/);
   assert.match(portal, /<link rel="stylesheet" href="\.\.\/assets\/avd-ops-shell\.css">\s*<script src="\.\.\/assets\/theme\.js"><\/script>/);
   const bar = (portal.match(/<header class="bar">([\s\S]*?)<\/header>/) || [])[1] || '';
-  assert.match(bar, /<a class="brand" href="https:\/\/avd-ops\.dev\/"><img class="mark" src="\.\.\/assets\/brand\/mark\.svg" alt=""[^>]*><span class="word">avd-ops<\/span><\/a>/, 'brand in the shell bar');
+  assert.match(bar, /<a class="brand" href="https:\/\/avd-ops\.dev\/"><img class="mark" src="\.\.\/assets\/brand\/mark\.svg" alt="" width="44" height="44"><span class="name"><span class="word">avd-ops<\/span><span class="tag">Deploy quietly<\/span><\/span><\/a>/, 'brand in the shell bar, as in the horizontal lockup');
+  assert.match(bar, /<details class="notice"/, 'the research notice sits in the bar');
   assert.match(bar, /<a href="\.\/" aria-current="page">Deploy<\/a>/, 'Deploy is the current tool');
   assert.match(bar, /<a href="https:\/\/avd-ops\.github\.io\/avd-current-state\/portal\/">Assess<\/a>/);
   assert.match(bar, /class="iconbtn theme"/);

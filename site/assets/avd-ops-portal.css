@@ -1,4 +1,4 @@
-/* avd-ops portal components v2.1.0 (https://avd-ops.dev/, nickprignano/avd-ops site/assets/avd-ops-portal.css). MIT.
+/* avd-ops portal components v2.4.1 (https://avd-ops.dev/, avd-ops/avd-ops site/assets/avd-ops-portal.css). MIT.
    Personal project, not for production, as is; not affiliated with the author's employer, Liquidware or Microsoft.
    The pieces a guided, step-by-step portal page shares: the progress rail, one stage panel in view, the
    "run in Cloud Shell, then paste the output" timeline, terminal blocks, the paste box, form fields, switches,
@@ -23,8 +23,6 @@ body.portal{font:16px/1.55 var(--body);-webkit-font-smoothing:antialiased}
 .portal .lede{color:var(--muted);margin:0;max-width:62ch;font-size:1rem}
 
 /* Notice: the portal's research-only line before the first stage, and the footer. */
-.portal p.disclaimer{margin:0;background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--warn-fg);border-radius:var(--radius-sm);padding:9px 12px;line-height:1.45;font-size:.85rem}
-.portal p.disclaimer a{color:inherit}
 .portal footer.disclaimer{margin:28px 0 0;padding:var(--space-4) 0 calc(24px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);font-size:.85rem;color:var(--muted)}
 
 /* Panels: a stage, or a collapsible block such as Settings. */
@@ -69,7 +67,7 @@ body.portal{font:16px/1.55 var(--body);-webkit-font-smoothing:antialiased}
 .portal ol.steps{list-style:none;display:flex;padding:26px 4px 6px;margin:14px 0;overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:none}
 .portal ol.steps::-webkit-scrollbar{display:none}
 .portal ol.steps li{flex:1 0 84px;scroll-snap-align:start;position:relative}
-.portal ol.steps li[data-phase]::after{content:attr(data-phase);position:absolute;top:-24px;left:6px;font:600 .68rem/1 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--muted);white-space:nowrap}
+.portal ol.steps li[data-phase]::after{content:attr(data-phase);position:absolute;top:-24px;left:6px;font:600 .78rem/1 var(--body);color:var(--muted);white-space:nowrap}
 .portal ol.steps li+li::before{content:"";position:absolute;top:15px;left:calc(-50% + 16px);right:calc(50% + 16px);height:2px;background:var(--line-strong)}
 .portal ol.steps li.done+li::before{background:var(--good)}
 .portal ol.steps button{width:100%;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;background:none;color:var(--muted);border:0;font-size:.88rem;line-height:1.2;padding:0 2px 4px}
@@ -104,7 +102,7 @@ body.portal{font:16px/1.55 var(--body);-webkit-font-smoothing:antialiased}
 .portal .slot>.stop:last-child{padding-bottom:0}
 .portal .slot>.stop::before{content:counter(stop);position:absolute;left:0;top:-2px;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font:600 .82rem var(--mono);background:var(--accent-soft);color:var(--accent);border:2px solid var(--accent)}
 .portal .slot>.stop:not(:last-child)::after{content:"";position:absolute;left:15px;top:32px;bottom:4px;width:2px;background:var(--line)}
-.portal .slot>.stop>.label{font:600 .74rem/1.2 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:6px 0 12px}
+.portal .slot>.stop>.label{font:600 .88rem/1.2 var(--body);color:var(--muted);margin:6px 0 12px}
 .portal .slot>.stop.good::before{content:"\2713";background:var(--good);border-color:var(--good);color:var(--surface)}
 .portal .slot>.stop.ok::before{background:var(--caution-soft);border-color:var(--caution);color:var(--caution)}
 .portal .slot>.stop.poor::before{content:"!";background:var(--bad-soft);border-color:var(--bad);color:var(--bad)}
@@ -123,8 +121,8 @@ body.portal{font:16px/1.55 var(--body);-webkit-font-smoothing:antialiased}
 /* Terminal block: one Cloud Shell command with its own Copy button. */
 .portal .term{border:1px solid var(--term-border);border-radius:var(--radius-sm);background:var(--term-bg);overflow:hidden}
 .portal .term-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);padding:6px 8px 6px 12px;background:var(--term-head);border-bottom:1px solid var(--term-border)}
-.portal .term-label{font:600 .72rem/1 var(--mono);letter-spacing:.06em;color:var(--term-muted);text-transform:uppercase}
-.portal .term-label::before{content:"PS>";color:var(--prompt);margin-right:8px;letter-spacing:0}
+.portal .term-label{font:600 .78rem/1 var(--mono);color:var(--term-muted)}
+.portal .term-label::before{content:"PS>";color:var(--prompt);margin-right:8px}
 .portal .term[data-shell="bash"] .term-label::before{content:"$"}
 .portal .term-head button{padding:4px 12px;font-size:.85rem;background:transparent;color:var(--term-text);border-color:var(--term-border)}
 .portal .term-head button:hover:not(:disabled){background:var(--term-border);border-color:var(--term-muted);color:var(--term-text)}
@@ -161,7 +159,7 @@ body.portal{font:16px/1.55 var(--body);-webkit-font-smoothing:antialiased}
 
 /* Key and value table, and a table that scrolls inside its own border. */
 .portal .table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface)}
-.portal .table-wrap th{font:600 .7rem var(--mono);text-transform:uppercase;letter-spacing:.08em;color:var(--muted);background:var(--sunken)}
+.portal .table-wrap th{font:600 .82rem var(--body);color:var(--muted);background:var(--sunken)}
 .portal .table-wrap tbody tr:last-child td{border-bottom:0}
 .portal table.kv td:first-child{color:var(--muted);width:40%}
 .portal td.num{text-align:right;font:.88rem var(--mono);font-variant-numeric:tabular-nums}
