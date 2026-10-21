@@ -81,6 +81,6 @@ $own = Write-AvdPortalState -State $state 6>&1 | Out-String
 $env:AVD_PORTAL_URL = 'http://phish.example/portal/'
 $plain = Write-AvdPortalState -State $state 6>&1 | Out-String
 $env:AVD_PORTAL_URL = $null
-Write-Host ("RESULT portal-url default={0} hostNamed={1} override={2} httpIgnored={3}" -f ($default -match 'avd-ops\.github\.io' -and $default -notmatch 'Portal host:'),
+Write-Host ("RESULT portal-url default={0} hostNamed={1} override={2} httpIgnored={3}" -f ($default -match 'deploy\.avd-ops\.dev' -and $default -notmatch 'Portal host:'),
   ($own -match "Portal host: $([regex]::Escape($global:St.swaHost)), set by AVD_PORTAL_URL"), ($own -match "paste this output into https://$([regex]::Escape($global:St.swaHost))/portal/"),
-  ($plain -match 'avd-ops\.github\.io' -and $plain -notmatch 'phish'))
+  ($plain -match 'deploy\.avd-ops\.dev' -and $plain -notmatch 'phish'))

@@ -32,7 +32,7 @@ cd ~/avd-landing-zone && git checkout v1.0.0
 
 Use a full clone, not `--depth 1 --branch <tag>` or the zip. `deploy.sh` pins the auto shutdown runbook to the commit being deployed only when it can see that commit on a GitHub branch; from a tag-only shallow clone or a zip it falls back to the runbook on `master`.
 
-Then follow [docs/deploy.md](../docs/deploy.md) and [docs/operations.md](../docs/operations.md) from that folder, **without their first lines**: each block starts by cloning or updating the repo (`git checkout -q master; git pull -q --ff-only` or `git pull --ff-only`), which would move you off the release. Run only the lines after it. The [deployment portal](https://avd-ops.github.io/avd-landing-zone/portal/) adds the same preamble to every command, so use the portal with `master`, not with a release.
+Then follow [docs/deploy.md](../docs/deploy.md) and [docs/operations.md](../docs/operations.md) from that folder, **without their first lines**: each block starts by cloning or updating the repo (`git checkout -q master; git pull -q --ff-only` or `git pull --ff-only`), which would move you off the release. Run only the lines after it. The [deployment portal](https://deploy.avd-ops.dev/portal/) adds the same preamble to every command, so use the portal with `master`, not with a release.
 
 ## Notes for each release
 

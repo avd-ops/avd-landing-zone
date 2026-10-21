@@ -187,7 +187,7 @@ The sizing covers one pooled host pool, which is what the landing zone deploys. 
 
 ## Pre-deployment preflight
 
-`-PreDeployment` works before the landing zone exists. To choose the region, use the [deployment portal](https://avd-ops.github.io/avd-landing-zone/portal/): it builds this command with `-Location` set to the region you pick, and reads the output to tell you the next step. It compiles your `.bicepparam` file with the real group and service principal IDs and checks the subscription and tenant against the **effective** values (file values, else template defaults). Once it comes back clean, it prints the `deploy.sh` command to run as a separate step.
+`-PreDeployment` works before the landing zone exists. To choose the region, use the [deployment portal](https://deploy.avd-ops.dev/portal/): it builds this command with `-Location` set to the region you pick, and reads the output to tell you the next step. It compiles your `.bicepparam` file with the real group and service principal IDs and checks the subscription and tenant against the **effective** values (file values, else template defaults). Once it comes back clean, it prints the `deploy.sh` command to run as a separate step.
 
 | Area | Check | `-Fix` |
 |---|---|---|
@@ -321,7 +321,7 @@ Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l '
 
 ## Deployment portal
 
-Every script ends with a machine-readable line (`<<<AVDLZ-STATE {...} AVDLZ-STATE>>>`): the stage, whether it passed, the context for the next command, and each failure with a stable id. Paste the output into the [deployment portal](https://avd-ops.github.io/avd-landing-zone/portal/) and it tells you what to run next. The format is described in [`site/portal/README.md`](../site/portal/README.md).
+Every script ends with a machine-readable line (`<<<AVDLZ-STATE {...} AVDLZ-STATE>>>`): the stage, whether it passed, the context for the next command, and each failure with a stable id. Paste the output into the [deployment portal](https://deploy.avd-ops.dev/portal/) and it tells you what to run next. The format is described in [`site/portal/README.md`](../site/portal/README.md).
 
 **Recording a run (optional, off by default).** Set `$env:AVDLZ_RECORD = 'on'` and `$env:AVDLZ_RUN_ID = 'run-<yyyyMMdd>-<HHmm>-<4 letters or digits>'` in the Cloud Shell session, and the scripts also write a journal of each step, check and API error to `~/clouddrive/avdlz-runs/<run ID>/journal.jsonl` (or `~/avdlz-runs/` without mounted storage). Secrets are never written; parameters named like secrets show as `<set>`. The journal stays in your Cloud Shell storage until you share a redacted report. Design: [run recorder spec](../build/specs/run-recorder-spec.md), section 6.
 
