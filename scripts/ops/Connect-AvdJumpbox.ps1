@@ -67,6 +67,18 @@ function Wait-JumpboxPowerState([string] $Want, [int] $Minutes = 10) {
   throw "The jumpbox did not reach $Want in $Minutes minutes (last state: $state)."
 }
 
+# The VM access extension needs the guest agent: after a start it reports Ready a minute or two later.
+function Wait-JumpboxAgent([int] $Minutes = 10) {
+  $deadline = (Get-Date).AddMinutes($Minutes)
+  do {
+    $agent = (Invoke-AvdArm -Path "$vmId/instanceView?$api").vmAgent
+    $ready = @($agent.statuses | Where-Object { $_.displayStatus -eq 'Ready' }).Count
+    if ($ready) { return }
+    Start-Sleep -Seconds 10
+  } while ((Get-Date) -lt $deadline)
+  throw "The jumpbox's VM agent was not Ready in $Minutes minutes: $($agent.statuses | ConvertTo-Json -Depth 5 -Compress)"
+}
+
 $power = Get-JumpboxPowerState
 if ($Stop) {
   if ($power -eq 'PowerState/deallocated') { Write-Host "  $vmName is already deallocated: only its disk bills." -ForegroundColor Green; return }
@@ -85,12 +97,17 @@ if ($power -ne 'PowerState/running' -and $PSCmdlet.ShouldProcess($vmName, 'Start
   $null = Wait-JumpboxPowerState 'PowerState/running'
 }
 
+if (-not $WhatIfPreference) {
+  Write-Host '  Waiting for the VM agent (needed to set the password)...' -ForegroundColor DarkGray
+  Wait-JumpboxAgent
+}
+
 $vm = Invoke-AvdArm -Path "$($vmId)?$api"
 $user = $vm.properties.osProfile.adminUsername
 $secure = Get-AvdRandomPassword
 $password = ConvertFrom-SecureString -SecureString $secure -AsPlainText
 if ($PSCmdlet.ShouldProcess("$user on $vmName", 'Set a one-time password (VM access extension)')) {
-  Write-Host "  Setting a one-time password for $user (VM access extension, up to 3 minutes)..." -ForegroundColor DarkGray
+  Write-Host "  Setting a one-time password for $user (VM access extension, usually under a minute, up to 10)..." -ForegroundColor DarkGray
   $ext = "$vmId/extensions/enablevmaccess?$api"
   Invoke-AvdArm -Method PUT -Path $ext -Body @{
     location   = $vm.location
@@ -105,14 +122,15 @@ if ($PSCmdlet.ShouldProcess("$user on $vmName", 'Set a one-time password (VM acc
   } | Out-Null
   # "Done" means the extension succeeded, not that the request was accepted.
   $state = $null
-  for ($i = 0; $i -lt 18; $i++) {
+  for ($i = 0; $i -lt 60; $i++) {
     $state = (Invoke-AvdArm -Path $ext).properties.provisioningState
     if ($state -in 'Succeeded', 'Failed', 'Canceled') { break }
     Start-Sleep -Seconds 10
   }
   if ($state -ne 'Succeeded') {
     $status = Invoke-AvdArm -Path "$vmId/extensions/enablevmaccess?`$expand=instanceView&$api"
-    throw "The VM access extension ended '$state': $($status.properties.instanceView.statuses | ConvertTo-Json -Depth 5 -Compress)"
+    $how = if ($state -in 'Failed', 'Canceled') { "ended '$state'" } else { "is still '$state' after 10 minutes (it may yet finish: run this again to set a new password)" }
+    throw "The VM access extension $how`: $($status.properties.instanceView.statuses | ConvertTo-Json -Depth 5 -Compress)"
   }
   $portal = "https://portal.azure.com/#@$($ctx.Tenant.Id)/resource$vmId/bastionHost"
   Write-Host ''

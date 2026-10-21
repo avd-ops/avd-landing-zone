@@ -16,12 +16,13 @@ function Invoke-Deploy([string] $Step, [string[]] $Extra) {
   Write-Host $out
   Write-Host "RESULT $Step EXIT=$exit"
   # The calls that matter, in order: power state, start, deployment, deallocate.
-  $calls = @(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -match '^az (group exists|vm |deployment sub (create|what-if))' } |
+  $calls = @(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -match '^az (group exists|vm |deployment sub (create|what-if))' -and $_ -notmatch 'jumpbox' } |
       ForEach-Object { $_ -replace '^az deployment sub (\S+).*', 'deployment-$1' -replace '^az (\S+) (\S+).*', '$1-$2' })
   Write-Host "RESULT $Step-calls $($calls -join ',')"
   Write-Host "RESULT $Step-ids $(@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -match '^az vm (start|deallocate)' } | ForEach-Object { if ($_ -match '--ids (\S+)') { ($Matches[1] -split '/')[-1] } }) -join ',')"
   Write-Host "RESULT $Step-unmocked $([bool]($out -match 'unmocked call'))"
   Write-Host "RESULT $Step-env $(@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -like 'deploy-env *' }) -join ';')"
+  Write-Host "RESULT $Step-jumpbox $(@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -like 'jumpbox-env *' }) -join ';')"
 }
 
 # A redeploy while the host is deallocated: start, deploy, deallocate.
@@ -92,4 +93,16 @@ $env:FAKE_POOL_TAGS = ''
 $env:FAKE_HOSTS_RG_EXISTS = 'false'
 Invoke-Deploy 'first-image' @('--image-id', $v1, '--generation', 'a')
 Invoke-Deploy 'bad-image' @('--image-id', '/subscriptions/0000/resourceGroups/rg-avdlz-images/providers/Microsoft.Compute/galleries/galavdlz/images/win11-avd')
+
+# Operator jumpbox (decision 0018). --jumpbox-keep-running alone needs a jumpbox; one that exists is
+# kept without --jumpbox, accepts --jumpbox-keep-running, and its VM is marked existing so it isn't re-sent.
+$soon = [datetime]::UtcNow.AddHours(4).ToString('yyyy-MM-ddTHH:mmZ')
+Invoke-Deploy 'jumpbox-new' @('--jumpbox')
+Invoke-Deploy 'jumpbox-keep-alone' @('--jumpbox-keep-running', $soon)
+Invoke-Deploy 'jumpbox-past' @('--jumpbox', '--jumpbox-keep-running', '2020-01-01T00:00Z')
+$env:FAKE_JUMPBOX_RG_EXISTS = 'true'; $env:FAKE_JUMPBOX_VM_EXISTS = 'true'
+Invoke-Deploy 'jumpbox-kept'
+Invoke-Deploy 'jumpbox-kept-running' @('--jumpbox-keep-running', $soon)
+$env:FAKE_JUMPBOX_RG_EXISTS = ''; $env:FAKE_JUMPBOX_VM_EXISTS = ''
+Invoke-Deploy 'jumpbox-region' @('--jumpbox', '-l', 'eastus')
 Remove-Item $log -ErrorAction SilentlyContinue

@@ -778,6 +778,17 @@ Describe 'Operator jumpbox (decision 0018)' {
     It 'warns about a VM stopped from inside: compute still bills' {
       (Get-AvdJumpboxMeterState -PowerState 'PowerState/stopped' -Schedule $daily -Now $now).Status | Should -Be 'Warn'
     }
+    It 'never reports an unknown or missing power state as not billing' {
+      foreach ($p in @($null, '', 'PowerState/unknown')) {
+        $m = Get-AvdJumpboxMeterState -PowerState $p -Schedule $daily -Now $now
+        $m.Status | Should -Be 'Warn'
+        $m.Detail | Should -Not -Match 'Deallocated'
+      }
+    }
+    It 'treats a Disabled daily stop (kept running) as no daily stop' {
+      $off = [pscustomobject]@{ properties = [pscustomobject]@{ status = 'Disabled'; dailyRecurrence = [pscustomobject]@{ time = '2000' }; timeZoneId = 'Central Standard Time' } }
+      (Get-AvdJumpboxMeterState -PowerState 'PowerState/running' -Schedule $off -Now $now).Status | Should -Be 'Warn'
+    }
     It 'passes a keep-running time in the future and warns once it is past' {
       $tags = @{ 'avdlz-keep-running-until' = '2026-10-21T18:00Z' }
       (Get-AvdJumpboxMeterState -PowerState 'PowerState/running' -Tags $tags -Now $now).Status | Should -Be 'Pass'

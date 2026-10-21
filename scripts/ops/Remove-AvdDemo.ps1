@@ -218,7 +218,7 @@ function Remove-AvdJumpbox {
 if (-not $IncludeLandingZone) {
   if ($IncludeJumpbox) { Remove-AvdJumpbox }
   Write-AvdSummary | Out-Null
-  if (-not $WhatIfPreference) { Write-AvdPortalState (Get-AvdPortalState -Stage cleanup -Context @{ namePrefix = $NamePrefix; environment = $Environment; includeLandingZone = [bool]$IncludeLandingZone }) }
+  if (-not $WhatIfPreference) { Write-AvdPortalState (Get-AvdPortalState -Stage cleanup -Context @{ namePrefix = $NamePrefix; environment = $Environment; includeLandingZone = [bool]$IncludeLandingZone; includeJumpbox = [bool]($IncludeJumpbox -or $IncludeLandingZone) }) }
   return
 }
 
@@ -342,4 +342,4 @@ if ($lz.KeyVault) {
   Add-AvdCheckResult 'Subscription' "Key Vault $($lz.KeyVault.Name) $kvState with purge protection" 'Warn' -Detail 'Its name is reserved for 90 days after deletion.' -Remediation 'To redeploy with the same namePrefix, run the pre-deployment preflight with -Fix: it recovers the vault.'
 }
 Write-AvdSummary | Out-Null
-if (-not $WhatIfPreference) { Write-AvdPortalState (Get-AvdPortalState -Stage cleanup -Context @{ namePrefix = $NamePrefix; environment = $Environment; includeLandingZone = [bool]$IncludeLandingZone }) }
+if (-not $WhatIfPreference) { Write-AvdPortalState (Get-AvdPortalState -Stage cleanup -Context @{ namePrefix = $NamePrefix; environment = $Environment; includeLandingZone = [bool]$IncludeLandingZone; includeJumpbox = [bool]($IncludeJumpbox -or $IncludeLandingZone) }) }

@@ -93,6 +93,12 @@ Required roles:
 
 Optional, off by default ([decision 0018](../build/decisions/0018-jumpbox-bastion-developer.md)): a small Linux VM inside the landing zone's VNet with the same tools as Cloud Shell (pwsh, the Azure CLI, Bicep, git, the Az and Graph modules), reached in the browser through **Azure Bastion Developer**. Developer has no hourly charge and needs no public IP, but connects one VM at a time, only in its own VNet, only from the Azure portal, and only in [some regions](https://learn.microsoft.com/azure/bastion/bastion-sku-comparison#regional-availability) (North Central US yes; East US and South Central US no). Use it for long runs that a Cloud Shell timeout would cut, and for anything that needs the private endpoints (the break-glass secret in the private Key Vault).
 
+```powershell
+# Cloud Shell (PowerShell): preflight with the jumpbox (region, size, cost)
+if (Test-Path ~/avd-landing-zone) { Set-Location ~/avd-landing-zone; git pull -q } else { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone; Set-Location ~/avd-landing-zone }
+./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -PreDeployment -ParameterFile parameters/dev.bicepparam -Location northcentralus -UsersGroup 'AVD Users' -AdminsGroup 'AVD Admins' -Jumpbox
+```
+
 ```bash
 # Cloud Shell (Bash): deploy (or update) the landing zone with the jumpbox
 cd ~/avd-landing-zone 2>/dev/null || { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone && cd ~/avd-landing-zone; }
@@ -102,7 +108,7 @@ bash ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus -
 
 ```powershell
 # Cloud Shell (PowerShell): get a one-time password and the Connect > Bastion link
-Set-Location ~/avd-landing-zone
+if (Test-Path ~/avd-landing-zone) { Set-Location ~/avd-landing-zone; git pull -q } else { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone; Set-Location ~/avd-landing-zone }
 ./scripts/ops/Connect-AvdJumpbox.ps1 -NamePrefix avdlz -Environment dev
 ```
 
@@ -117,7 +123,7 @@ az login --use-device-code
 
 ```powershell
 # On the jumpbox (start pwsh): the Azure and Graph sign-ins the PowerShell scripts use
-Set-Location ~/avd-landing-zone
+if (Test-Path ~/avd-landing-zone) { Set-Location ~/avd-landing-zone; git pull -q } else { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone; Set-Location ~/avd-landing-zone }
 Connect-AzAccount -UseDeviceAuthentication
 ./scripts/ops/Connect-AvdLandingZone.ps1
 ```

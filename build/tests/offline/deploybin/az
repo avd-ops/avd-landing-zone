@@ -32,7 +32,8 @@ case "$1 $2" in
       *directoryRoles/role-ga/members*) [[ -n "${FAKE_ADMIN_IDS:-}" ]] && printf '%s\n' "$FAKE_ADMIN_IDS" ;;
       *) : ;;
     esac ;;
-  "group exists") echo "${FAKE_HOSTS_RG_EXISTS:-false}" ;;
+  "group exists") [[ "$*" == *-jumpbox* ]] && echo "${FAKE_JUMPBOX_RG_EXISTS:-false}" || echo "${FAKE_HOSTS_RG_EXISTS:-false}" ;;
+  "vm show") [[ "${FAKE_JUMPBOX_VM_EXISTS:-}" == true ]] && echo /subscriptions/0000/vm || { echo "ERROR: (ResourceNotFound)" >&2; exit 3; } ;;
   "resource show") case "$*" in
       *avdlz-power-lock*) [[ -n "${FAKE_POWER_LOCK:-}" ]] && printf '%s\n' "$FAKE_POWER_LOCK" ;;
       *avdlz-rotation*)
@@ -47,6 +48,7 @@ case "$1 $2" in
     case "$3" in
       what-if) echo "(what-if output)" ;;
       create) echo "deploy-env image=${AVD_SESSION_HOST_IMAGE_ID:-} gen=${AVD_SESSION_HOST_GENERATION:-} tags=${AVD_HOST_POOL_STATE_TAGS:-}" >> "$FAKE_AZ_LOG"
+        echo "jumpbox-env deploy=${AVD_DEPLOY_JUMPBOX:-} exists=${AVD_JUMPBOX_EXISTS:-} until=${AVD_JUMPBOX_KEEP_RUNNING_UNTIL:-}" >> "$FAKE_AZ_LOG"
         echo '{}'; exit "${FAKE_DEPLOY_EXIT:-0}" ;;
       show) [[ "$*" == *controlPlane* ]] && echo rg-avdlz-dev-avd || echo stavdlzdevfake ;;
     esac ;;

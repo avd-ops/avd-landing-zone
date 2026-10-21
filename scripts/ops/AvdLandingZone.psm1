@@ -894,7 +894,12 @@ function Get-AvdJumpboxMeterState {
   $scheduled = $Schedule -and $Schedule.properties -and $Schedule.properties.status -eq 'Enabled'
   $state = [ordered]@{ PowerState = $code; Billing = $billing; KeepRunningUntil = $until; DailyStop = [bool]$scheduled; Status = 'Pass'; Detail = ''; Remediation = '' }
   $at = if ($scheduled) { "$($Schedule.properties.dailyRecurrence.time) $($Schedule.properties.timeZoneId)" } else { '' }
-  if ($code -eq 'stopped') {
+  if ($code -notin @('running', 'starting', 'stopping', 'stopped', 'deallocating', 'deallocated')) {
+    # No power state, or one this check doesn't know: never report it as not billing.
+    $state.Billing = $null; $state.Status = 'Warn'; $state.Detail = "Power state unknown ('$PowerState'): it may be billing."
+    $state.Remediation = 'Check it in the portal, or deallocate it: ./scripts/ops/Connect-AvdJumpbox.ps1 -Stop.'
+  }
+  elseif ($code -eq 'stopped') {
     $state.Status = 'Warn'; $state.Detail = 'Stopped from inside the VM, not deallocated: compute still bills.'
     $state.Remediation = 'Deallocate it: ./scripts/ops/Connect-AvdJumpbox.ps1 -Stop.'
   }
@@ -2120,8 +2125,9 @@ function Get-AvdDeploymentPlan {
     [string] $AvdServicePrincipalId,
     # Region override: the parameter files read it from AVD_LOCATION.
     [string] $Location,
-    # Sizing overrides (hosts, vmSize, maxSessions, profileQuotaGiB, and the power settings autoShutdownTime
-    # and startVmOnConnect): the parameter files read AVD_SESSION_HOST_COUNT etc.
+    # Sizing overrides (hosts, vmSize, maxSessions, profileQuotaGiB, the power settings autoShutdownTime
+    # and startVmOnConnect, and the jumpbox: jumpbox, jumpboxKeepRunningUntil): the parameter files read
+    # AVD_SESSION_HOST_COUNT etc.
     [hashtable] $Sizing = @{},
     # Recovery region override: the parameter files read it from AVD_RECOVERY_LOCATION.
     [string] $RecoveryLocation
@@ -2139,7 +2145,8 @@ function Get-AvdDeploymentPlan {
   if ($Location) { $vars.AVD_LOCATION = $Location }
   if ($RecoveryLocation) { $vars.AVD_RECOVERY_LOCATION = $RecoveryLocation }
   $sizingVars = @{ hosts = 'AVD_SESSION_HOST_COUNT'; vmSize = 'AVD_SESSION_HOST_VM_SIZE'; maxSessions = 'AVD_MAX_SESSION_LIMIT'; profileQuotaGiB = 'AVD_PROFILE_QUOTA_GIB'
-    autoShutdownTime = 'AVD_AUTO_SHUTDOWN_TIME'; startVmOnConnect = 'AVD_START_VM_ON_CONNECT' }
+    autoShutdownTime = 'AVD_AUTO_SHUTDOWN_TIME'; startVmOnConnect = 'AVD_START_VM_ON_CONNECT'
+    jumpbox = 'AVD_DEPLOY_JUMPBOX'; jumpboxKeepRunningUntil = 'AVD_JUMPBOX_KEEP_RUNNING_UNTIL' }
   foreach ($k in $sizingVars.Keys) { $vars[$sizingVars[$k]] = $(if ($Sizing[$k]) { [string]$Sizing[$k] } else { '' }) }
   $saved = @{}
   foreach ($k in $vars.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k); [Environment]::SetEnvironmentVariable($k, $vars[$k]) }

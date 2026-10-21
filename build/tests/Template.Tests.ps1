@@ -425,15 +425,17 @@ Describe 'Operator jumpbox through Bastion Developer (decision 0018)' {
   # kept running until a time (avd-second-brain decision 0017), and has no public IP anywhere.
   It 'is off unless AVD_DEPLOY_JUMPBOX=true (set-but-empty = off, lesson 0004), in every parameter file' {
     foreach ($file in 'parameters/dev.bicepparam', 'parameters/test.bicepparam', 'parameters/prod.bicepparam') {
-      $read = { param($v, $until) $env:AVD_DEPLOY_JUMPBOX = $v; $env:AVD_JUMPBOX_KEEP_RUNNING_UNTIL = $until
+      $read = { param($v, $until, $exists) $env:AVD_DEPLOY_JUMPBOX = $v; $env:AVD_JUMPBOX_KEEP_RUNNING_UNTIL = $until; $env:AVD_JUMPBOX_EXISTS = $exists
         try { ((& $script:bicep build-params $file --stdout | ConvertFrom-Json).parametersJson | ConvertFrom-Json).parameters }
-        finally { $env:AVD_DEPLOY_JUMPBOX = ''; $env:AVD_JUMPBOX_KEEP_RUNNING_UNTIL = '' } }
-      $off = & $read '' ''
+        finally { $env:AVD_DEPLOY_JUMPBOX = ''; $env:AVD_JUMPBOX_KEEP_RUNNING_UNTIL = ''; $env:AVD_JUMPBOX_EXISTS = '' } }
+      $off = & $read '' '' ''
       $off.deployJumpbox.value | Should -BeFalse -Because $file
       $off.jumpboxKeepRunningUntil.value | Should -Be '' -Because $file
-      $on = & $read 'true' '2026-10-22T02:00Z'
+      $off.jumpboxExists.value | Should -BeFalse -Because $file
+      $on = & $read 'true' '2026-10-22T02:00Z' 'true'
       $on.deployJumpbox.value | Should -BeTrue -Because $file
       $on.jumpboxKeepRunningUntil.value | Should -Be '2026-10-22T02:00Z' -Because $file
+      $on.jumpboxExists.value | Should -BeTrue -Because $file
     }
   }
 
@@ -464,10 +466,22 @@ Describe 'Operator jumpbox through Bastion Developer (decision 0018)' {
     $raw = (& $script:bicep build 'bicep/modules/jumpbox.bicep' --stdout) -join "`n"
     $m = $raw | ConvertFrom-Json -Depth 100 -AsHashtable
     $all = if ($m['resources'] -is [System.Collections.IDictionary]) { @($m['resources'].Values) } else { @($m['resources']) }
-    $vm = @($all | Where-Object { $_['type'] -eq 'Microsoft.Resources/deployments' })[0]['properties']['parameters']
+    $deployment = @($all | Where-Object { $_['type'] -eq 'Microsoft.Resources/deployments' })[0]
+    # An existing VM is never re-sent: Azure refuses a change to its custom data and admin password.
+    $deployment['condition'] | Should -Be "[not(parameters('vmExists'))]"
+    $vm = $deployment['properties']['parameters']
     $vm['osType']['value'] | Should -Be 'Linux'
     $vm['securityType']['value'] | Should -Be 'TrustedLaunch'
-    $vm['autoShutdownConfig'] | Should -Match "if\(variables\('keepRunning'\), createObject\('value', createObject\(\)\), createObject\('value', createObject\('status', 'Enabled'"
+    $vm.Keys | Should -Not -Contain 'autoShutdownConfig'
+    # The daily stop is its own resource, always deployed: Disabled (not absent) while kept running,
+    # so a redeploy turns off a stop that exists.
+    $stop = @($all | Where-Object { $_['type'] -eq 'Microsoft.DevTestLab/schedules' })
+    $stop.Count | Should -Be 1
+    $stop[0].Keys | Should -Not -Contain 'condition'
+    $stop[0]['name'] | Should -Be "[format('shutdown-computevm-{0}', parameters('vmName'))]"
+    $stop[0]['properties']['status'] | Should -Be "[if(variables('keepRunning'), 'Disabled', 'Enabled')]"
+    $tags = @($all | Where-Object { $_['type'] -eq 'Microsoft.Resources/tags' })
+    $tags[0]['condition'] | Should -Be "[parameters('vmExists')]"
     ($vm['nicConfigurations'] | ConvertTo-Json -Depth 20) | Should -Not -Match 'pipConfiguration|publicIP'
     $m['variables']['vmTags'] | Should -Match 'avdlz-keep-running-until'
     $t = Get-CompiledTemplate 'parameters/dev.bicepparam'

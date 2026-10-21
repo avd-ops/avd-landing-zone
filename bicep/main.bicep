@@ -265,6 +265,9 @@ param jumpboxAutoShutdownTime string = '2000'
 @description('Keep the jumpbox running past its daily stop until this UTC time (yyyy-MM-ddTHH:mmZ), recorded on the avdlz-keep-running-until tag of the VM. Empty: the daily stop applies.')
 param jumpboxKeepRunningUntil string = ''
 
+@description('The jumpbox VM already exists (deploy.sh sets it). Then only its daily stop and tags are updated: Azure refuses a change to the custom data and admin password of an existing VM.')
+param jumpboxExists bool = false
+
 @description('Password of the local account on the jumpbox. Random per deployment and applied only when the VM is created; nobody knows it. scripts/ops/Connect-AvdJumpbox.ps1 sets a one-time password on each connect.')
 @secure()
 param jumpboxAdminPassword string = newGuid()
@@ -655,6 +658,7 @@ module jumpbox 'modules/jumpbox.bicep' = if (deployJumpbox) {
     autoShutdownTime: jumpboxAutoShutdownTime
     autoShutdownTimeZone: autoShutdownTimeZone
     keepRunningUntil: jumpboxKeepRunningUntil
+    vmExists: jumpboxExists
     adminsGroupObjectId: avdAdminsGroupObjectId
   }
 }

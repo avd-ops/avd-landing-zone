@@ -37,6 +37,8 @@ param deployImageBuildSubnets = empty(readEnvironmentVariable('AVD_IMAGE_BUILD_S
 // (empty = off and the daily stop; lesson 0004).
 param deployJumpbox = empty(readEnvironmentVariable('AVD_DEPLOY_JUMPBOX', '')) ? false : bool(readEnvironmentVariable('AVD_DEPLOY_JUMPBOX', ''))
 param jumpboxKeepRunningUntil = readEnvironmentVariable('AVD_JUMPBOX_KEEP_RUNNING_UNTIL', '')
+// deploy.sh sets AVD_JUMPBOX_EXISTS when the VM already exists, so it isn't re-sent (decision 0018)
+param jumpboxExists = empty(readEnvironmentVariable('AVD_JUMPBOX_EXISTS', '')) ? false : bool(readEnvironmentVariable('AVD_JUMPBOX_EXISTS', ''))
 
 // ---- Session hosts ----
 // Sizing: the deployment portal's sizing step, deploy.sh (--hosts, --vm-size, --max-sessions,

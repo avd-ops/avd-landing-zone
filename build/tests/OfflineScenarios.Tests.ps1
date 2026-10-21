@@ -292,6 +292,21 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     Get-StepExit $out 'pool-rotation-deploy' | Should -Be 0
     Get-Result 'pool-rotation-deploy-env' | Should -Match 'image=\S+/versions/2026\.1101\.1 gen=b tags=.*"avdlz-rotation":"\{\\"phase\\":\\"Deploy\\"\}"'
   }
+  It 'adds, keeps and never re-sends the operator jumpbox (decision 0018)' {
+    Get-StepExit $out 'jumpbox-new' | Should -Be 0
+    Get-Result 'jumpbox-new-jumpbox' | Should -Be 'jumpbox-env deploy=true exists= until='
+    Get-StepExit $out 'jumpbox-keep-alone' | Should -Be 1
+    $out | Should -Match '--jumpbox-keep-running needs --jumpbox'
+    Get-StepExit $out 'jumpbox-past' | Should -Be 1
+    $out | Should -Match '--jumpbox-keep-running is in the past'
+    Get-StepExit $out 'jumpbox-kept' | Should -Be 0
+    Get-Result 'jumpbox-kept-jumpbox' | Should -Be 'jumpbox-env deploy=true exists=true until='
+    Get-StepExit $out 'jumpbox-kept-running' | Should -Be 0
+    Get-Result 'jumpbox-kept-running-jumpbox' | Should -Match '^jumpbox-env deploy=true exists=true until=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z$'
+    Get-StepExit $out 'jumpbox-region' | Should -Be 1
+    $out | Should -Match "Azure Bastion Developer isn't offered in eastus"
+    Get-Result 'running-jumpbox' | Should -Be 'jumpbox-env deploy= exists= until='
+  }
   It 'starts and deallocates only the new generation during a rotation' {
     Get-StepExit $out 'pool-rotation-stopped' | Should -Be 0
     Get-Result 'pool-rotation-stopped-calls' | Should -Be 'group-exists,vm-list,vm-start,deployment-create,vm-deallocate'

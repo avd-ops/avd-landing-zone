@@ -10,6 +10,10 @@
 //
 // Never leave the meter running (avd-second-brain decision 0017): the VM stops daily on its own
 // schedule unless keepRunningUntil is set, which is then recorded on the VM's avdlz-keep-running-until tag.
+//
+// An existing VM (vmExists, set by deploy.sh) is never re-sent: Azure refuses a change to the custom
+// data and admin password of a VM that exists. Its daily stop and tags are separate resources here,
+// so a redeploy still updates them.
 
 param location string
 param tags object
@@ -32,6 +36,9 @@ param keepRunningUntil string = ''
 @description('Entra group of AVD operators: Reader and Virtual Machine Contributor on this resource group (connect through Bastion, start, stop, set the one-time password).')
 param adminsGroupObjectId string
 
+@description('The VM already exists: update only its daily stop and tags.')
+param vmExists bool = false
+
 var roles = {
   reader: 'acdd72a7-3385-48ef-bd42-f606fba81ae7'
   virtualMachineContributor: '9980e02c-c2be-4d73-94e8-173b1dc7cf3c'
@@ -39,7 +46,7 @@ var roles = {
 var keepRunning = !empty(keepRunningUntil)
 var vmTags = union(tags, { purpose: 'jumpbox' }, keepRunning ? { 'avdlz-keep-running-until': keepRunningUntil } : {})
 
-module vm 'br/public:avm/res/compute/virtual-machine:0.22.3' = {
+module vm 'br/public:avm/res/compute/virtual-machine:0.22.3' = if (!vmExists) {
   name: 'vm-${vmName}'
   params: {
     name: vmName
@@ -71,7 +78,6 @@ module vm 'br/public:avm/res/compute/virtual-machine:0.22.3' = {
     adminPassword: adminPassword
     disablePasswordAuthentication: false
     customData: loadTextContent('../../scripts/jumpbox/cloud-init.yaml')
-    autoShutdownConfig: keepRunning ? {} : { status: 'Enabled', dailyRecurrenceTime: autoShutdownTime, timeZone: autoShutdownTimeZone }
     nicConfigurations: [
       {
         nicSuffix: '-nic'
@@ -88,6 +94,43 @@ module vm 'br/public:avm/res/compute/virtual-machine:0.22.3' = {
       systemAssigned: true
     }
     bootDiagnostics: true
+  }
+}
+
+resource vmRef 'Microsoft.Compute/virtualMachines@2024-07-01' existing = {
+  name: vmName
+}
+
+// The daily stop, always present: Disabled while kept running, so a redeploy with
+// --jumpbox-keep-running turns off a stop that exists (an absent schedule would leave it on).
+resource dailyStop 'Microsoft.DevTestLab/schedules@2018-09-15' = {
+  name: 'shutdown-computevm-${vmName}'
+  location: location
+  tags: tags
+  properties: {
+    status: keepRunning ? 'Disabled' : 'Enabled'
+    taskType: 'ComputeVmShutdownTask'
+    dailyRecurrence: {
+      time: autoShutdownTime
+    }
+    timeZoneId: autoShutdownTimeZone
+    notificationSettings: {
+      status: 'Disabled'
+      timeInMinutes: 30
+    }
+    targetResourceId: vmRef.id
+  }
+  dependsOn: [
+    vm
+  ]
+}
+
+// On an existing VM the module doesn't run, so its tags (avdlz-keep-running-until) are set here.
+resource existingVmTags 'Microsoft.Resources/tags@2024-03-01' = if (vmExists) {
+  name: 'default'
+  scope: vmRef
+  properties: {
+    tags: vmTags
   }
 }
 
@@ -112,4 +155,4 @@ resource adminsVmContributor 'Microsoft.Authorization/roleAssignments@2022-04-01
 }
 
 output name string = vmName
-output resourceId string = vm.outputs.resourceId
+output resourceId string = vmRef.id

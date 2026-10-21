@@ -98,7 +98,6 @@ done
 [[ -z "$JUMPBOX_KEEP_RUNNING" || "$JUMPBOX_KEEP_RUNNING" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}Z$ ]] \
   || { echo "--jumpbox-keep-running takes a UTC time, yyyy-MM-ddTHH:mmZ: '$JUMPBOX_KEEP_RUNNING'"; exit 1; }
 if [[ -n "$JUMPBOX_KEEP_RUNNING" ]]; then
-  $JUMPBOX || { echo "--jumpbox-keep-running needs --jumpbox"; exit 1; }
   # Never leave the meter running (avd-second-brain decision 0017): an opt-out has an end, in the future.
   until_s=$(date -u -d "${JUMPBOX_KEEP_RUNNING/T/ }" +%s 2>/dev/null) || { echo "Not a time: '$JUMPBOX_KEEP_RUNNING'"; exit 1; }
   (( until_s > $(date -u +%s) )) || { echo "--jumpbox-keep-running is in the past: '$JUMPBOX_KEEP_RUNNING'"; exit 1; }
@@ -360,8 +359,16 @@ if ! $JUMPBOX && [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(az group exi
   JUMPBOX=true
   echo "==> Keeping the jumpbox in rg-$NAME_PREFIX-$ENV_NAME-jumpbox (Remove-AvdDemo.ps1 -IncludeJumpbox removes it)."
 fi
-AVD_DEPLOY_JUMPBOX=$($JUMPBOX && echo true || echo '') AVD_JUMPBOX_KEEP_RUNNING_UNTIL="$JUMPBOX_KEEP_RUNNING"
-export AVD_DEPLOY_JUMPBOX AVD_JUMPBOX_KEEP_RUNNING_UNTIL
+[[ -z "$JUMPBOX_KEEP_RUNNING" ]] || $JUMPBOX || { echo "--jumpbox-keep-running needs --jumpbox (or a jumpbox that already exists)"; exit 1; }
+# An existing VM is never re-sent: Azure refuses a change to its custom data (first boot) and admin
+# password. Its daily stop and tags are updated on their own (bicep/modules/jumpbox.bicep).
+JUMPBOX_EXISTS=''
+if $JUMPBOX && [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] \
+  && az vm show -g "rg-$NAME_PREFIX-$ENV_NAME-jumpbox" -n "vm-$NAME_PREFIX-$ENV_NAME-jumpbox" --query id -o tsv >/dev/null 2>&1; then
+  JUMPBOX_EXISTS=true
+fi
+AVD_DEPLOY_JUMPBOX=$($JUMPBOX && echo true || echo '') AVD_JUMPBOX_KEEP_RUNNING_UNTIL="$JUMPBOX_KEEP_RUNNING" AVD_JUMPBOX_EXISTS="$JUMPBOX_EXISTS"
+export AVD_DEPLOY_JUMPBOX AVD_JUMPBOX_KEEP_RUNNING_UNTIL AVD_JUMPBOX_EXISTS
 if $JUMPBOX; then
   echo "    Jumpbox: on, $([[ -n "$JUMPBOX_KEEP_RUNNING" ]] && echo "kept running until $JUMPBOX_KEEP_RUNNING (no daily stop)" || echo 'stops daily'); connect with ./scripts/ops/Connect-AvdJumpbox.ps1"
 fi
