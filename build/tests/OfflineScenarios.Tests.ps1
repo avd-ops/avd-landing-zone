@@ -518,6 +518,8 @@ Describe 'Blue/green host rotation (image pipeline spec section 6.5)' {
     Get-RotationLine 'drain' | Should -Match '^phase=Wait image=2026\.1101\.1 gen=a .* hosts=avdlzdsh-001:drain,avdlzdsh-002:drain,avdlzdsha-001:open,avdlzdsha-002:open vmsGone= messages=1 signedOut=0 gallery=Merge 2026\.1101\.1$'
     # Out of the scaling plan too, or its ramp-up would reopen them.
     Get-RotationLine 'drain' 'excluded' | Should -Be 'avdlzdsh-001,avdlzdsh-002'
+    $d = [regex]::Match($out, 'RESULT drain-deadline (\S+)').Groups[1].Value
+    ([datetime]::Parse($d, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal) - [datetime]::UtcNow).TotalHours | Should -BeLessThan 24.1
     # One in-use marker per pool, so a same-named landing zone in another subscription never clears this one's.
     $out | Should -Match 'RESULT gallery-key avdlz-in-use-dev-avdlz-00000000-aaaa-bbbb-cccc-000000000001'
   }
@@ -549,6 +551,10 @@ Describe 'Blue/green host rotation (image pipeline spec section 6.5)' {
     Get-RotationLine 'rb-drain' 'excluded' | Should -Be 'avdlzdsh-001,avdlzdsh-002'
     Get-RotationLine 'rollback' 'excluded' | Should -Be 'avdlzdsha-001,avdlzdsha-002'
     $out | Should -Match 'RESULT rollback-whatif-writes 0'
+    # Not while an original host is stopped: the new ones keep serving.
+    $states[-3].status | Should -Be 'waiting'
+    $states[-3].warnings[0].detail | Should -Match 'Not Available with every health check passing: avdlzdsh-001\. The new hosts keep taking sessions'
+    Get-RotationLine 'rollback-stopped' | Should -Match '^phase=Drain .* hosts=avdlzdsh-001:open,avdlzdsh-002:open,avdlzdsha-001:open,avdlzdsha-002:open '
     Get-RotationLine 'rollback' | Should -Match '^phase= image=2026\.1004\.1 gen= next= previous=2026\.1004\.1 hosts=avdlzdsh-001:open,avdlzdsh-002:open vmsGone=avdlzdsha-001,avdlzdsha-002 .*Delete 2026\.1101\.1$'
     $states[-2].status | Should -Be 'done'
     $states[-2].context.version | Should -Be 'rollback'
@@ -562,7 +568,7 @@ Describe 'Blue/green host rotation (image pipeline spec section 6.5)' {
     $states[-1].failures[0].remediation | Should -Match 'Nothing to roll back to'
   }
   It 'prints a portal state line for every run, with the parameter file' {
-    ($states | ForEach-Object status) -join ' ' | Should -Be 'refused refused refused refused waiting waiting waiting waiting waiting waiting refused waiting waiting waiting waiting done waiting done waiting waiting waiting waiting done refused'
+    ($states | ForEach-Object status) -join ' ' | Should -Be 'refused refused refused refused waiting waiting waiting waiting waiting waiting refused waiting waiting waiting waiting done waiting done waiting waiting waiting waiting waiting done refused'
     @($states | Where-Object { $_.context.parameterFile -ne 'parameters/dev.bicepparam' }).context.parameterFile | Should -Be 'parameters/test.bicepparam'
   }
 }

@@ -64,7 +64,7 @@ function ConvertTo-AvdRotationTag {
   [CmdletBinding()]
   param([Parameter(Mandatory)] $State)
   $o = [ordered]@{}
-  foreach ($k in 'phase', 'from', 'to', 'version', 'deadline', 'notice', 'deploy', 'rollback', 'by') {
+  foreach ($k in 'phase', 'from', 'to', 'version', 'deadline', 'notice', 'deploy', 'hours', 'prefix', 'rollback', 'by') {
     $v = if ($State -is [System.Collections.IDictionary]) { $State[$k] } else { $State.$k }
     # The deployment's name is only needed while deploying; dropping it later keeps room for the notice.
     if ($k -eq 'deploy' -and "$(if ($State -is [System.Collections.IDictionary]) { $State['phase'] } else { $State.phase })" -ne 'Deploy') { continue }
@@ -126,6 +126,25 @@ function Get-AvdRotationDeployArgument {
   $a.AddRange([string[]]@('--generation', $Generation, '--rotation'))
   if ($DeploymentName) { $a.AddRange([string[]]@('--deployment-name', $DeploymentName)) }
   , $a.ToArray()
+}
+
+function Get-AvdRotationEnvironment {
+  <#
+    The environment variables the parameter files read for settings deploy.sh has no flag for, as the last
+    deployment had them (its record's properties.parameters). Secrets and the values deploy.sh sets itself
+    (the runbook URI, image, generation and pool tags) are never among them.
+  #>
+  [CmdletBinding()]
+  param([Parameter(Mandatory)] $Parameters)
+  $values = @{}
+  foreach ($x in $Parameters.PSObject.Properties) { if ($null -ne $x.Value -and $x.Value.PSObject.Properties['value']) { $values[$x.Name] = $x.Value.value } }
+  $e = [ordered]@{}
+  if ("$($values['recoveryLocation'])") { $e['AVD_RECOVERY_LOCATION'] = "$($values['recoveryLocation'])" }
+  if ($values['deployImageBuildSubnets'] -eq $true) { $e['AVD_IMAGE_BUILD_SUBNETS'] = 'true' }
+  $mail = @($values['alertEmailAddresses'] | Where-Object { $_ })
+  if ($mail.Count -eq 1) { $e['AVD_ALERT_EMAIL'] = "$($mail[0])" }
+  if ([int]$values['monthlyBudgetAmount'] -gt 0) { $e['AVD_MONTHLY_BUDGET'] = "$([int]$values['monthlyBudgetAmount'])" }
+  $e
 }
 
 function Get-AvdRotationCheck {
@@ -200,12 +219,10 @@ function Get-AvdRotationStep {
     'Check' { return & $out 'deploy' 'Deploy' 'Checks passed; deploying the new hosts.' }
     'Deploy' {
       if ($DeploymentState -eq 'running') { return & $out 'wait-hosts' 'Deploy' "The deployment of generation $($State.to) is still running in Azure." }
-      # A failed deployment is never cut over to, however many hosts it left ready: deploy again.
+      # Only a succeeded deployment is cut over to, however many hosts a failed or missing one left ready.
       if ($DeploymentState -eq 'failed') { return & $out 'deploy' 'Deploy' "$($new.Count)$(if ($ExpectedCount -gt 0) { " of $ExpectedCount" }) new host(s) registered and the deployment failed; deploying again." }
-      if ($new.Count -eq 0) {
-        if ($DeploymentState -eq 'succeeded') { return & $out 'wait-hosts' 'Deploy' "The deployment succeeded; no generation $($State.to) host registered yet." }
-        return & $out 'deploy' 'Deploy' "No generation $($State.to) host registered yet."
-      }
+      if ($DeploymentState -eq 'none') { return & $out 'deploy' 'Deploy' "No deployment of generation $($State.to) found$(if ($new.Count) { " ($($new.Count) new host(s) registered)" }); deploying." }
+      if ($new.Count -eq 0) { return & $out 'wait-hosts' 'Deploy' "The deployment succeeded; no generation $($State.to) host registered yet." }
       $ready = @($new | Where-Object { $_.Available -and $_.Healthy })
       if ($ExpectedCount -gt 0 -and $ready.Count -lt $ExpectedCount) {
         return & $out 'wait-hosts' 'Deploy' "$($ready.Count) of $ExpectedCount new host(s) Available with every health check passing."
@@ -244,10 +261,10 @@ function Get-AvdRotationRollback {
   if ($State.rollback) { throw 'This rotation is already a rollback.' }
   [pscustomobject]@{
     phase = 'Drain'; from = "$($State.to)"; to = "$($State.from)"; version = 'rollback'
-    deadline = $Now.AddHours($DeadlineHours).ToString('yyyy-MM-ddTHH:mmZ'); rollback = $true; by = $State.by
+    deadline = $Now.AddHours($DeadlineHours).ToString('yyyy-MM-ddTHH:mmZ'); prefix = $State.prefix; rollback = $true; by = $State.by
   }
 }
 
 Export-ModuleMember -Function Get-AvdImageLabel, Get-AvdNextHostGeneration, Get-AvdGenerationPrefix, Test-AvdGenerationNameClash,
-  Get-AvdHostGeneration, ConvertTo-AvdRotationTag, ConvertFrom-AvdRotationTag, Get-AvdRotationDeployArgument, Get-AvdRotationCheck,
+  Get-AvdHostGeneration, ConvertTo-AvdRotationTag, ConvertFrom-AvdRotationTag, Get-AvdRotationDeployArgument, Get-AvdRotationEnvironment, Get-AvdRotationCheck,
   Get-AvdRotationStep, Get-AvdRotationRollback

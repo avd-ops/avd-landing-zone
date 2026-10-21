@@ -850,6 +850,14 @@ test('state: rotation stopped by an Azure error -> what Azure said, run it again
   assert.match(last(r.actions[1].command), / -Rollback$/);
 });
 
+test('state: rollback waiting for the deployment -> the next command is the rollback again', () => {
+  const text = fixture('state-rotation-waiting.txt').replace('"phase":"Wait"', '"phase":"Deploy","rollbackPending":true');
+  const r = P.analyze(text, {}, {});
+  assert.equal(r.actions.length, 1);
+  assert.match(r.actions[0].title, /Roll back once the deployment ends/);
+  assert.equal(last(r.actions[0].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -Rollback');
+});
+
 test('state: rotation past the deadline -> sign-out only when asked, with -LogOffAtDeadline', () => {
   const r = analyze('state-rotation-after-deadline.txt');
   assert.equal(last(r.actions[0].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -LogOffAtDeadline');

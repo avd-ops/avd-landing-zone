@@ -51,9 +51,12 @@ Describe 'The rotation tag' {
     $by = '0' * 40; $name = 'd' * 64
     $deploy = ConvertTo-AvdRotationTag @{ phase = 'Deploy'; from = 'a'; to = 'b'; version = '2026.1101.1'; deploy = $name; rollback = $false; by = $by }
     $deploy | Should -Match $name
-    $wait = ConvertTo-AvdRotationTag @{ phase = 'Wait'; from = 'a'; to = 'b'; version = '2026.1101.1'; deploy = $name; deadline = '2026-10-23T12:00Z'; notice = '2026-10-23T12:00:59Z'; rollback = $true; by = $by }
+    $deploy = ConvertTo-AvdRotationTag @{ phase = 'Deploy'; from = 'a'; to = 'b'; version = '2026.1101.1'; deploy = $name; hours = 720; prefix = 'p' * 11; rollback = $false; by = $by }
+    $deploy.Length | Should -BeLessOrEqual 256
+    $wait = ConvertTo-AvdRotationTag @{ phase = 'Wait'; from = 'a'; to = 'b'; version = '2026.1101.1'; deploy = $name; deadline = '2026-10-23T12:00Z'; notice = '2026-10-23T12:00:59Z'; hours = 720; prefix = 'p' * 11; rollback = $true; by = $by }
     $wait | Should -Not -Match '"deploy"'
     $wait.Length | Should -BeLessOrEqual 256
+    (ConvertFrom-AvdRotationTag $wait).hours | Should -Be '720'
   }
   It 'leaves out empty values, so the original generation (none) is simply absent' {
     $tag = ConvertTo-AvdRotationTag @{ phase = 'Deploy'; from = ''; to = 'a'; version = '2026.1101.1' }
@@ -114,14 +117,33 @@ Describe 'deploy.sh flags for the rotation''s deployment' {
   }
 }
 
+Describe 'Settings the parameter files read from the environment' {
+  It 'keeps the last deployment''s recovery region, image build subnets, alert address and budget' {
+    $p = [pscustomobject]@{
+      recoveryLocation = [pscustomobject]@{ value = 'southcentralus' }; deployImageBuildSubnets = [pscustomobject]@{ value = $true }
+      alertEmailAddresses = [pscustomobject]@{ value = @('ops@contoso.com') }; monthlyBudgetAmount = [pscustomobject]@{ value = 150 }
+      localAdminPassword = [pscustomobject]@{ value = 'never' }
+    }
+    $e = Get-AvdRotationEnvironment -Parameters $p
+    @($e.Keys) | Should -Be @('AVD_RECOVERY_LOCATION', 'AVD_IMAGE_BUILD_SUBNETS', 'AVD_ALERT_EMAIL', 'AVD_MONTHLY_BUDGET')
+    $e['AVD_MONTHLY_BUDGET'] | Should -Be '150'
+  }
+  It 'sets nothing for settings the deployment did not have' {
+    $p = [pscustomobject]@{ recoveryLocation = [pscustomobject]@{ value = '' }; monthlyBudgetAmount = [pscustomobject]@{ value = 0 }; alertEmailAddresses = [pscustomobject]@{ value = @() } }
+    (Get-AvdRotationEnvironment -Parameters $p).Count | Should -Be 0
+  }
+}
+
 Describe 'Each phase''s next step' {
   BeforeAll { $script:s = { param($phase, $extra) $o = @{ phase = $phase; from = 'a'; to = 'b'; version = '2026.1101.1'; rollback = $false }; if ($extra) { foreach ($k in $extra.Keys) { $o[$k] = $extra[$k] } }; [pscustomobject]$o } }
   It 'waits in Deploy until every new host is Available and healthy' {
     $h = @((New-SessionHost 'avdlzdsha-001' 'a'), (New-SessionHost 'avdlzdshb-001' 'b'), (New-SessionHost 'avdlzdshb-002' 'b' -Ok $false))
-    $r = Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $h -ExpectedCount 2 -Now $now
+    $r = Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $h -ExpectedCount 2 -Now $now -DeploymentState succeeded
     $r.Action | Should -Be 'wait-hosts'; $r.Phase | Should -Be 'Deploy'; $r.Detail | Should -Match '1 of 2'
     $h[2] = New-SessionHost 'avdlzdshb-002' 'b'
-    (Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $h -ExpectedCount 2 -Now $now).Action | Should -Be 'drain'
+    (Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $h -ExpectedCount 2 -Now $now -DeploymentState succeeded).Action | Should -Be 'drain'
+    # A deployment that can't be found (deploy.sh stopped before submitting it) is deployed again, never cut over to.
+    (Get-AvdRotationStep -State (& $s 'Deploy') -SessionHosts $h -ExpectedCount 2 -Now $now -DeploymentState none).Action | Should -Be 'deploy'
   }
   It 'follows the rotation''s own deployment: waits while it runs, deploys again after a failure, never twice at once' {
     $old = @((New-SessionHost 'avdlzdsha-001' 'a'), (New-SessionHost 'avdlzdsha-002' 'a'))

@@ -66,7 +66,7 @@ Show-Rotation 'cli-sub'
 $env:FAKE_AZ_SUB = ''
 
 # Deploy: deploy.sh adds generation a with the last deployment's settings; the new hosts haven't registered.
-Invoke-ScenarioStep 'deploy' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -ImageId $v2 }
+Invoke-ScenarioStep 'deploy' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -ImageId $v2 -DeadlineHours 24 }
 Show-Rotation 'deploy'
 # Cloud Shell disconnected while Azure still deploys: wait for it, don't start another.
 Set-RotationRun 'Running'
@@ -87,6 +87,8 @@ Add-Generation 'Available'
 Invoke-ScenarioStep 'drain' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
 Show-Rotation 'drain'
 Write-Host "RESULT gallery-key $($global:St.rotation.galleryKey)"
+# The deadline asked for at the start, although the runs since were given no -DeadlineHours.
+Write-Host "RESULT drain-deadline $(($global:St.rotation.tags['avdlz-rotation'] | ConvertFrom-Json).deadline)"
 # After the deadline: nobody is signed out without -LogOffAtDeadline; with it, a notice, then sign-out.
 Set-RotationTime 'deadline'
 Invoke-ScenarioStep 'deadline' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
@@ -117,6 +119,7 @@ Show-Rotation 'remove-resume'
 $global:St.rotation.galleryTags = @()
 Invoke-ScenarioStep 'back-deploy' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -Rollback }
 Add-Generation 'Available' @('avdlzdshb-001', 'avdlzdshb-002')
+Set-RotationRun 'Succeeded'
 Invoke-ScenarioStep 'back-finish' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
 Show-Rotation 'back-finish'
 
@@ -136,6 +139,11 @@ Show-Rotation 'rb-drain'
 $global:Calls.Clear()
 Invoke-ScenarioStep 'rollback-whatif' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -Rollback -WhatIf }
 Write-Host "RESULT rollback-whatif-writes $(@($global:Calls | Where-Object { $_ -match '^ARM (PATCH|PUT|POST|DELETE)' }).Count)"
+# The original hosts were stopped meanwhile: the new ones keep serving until they are started again.
+$global:St.rotation.hosts['avdlzdsh-001'].status = 'Unavailable'
+Invoke-ScenarioStep 'rollback-stopped' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -Rollback }
+Show-Rotation 'rollback-stopped'
+$global:St.rotation.hosts['avdlzdsh-001'].status = 'Available'
 Invoke-ScenarioStep 'rollback' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -Rollback }
 Show-Rotation 'rollback'
 # The pool runs the previous version again, so there is nothing left to roll back to.

@@ -640,6 +640,11 @@
       }
       if (state.status === 'waiting') {
         var afterDeadline = wait && /-LogOffAtDeadline/.test((wait.detail || '') + ' ' + (wait.remediation || ''));
+        // A rollback that waited for the deployment to end is run again as a rollback.
+        if (ro.rollbackPending) {
+          note('Roll back once the deployment ends', ((wait || {}).detail || '') + ' Run the rollback again then.', cmd.rotation(cfg, { rollback: true }));
+          return { step: 'postdeploy', actions: a };
+        }
         note(ro.phase === 'Wait' ? 'Users are moving to the new hosts' : 'Run the rotation again', ((wait || {}).detail || '') + ' It continues from phase ' + (ro.phase || 'Deploy') + '.', cmd.rotation(cfg, { logOff: afterDeadline }));
         if (!ro.rollback && ro.phase !== 'Remove') note('Or roll back', 'Before the old hosts are removed, a rollback puts users back on them and removes the new ones.', cmd.rotation(cfg, { rollback: true }));
         return { step: 'postdeploy', actions: a };
