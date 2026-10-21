@@ -214,6 +214,18 @@ Describe 'Microsoft Graph scopes (decision 0016)' {
   }
 }
 
+Describe 'Test-AvdAppIdentity' {
+  It 'is true for a service principal or managed identity sign-in (a CI runner)' {
+    Test-AvdAppIdentity -Context ([pscustomobject]@{ Account = [pscustomobject]@{ Type = 'ServicePrincipal' } }) | Should -BeTrue
+    Test-AvdAppIdentity -Context ([pscustomobject]@{ Account = [pscustomobject]@{ Type = 'ManagedService' } }) | Should -BeTrue
+  }
+  It 'is false for a person, and for a context without an account (ARM omits it)' {
+    Test-AvdAppIdentity -Context ([pscustomobject]@{ Account = [pscustomobject]@{ Type = 'User' } }) | Should -BeFalse
+    Test-AvdAppIdentity -Context ([pscustomobject]@{ Tenant = [pscustomobject]@{ Id = 't' } }) | Should -BeFalse
+    Test-AvdAppIdentity -Context $null | Should -BeFalse
+  }
+}
+
 Describe 'Get-AvdGraphClientId' {
   AfterEach { $env:AVD_GRAPH_CLIENT_ID = $null }
   It 'is empty without a parameter or AVD_GRAPH_CLIENT_ID (the default app)' { $env:AVD_GRAPH_CLIENT_ID = $null; Get-AvdGraphClientId | Should -BeNullOrEmpty }

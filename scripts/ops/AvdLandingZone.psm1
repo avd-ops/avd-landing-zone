@@ -324,6 +324,16 @@ function Get-AvdGraphClientId {
   return $id
 }
 
+function Test-AvdAppIdentity {
+  <#
+    True when Az is signed in as an app (a service principal or managed identity, such as a CI
+    runner's federated sign-in) rather than a person: such a caller cannot sign in to Microsoft
+    Graph interactively, so it uses its own token and its application permissions instead.
+  #>
+  param($Context)
+  [bool]($Context -and $Context.Account -and $Context.Account.Type -in 'ServicePrincipal', 'ManagedService')
+}
+
 function Connect-AvdGraph {
   param(
     [ValidateSet('Read', 'Fix', 'PreDeployFix', 'Cleanup', 'SignIn')][string] $Purpose = 'Read',
@@ -336,7 +346,22 @@ function Connect-AvdGraph {
     throw 'Module Microsoft.Graph.Authentication is required: Install-Module Microsoft.Graph.Authentication -Scope CurrentUser'
   }
   Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
-  $tenantId = (Get-AzContext).Tenant.Id
+  $azContext = Get-AzContext
+  if (Test-AvdAppIdentity -Context $azContext) {
+    # No person to sign in: use the app's own Graph token. What it may do is set by the app
+    # permissions granted to it (tenant-swarm's sandbox-run identity: Directory.Read.All, Device.ReadWrite.All).
+    if ((Get-MgContext).AuthType -eq 'UserProvidedAccessToken' -and (Test-AvdGraphToken)) { return }
+    Write-Host "  Signing in to Microsoft Graph for $($script:GraphPurposes[$Purpose]) as the signed-in app identity (no interactive sign-in)" -ForegroundColor DarkGray
+    $token = (Get-AzAccessToken -ResourceTypeName MSGraph -ErrorAction Stop).Token
+    if ($token -isnot [securestring]) {
+      $plain = $token; $token = [securestring]::new()
+      foreach ($c in $plain.ToCharArray()) { $token.AppendChar($c) }
+    }
+    Connect-MgGraph -AccessToken $token -NoWelcome -ErrorAction Stop | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
+    if (-not (Test-AvdGraphToken)) { throw 'Signed in to Microsoft Graph with the app identity''s token, but requests still fail to get a token.' }
+    return
+  }
+  $tenantId = $azContext.Tenant.Id
   $ctx = Get-MgContext
   # An existing sign-in is reused when it covers every scope ('X.ReadWrite.All' covers 'X.Read.All').
   # With a client ID set, only a sign-in through that app counts: a default-app sign-in that already
