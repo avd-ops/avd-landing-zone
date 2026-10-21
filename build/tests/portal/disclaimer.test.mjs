@@ -26,8 +26,13 @@ test('README says personal project, not for production, as is, not affiliated wi
 
 test('the portal shows the disclaimer at the top and in the footer', () => {
   const h = read('site/portal/index.html');
-  assert.match(h, /<p class="disclaimer" id="disclaimer"><strong>Personal project, not for production\.<\/strong> Provided as is, without warranty/);
-  assert.match(h, /Not affiliated with, endorsed by or supported by the author's employer/);
+  // At the top: the avd-ops shell's notice in the brand bar (design system 2.3.0), a pill that opens to the full text.
+  const bar = (h.match(/<header class="bar">([\s\S]*?)<\/header>/) || [])[1] || '';
+  const notice = (bar.match(/<details class="notice" id="disclaimer">([\s\S]*?)<\/details>/) || [])[1] || '';
+  assert.match(notice, /<summary><strong class="long">Personal project\. Not for production\. No warranty\.<\/strong><strong class="short">Not for production<\/strong><\/summary>/);
+  assert.match(notice, /<strong>Personal project, not for production\.<\/strong> Provided as is, without warranty of any kind/);
+  assert.match(notice, /MIT License/);
+  assert.match(notice, /Not affiliated with, endorsed by or supported by the author's employer/);
   assert.match(h, /<footer class="disclaimer">[^<]*without warranty[^<]*employer[^<]*Not for production use\.<\/footer>/);
 });
 

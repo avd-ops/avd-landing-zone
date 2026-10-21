@@ -33,7 +33,7 @@
   .resume-hint { font-size: .85rem; margin: .5rem 0 0; }
   .status { font-size: .93rem; }
   .hidden { display: none !important; }
-  .eyebrow { font: 600 .72rem/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+  .eyebrow { margin: 0 0 6px; }
 
   /* The page's title row under the avd-ops shell bar: the portal's name, then its own tools. */
   header.top { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; padding-block: 14px; border-bottom: 1px solid var(--line); }
@@ -107,7 +107,7 @@
   ol.steps { list-style: none; display: flex; padding: 26px 4px 6px; margin: 14px 0 14px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; }
   ol.steps::-webkit-scrollbar { display: none; }
   ol.steps li { flex: 1 0 84px; scroll-snap-align: start; position: relative; }
-  ol.steps li[data-phase-start]::after { content: attr(data-phase-start); position: absolute; top: -24px; left: 6px; font: 600 .68rem/1 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+  ol.steps li[data-phase-start]::after { content: attr(data-phase-start); position: absolute; top: -24px; left: 6px; font: 600 .78rem/1 var(--body); color: var(--muted); white-space: nowrap; }
   ol.steps li[data-phase-start]:not(:first-child) { margin-left: 18px; }
   ol.steps li + li::before { content: ""; position: absolute; top: 15px; left: calc(-50% + 16px); right: calc(50% + 16px); height: 2px; background: var(--line-strong); }
   ol.steps li[data-phase-start] + li::before { left: calc(-50% + 16px); }
@@ -154,7 +154,7 @@
   .slot > section:not(:last-child)::after { content: ""; position: absolute; left: 15px; top: 32px; bottom: 4px; width: 2px; background: var(--line); }
   /* The stop names read as labels; the action under them is the heading. */
   .slot > section > .headline { margin-bottom: 10px; min-height: 26px; }
-  .slot #next-title, .slot #paste-box > h3 { font: 600 .74rem/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .slot #next-title, .slot #paste-box > h3 { font: 600 .88rem/1.2 var(--body); color: var(--muted); }
   .slot #paste-box > h3 { margin: 6px 0 12px; }
   .slot .action h3 { font-size: 1.12rem; }
   .slot > #next:has(#next-chip.good)::before { content: "\2713"; background: var(--good); border-color: var(--good); color: var(--surface); }
@@ -184,7 +184,7 @@
   .action .why { color: var(--muted); margin: 2px 0 10px; max-width: 76ch; }
   .term { border: 1px solid var(--term-border); border-radius: var(--radius-sm); background: var(--term-bg); overflow: hidden; }
   .term-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 6px 12px; background: var(--term-head); border-bottom: 1px solid var(--term-border); }
-  .term-label { font: 600 .72rem/1 var(--mono); letter-spacing: .06em; color: var(--term-muted); text-transform: uppercase; }
+  .term-label { font: 600 .78rem/1 var(--mono); color: var(--term-muted); }
   .term-label::before { content: "PS>"; color: var(--prompt); margin-right: 8px; letter-spacing: 0; }
   .term[data-shell="bash"] .term-label::before { content: "$"; }
   .term-head .untested { margin-right: auto; margin-left: 10px; }
@@ -229,7 +229,7 @@
   table { width: 100%; border-collapse: collapse; font-size: .95rem; }
   th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
   tbody tr:last-child td { border-bottom: 0; }
-  th { font: 600 .7rem var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--muted); background: var(--sunken); }
+  th { font: 600 .82rem var(--body); color: var(--muted); background: var(--sunken); }
   td.region { white-space: normal; }
   td.region .muted { display: block; font: .78rem var(--mono); }
   td.num { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: .88rem; }
@@ -267,8 +267,12 @@
 </head>
 <body class="shell">
 <!-- The avd-ops shell (avd-ops docs/design-system.md, "Shell"): the brand bar and switcher shared with avd-ops.dev and the assessment portal. -->
-<header class="bar"><div class="bar-in"><a class="brand" href="https://avd-ops.dev/"><img class="mark" src="../assets/brand/mark.svg" alt="" width="28" height="28"><span class="word">avd-ops</span></a>
+<header class="bar"><div class="bar-in"><a class="brand" href="https://avd-ops.dev/"><img class="mark" src="../assets/brand/mark.svg" alt="" width="44" height="44"><span class="name"><span class="word">avd-ops</span><span class="tag">Deploy quietly</span></span></a>
 <nav class="switcher" aria-label="avd-ops tools"><a href="https://avd-ops.dev/">Docs</a><a href="./" aria-current="page">Deploy</a><a href="https://avd-ops.github.io/avd-current-state/portal/">Assess</a></nav>
+<details class="notice" id="disclaimer"><summary><strong class="long">Personal project. Not for production. No warranty.</strong><strong class="short">Not for production</strong></summary>
+<div class="full"><ul><li><strong>Personal project, not for production.</strong> Provided as is, without warranty of any kind (<a href="https://github.com/avd-ops/avd-landing-zone/blob/master/LICENSE">MIT License</a>).</li>
+<li>Not affiliated with, endorsed by or supported by the author's employer, and not an official Microsoft product.</li>
+<li>Use a lab subscription and tenant.</li></ul></div></details>
 <div class="tools"><button class="iconbtn theme" type="button" aria-label="Switch theme"><svg class="sun" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="3.5"/><path d="M10 1.8v2.2M10 16v2.2M1.8 10H4M16 10h2.2M4.2 4.2l1.6 1.6M14.2 14.2l1.6 1.6M4.2 15.8l1.6-1.6M14.2 5.8l1.6-1.6"/></svg><svg class="moon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z"/></svg></button></div></div></header>
 <main>
   <header class="top">
@@ -283,7 +287,6 @@
     Run each command in <a href="https://shell.azure.com/powershell" target="_blank" rel="noopener">Azure Cloud Shell (PowerShell)</a>,
     paste the output back here, and the portal tells you what to run next. Everything happens in your browser: pasted output is never sent anywhere.
   </p>
-  <p class="disclaimer" id="disclaimer"><strong>Personal project, not for production.</strong> Provided as is, without warranty of any kind (<a href="https://github.com/avd-ops/avd-landing-zone/blob/master/LICENSE">MIT License</a>). Not affiliated with, endorsed by or supported by the author's employer, and not an official Microsoft product. Use a lab subscription.</p>
   </div>
 
   <!-- Run in (avd-ops docs/design-system.md): every command block follows this choice. Cloud Shell PowerShell is the default; the choice is kept in this browser only. -->
