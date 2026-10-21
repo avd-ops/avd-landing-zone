@@ -1,12 +1,12 @@
 {
   "$comment": "The avd-ops design system copy in this folder: the avd-ops tag and commit it came from and the SHA-256 of each file (its MANIFEST.json). Update it with the Cloud Shell block in avd-ops docs/design-system.md, never by hand.",
   "tag": "ds-v2.4.1",
-  "commit": "de78ebe865a6052f6d96441532485eeeaf62ca44",
+  "commit": "25c01408c8db3e44bf780431c834d7db33101c29",
   "files": {
     "avd-ops.css": "c3902a3ee44013c7f575fc31d69483e61735770cada8e3e67826728ef41b242b",
     "avd-ops-shell.css": "54f55554397997ed94ee882493c0945e620553939f88e43853c8f0f2119a367d",
-    "avd-ops-portal.css": "0f318caaade073d7a67dcd2343b4c3ae7d90f23cf3ab590b11bc044776b91462",
-    "theme.js": "dc4ac90e218264539c56841b943ea09af4e937070bc07ba221162151b7917b8a",
+    "avd-ops-portal.css": "01818e5659b4736da82cbb924b0f198565bed333ec2c1349c13d6f77ff340ede",
+    "theme.js": "9f3572727ac414f06073a844061fab2d68afbc0a79ecac1ec4ac39d6ac2a18d7",
     "fonts/LICENSE": "f36e0bc8b0db06bd20925b57159ec9ca3b602e64a8c43c58d05c797a3265734a",
     "fonts/ibm-plex-mono-latin-400-italic.woff2": "78439db25c4237c6b986d7b8af12b894c6cd660666b9507ccb91263f8b4138b5",
     "fonts/ibm-plex-mono-latin-400-normal.woff2": "3c5a451f9ec27a354b0c2bcca636c6ec17a651281aabf29f8427e210a1d31e85",

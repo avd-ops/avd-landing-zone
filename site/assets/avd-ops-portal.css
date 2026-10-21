@@ -23,8 +23,6 @@ body.portal{font:16px/1.55 var(--body);-webkit-font-smoothing:antialiased}
 .portal .lede{color:var(--muted);margin:0;max-width:62ch;font-size:1rem}
 
 /* Notice: the portal's research-only line before the first stage, and the footer. */
-.portal p.disclaimer{margin:0;background:var(--warn-bg);border:1px solid var(--warn-line);color:var(--warn-fg);border-radius:var(--radius-sm);padding:9px 12px;line-height:1.45;font-size:.85rem}
-.portal p.disclaimer a{color:inherit}
 .portal footer.disclaimer{margin:28px 0 0;padding:var(--space-4) 0 calc(24px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);font-size:.85rem;color:var(--muted)}
 
 /* Panels: a stage, or a collapsible block such as Settings. */
@@ -124,7 +122,7 @@ body.portal{font:16px/1.55 var(--body);-webkit-font-smoothing:antialiased}
 .portal .term{border:1px solid var(--term-border);border-radius:var(--radius-sm);background:var(--term-bg);overflow:hidden}
 .portal .term-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);padding:6px 8px 6px 12px;background:var(--term-head);border-bottom:1px solid var(--term-border)}
 .portal .term-label{font:600 .78rem/1 var(--mono);color:var(--term-muted)}
-.portal .term-label::before{content:"PS>";color:var(--prompt);margin-right:8px;letter-spacing:0}
+.portal .term-label::before{content:"PS>";color:var(--prompt);margin-right:8px}
 .portal .term[data-shell="bash"] .term-label::before{content:"$"}
 .portal .term-head button{padding:4px 12px;font-size:.85rem;background:transparent;color:var(--term-text);border-color:var(--term-border)}
 .portal .term-head button:hover:not(:disabled){background:var(--term-border);border-color:var(--term-muted);color:var(--term-text)}

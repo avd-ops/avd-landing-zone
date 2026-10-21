@@ -53,13 +53,10 @@
   @media (max-width: 560px) { .toplinks { width: 100%; } .toplinks > a.about { display: none; } .toplinks > a.toolbtn { flex: 1 1 0; justify-content: center; white-space: normal; text-align: center; } }
   .credit { margin: 0; padding: 0 0 calc(24px + env(safe-area-inset-bottom, 0px)); font: 600 .8rem var(--mono); letter-spacing: .04em; color: var(--fg); }
   .credit a { color: inherit; }
-  .intro { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 12px 24px; align-items: start; padding-block: 18px 6px; }
+  .intro { padding-block: 18px 6px; }
   .lede { color: var(--muted); margin: 0; max-width: 62ch; font-size: 1rem; }
   .disclaimer { font-size: .85rem; color: var(--muted); }
-  p.disclaimer { margin: 0; background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn-fg); border-radius: var(--radius-sm); padding: 9px 12px; line-height: 1.45; }
-  p.disclaimer a { color: inherit; }
   footer.disclaimer { margin: 28px 0 0; padding: 16px 0 10px; border-top: 1px solid var(--line); }
-  @media (max-width: 720px) { .intro { grid-template-columns: minmax(0, 1fr); } }
 
   /* Panels */
   section, details.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow); }
@@ -185,7 +182,7 @@
   .term { border: 1px solid var(--term-border); border-radius: var(--radius-sm); background: var(--term-bg); overflow: hidden; }
   .term-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 6px 12px; background: var(--term-head); border-bottom: 1px solid var(--term-border); }
   .term-label { font: 600 .78rem/1 var(--mono); color: var(--term-muted); }
-  .term-label::before { content: "PS>"; color: var(--prompt); margin-right: 8px; letter-spacing: 0; }
+  .term-label::before { content: "PS>"; color: var(--prompt); margin-right: 8px; }
   .term[data-shell="bash"] .term-label::before { content: "$"; }
   .term-head .untested { margin-right: auto; margin-left: 10px; }
   .runin { margin: 4px 0 18px; }

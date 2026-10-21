@@ -29,7 +29,7 @@
       try { window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', label); } catch (e) { /* old browser */ }
     }
 
-    // The notice in the bar opens over the page, so a click outside it or Escape closes it again.
+    // The notice in the bar opens over the page, so a click outside it, Escape or moving focus out of it closes it again.
     var notice = document.querySelector('.shell header.bar .notice');
     if (notice) {
       // pointerdown, not click: iOS Safari sends no click for a tap on text or empty space.
@@ -37,6 +37,7 @@
       document.addEventListener('keydown', function (e) {
         if (e.key === 'Escape' && notice.open) { notice.open = false; notice.querySelector('summary').focus(); }
       });
+      notice.addEventListener('focusout', function (e) { if (notice.open && e.relatedTarget && !notice.contains(e.relatedTarget)) notice.open = false; });
     }
 
     var menu = document.querySelector('.shell .menu');
