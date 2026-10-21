@@ -747,3 +747,63 @@ Describe 'Deployment portal hosting (decision 0017)' {
     Get-AvdPortalUrl -Url 'https://x.example/a b' | Should -Be 'https://nickprignano.github.io/avd-landing-zone/portal/'
   }
 }
+
+Describe 'Host security baseline profile (decision 0018)' {
+  BeforeAll {
+    $script:baseline = Get-Content -Raw (Join-Path $PSScriptRoot '../../scripts/security/host-baseline.json') | ConvertFrom-Json
+    $script:hostScript = Get-Content -Raw (Join-Path $PSScriptRoot '../../scripts/ops/host/Get-SessionHostSecurity.ps1')
+    $script:good = [pscustomobject]@{ vbsStatus = 2; securityServicesRunning = @(1, 2); codeIntegrityEnforcement = 2; defenderRealTime = $true
+      defenderTamperProtected = $true; lsaRunAsPpl = 1; smb1Enabled = $false; maxIdleTimeMs = 3600000; inactivityTimeoutSecs = 900
+      screenCaptureProtection = 1; extraLocalAdmins = 0 }
+  }
+  It 'gives every control a unique id, a source, a remediation and a value the host script reports' {
+    $ids = @($baseline.controls.id)
+    @($ids | Sort-Object -Unique).Count | Should -Be $ids.Count
+    foreach ($c in $baseline.controls) {
+      @($c.refs).Count | Should -BeGreaterThan 0 -Because $c.id
+      $c.remediation | Should -Not -BeNullOrEmpty -Because $c.id
+      $hostScript | Should -Match "\`$r\.$($c.observed)\b" -Because "$($c.id) reads $($c.observed)"
+    }
+  }
+  It 'records why for every control the landing zone leaves to the organization' {
+    foreach ($c in $baseline.controls | Where-Object setBy -eq 'organization') { $c.departure | Should -Not -BeNullOrEmpty -Because $c.id }
+    foreach ($c in $baseline.controls | Where-Object setBy -ne 'organization') { $c.departure | Should -BeNullOrEmpty -Because $c.id }
+  }
+  It 'passes a host that matches every control' {
+    @(Get-AvdHostBaselineResult -Baseline $baseline -Observed $good | Where-Object Outcome -ne 'pass') | Should -BeNullOrEmpty
+  }
+  It 'separates recorded departures, unrecorded drift and values the host did not report' {
+    $h = $good.PSObject.Copy()
+    $h.codeIntegrityEnforcement = 0             # departure: organization policy
+    $h.securityServicesRunning = @(2)           # Credential Guard not running: drift
+    $h.inactivityTimeoutSecs = 1800             # longer than 15 minutes: departure
+    $h.extraLocalAdmins = 1                     # drift
+    $h.PSObject.Properties.Remove('lsaRunAsPpl') # not reported, the way ARM-style output omits it
+    $r = @(Get-AvdHostBaselineResult -Baseline $baseline -Observed $h | Where-Object Outcome -ne 'pass')
+    ($r | ForEach-Object { "$($_.Id)=$($_.Outcome)" }) -join ',' |
+      Should -Be 'credential-guard=gap,app-control=departure,lsa-protection=unknown,screen-lock=departure,local-admins=gap'
+    ($r | Where-Object Id -eq 'screen-lock').Detail | Should -Match '^inactivityTimeoutSecs=1800\. Departure: '
+  }
+}
+
+Describe 'Get-AvdHostBaselineResult on a list value' {
+  It 'compares eq, in, min and max with one value, never by filtering a list' {
+    $b = [pscustomobject]@{ controls = @(
+        [pscustomobject]@{ id = 'eq'; title = 'eq'; observed = 'services'; test = [pscustomobject]@{ eq = 0 } }
+        [pscustomobject]@{ id = 'max'; title = 'max'; observed = 'services'; test = [pscustomobject]@{ max = 0 } }
+        [pscustomobject]@{ id = 'contains'; title = 'contains'; observed = 'services'; test = [pscustomobject]@{ contains = 2 } }) }
+    $r = Get-AvdHostBaselineResult -Baseline $b -Observed ([pscustomobject]@{ services = @(0, 2) })
+    ($r | ForEach-Object { "$($_.Id)=$($_.Outcome)" }) -join ',' | Should -Be 'eq=gap,max=gap,contains=pass'
+  }
+}
+
+Describe 'Get-AvdRdpRedirectionOff' {
+  It 'reads the landing zone default as drives, USB and COM ports off' {
+    $rdp = 'enablerdsaadauth:i:1;targetisaadjoined:i:1;drivestoredirect:s:;usbdevicestoredirect:s:;redirectcomports:i:0;redirectsmartcards:i:1;redirectprinters:i:1;redirectclipboard:i:1'
+    (Get-AvdRdpRedirectionOff -CustomRdpProperty $rdp) -join ',' | Should -Be 'drives,usb,comPorts'
+  }
+  It 'treats a property that is not set as the client default, not off' {
+    (Get-AvdRdpRedirectionOff -CustomRdpProperty 'drivestoredirect:s:*;redirectcomports:i:1') | Should -BeNullOrEmpty
+    (Get-AvdRdpRedirectionOff -CustomRdpProperty '') | Should -BeNullOrEmpty
+  }
+}

@@ -1,0 +1,120 @@
+{
+  "version": 1,
+  "reviewed": "2026-10-21",
+  "reference": "Microsoft's security baseline for the host's Windows release (Intune baseline when enrolled, otherwise the Security Compliance Toolkit). This profile lists the controls the landing zone checks on its hosts and its departures from that baseline.",
+  "controls": [
+    {
+      "id": "vbs-running",
+      "title": "Virtualization-based security running",
+      "observed": "vbsStatus",
+      "test": { "eq": 2 },
+      "setBy": "windows",
+      "refs": ["avd-security-guide#trusted-launch", "mcsb-avd-baseline#ES-2"],
+      "remediation": "Trusted Launch with vTPM and Secure Boot is the prerequisite; check the image and any policy that turns VBS off."
+    },
+    {
+      "id": "credential-guard",
+      "title": "Credential Guard running",
+      "observed": "securityServicesRunning",
+      "test": { "contains": 1 },
+      "setBy": "windows",
+      "refs": ["avd-security-guide#os-hardening", "windows-security-baselines#baselines-published"],
+      "remediation": "Turn Credential Guard on by policy (Intune or the Security Compliance Toolkit baseline)."
+    },
+    {
+      "id": "hvci",
+      "title": "Memory integrity (HVCI) running",
+      "observed": "securityServicesRunning",
+      "test": { "contains": 2 },
+      "setBy": "windows",
+      "refs": ["avd-security-guide#os-hardening", "windows-security-baselines#baselines-published"],
+      "remediation": "Turn memory integrity on by policy; check drivers in the image that block it."
+    },
+    {
+      "id": "app-control",
+      "title": "Application control policy enforced",
+      "observed": "codeIntegrityEnforcement",
+      "test": { "eq": 2 },
+      "setBy": "organization",
+      "departure": "The landing zone ships no App Control for Business or AppLocker policy: which apps a host runs is the organization's choice, deployed through Intune.",
+      "refs": ["avd-security-guide#os-hardening", "mcsb-avd-baseline#ES-2"],
+      "remediation": "Deploy an App Control for Business policy through Intune, audit mode first."
+    },
+    {
+      "id": "defender-realtime",
+      "title": "Microsoft Defender Antivirus real-time protection on",
+      "observed": "defenderRealTime",
+      "test": { "eq": true },
+      "setBy": "windows",
+      "refs": ["avd-security-guide#endpoint-protection", "mcsb-avd-baseline#ES-2"],
+      "remediation": "Check for a policy or a third-party antivirus that turned real-time protection off."
+    },
+    {
+      "id": "defender-tamper",
+      "title": "Defender tamper protection on",
+      "observed": "defenderTamperProtected",
+      "test": { "eq": true },
+      "setBy": "organization",
+      "departure": "Tamper protection is managed from Defender for Endpoint; hosts are onboarded only when the organization turns on Defender for Servers (enableDefenderForCloud).",
+      "refs": ["avd-security-guide#endpoint-protection", "mcsb-avd-baseline#ES-1"],
+      "remediation": "Set enableDefenderForCloud = true, or onboard the hosts to Defender for Endpoint and turn tamper protection on there."
+    },
+    {
+      "id": "lsa-protection",
+      "title": "LSA runs as a protected process",
+      "observed": "lsaRunAsPpl",
+      "test": { "in": [1, 2] },
+      "setBy": "windows",
+      "refs": ["windows-security-baselines#baselines-published"],
+      "remediation": "Set RunAsPPL by policy (the Windows security baseline sets it)."
+    },
+    {
+      "id": "smb1-off",
+      "title": "SMB 1.0 server off",
+      "observed": "smb1Enabled",
+      "test": { "eq": false },
+      "setBy": "windows",
+      "refs": ["windows-security-baselines#baselines-published"],
+      "remediation": "Run Set-SmbServerConfiguration -EnableSMB1Protocol $false in the image."
+    },
+    {
+      "id": "idle-limit",
+      "title": "Idle sessions are limited",
+      "observed": "maxIdleTimeMs",
+      "test": { "min": 1 },
+      "setBy": "organization",
+      "departure": "The landing zone limits disconnected sessions (MaxDisconnectionTime) but leaves the idle limit to the organization: it depends on how people work.",
+      "refs": ["avd-security-guide#idle-limits"],
+      "remediation": "Set an idle session limit by policy (MaxIdleTime)."
+    },
+    {
+      "id": "screen-lock",
+      "title": "Screen locks after 15 minutes or less",
+      "observed": "inactivityTimeoutSecs",
+      "test": { "min": 1, "max": 900 },
+      "setBy": "organization",
+      "departure": "Left to the organization's device policy, which usually sets it for every Windows device the same way.",
+      "refs": ["avd-security-guide#idle-limits", "windows-security-baselines#baselines-published"],
+      "remediation": "Set Interactive logon: Machine inactivity limit (InactivityTimeoutSecs) by policy."
+    },
+    {
+      "id": "screen-capture-protection",
+      "title": "Screen capture protection on",
+      "observed": "screenCaptureProtection",
+      "test": { "in": [1, 2] },
+      "setBy": "organization",
+      "departure": "Screen capture protection blocks screen sharing in some meeting apps; whether the data on the desktop needs it is the organization's choice.",
+      "refs": ["screen-capture-protection#host-policy", "avd-security-guide#device-redirection"],
+      "remediation": "Turn on screen capture protection by policy (fEnableScreenCaptureProtect)."
+    },
+    {
+      "id": "local-admins",
+      "title": "No extra local administrators",
+      "observed": "extraLocalAdmins",
+      "test": { "max": 0 },
+      "setBy": "image",
+      "refs": ["avd-security-guide#tiered-admin", "mcsb-avd-baseline#PA-7"],
+      "remediation": "Remove the extra members; give admin rights through the Virtual Machine Administrator Login role instead."
+    }
+  ]
+}

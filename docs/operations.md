@@ -183,6 +183,7 @@ It then validates sign-in readiness:
 |---|---|
 | Host pool | Every host **Available**, accepting new sessions, all AVD health checks passing (waits up to `-TimeoutMinutes`) |
 | Host configuration | `Configure-FSLogix` and `Register-AvdAgent` run commands succeeded; on the host: Entra joined, Intune enrolled, agent registered, FSLogix and Entra Kerberos configured, profile share resolves to a private IP and answers on TCP 445 |
+| Host security baseline | Each host against the reviewed profile in [`scripts/security`](../scripts/security/README.md): VBS, Credential Guard, memory integrity, Defender, LSA protection, SMB 1.0, session and screen locks, extra local administrators. **Warnings, never failures**: a control the landing zone leaves to the organization says why, and drift nobody recorded says so ([decision 0018](../build/decisions/0018-host-security-baseline.md)) |
 | Access | AVD Users hold Desktop Virtualization User on the demo app group, VM User Login on the demo RG, and SMB Share Contributor on the storage |
 | Tenant | Steps 1–3 as above (check only; `-FixNtfs` applies the ACL) |
 | Test user | With `-TestUserUpn`: enabled, a member of AVD Users (including nested groups), licensed |
@@ -251,7 +252,7 @@ Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 | Pillar | Checks |
 |---|---|
 | Reliability | At least two session hosts; hosts in availability zones (and whether the region has any); zone-redundant profile storage; share soft delete; profile share backup; Azure Advisor reliability recommendations |
-| Security | Defender for Cloud plans for servers, storage and Key Vault; Trusted Launch and encryption at host; storage TLS 1.2, HTTPS only and no shared keys; Key Vault purge protection, RBAC and private access; open Defender for Cloud recommendations on landing zone resources |
+| Security | Defender for Cloud plans for servers, storage and Key Vault; Trusted Launch with Secure Boot and vTPM, and encryption at host; drive and USB redirection off on the host pool; storage TLS 1.2, HTTPS only and no shared keys; Key Vault purge protection, RBAC and private access; open Defender for Cloud recommendations on landing zone resources |
 | Cost Optimization | A budget; a scaling plan enabled on the host pool; Advisor cost recommendations |
 | Operational Excellence | Azure Monitor Agent on every session host; host pool diagnostics to Log Analytics; log retention of 90 days or more; Azure Policy compliance of the landing zone resource groups; Advisor recommendations |
 | Performance Efficiency | Accelerated networking on the session hosts; Advisor recommendations |
