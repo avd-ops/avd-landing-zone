@@ -1,7 +1,7 @@
 # 0031. An unattended teardown must delete device objects with the app's own Graph token
 
 - **Area:** Ops scripts (cleanup)
-- **Found in / fixed by:** PR #<n>
+- **Found in / fixed by:** PR #91
 
 ## What happened
 A batch run from a CI runner (a federated service principal, no person) deployed the dev landing zone, failed and tore it down cleanly. The next run's session host could not join Entra ID:

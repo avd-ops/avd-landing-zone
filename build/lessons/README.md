@@ -36,7 +36,7 @@ Add a lesson whenever a real run fails for a reason the tests didn't catch. The 
 | 0028 | [Azure Files denies Entra Kerberos sessions when AES-256-GCM is the only channel encryption](0028-smb-channel-encryption-entra-kerberos.md) | Bicep | #45 | Template test: SMB channel encryption; readiness check |
 | 0029 | [A cleanup step that fails after its inputs are deleted can't be retried](0029-device-cleanup-rerun.md) | Cleanup | #46 | Offline scenario: device-retry; portal test |
 | 0030 | [Microsoft Graph's service principal doesn't list every delegated permission it issues](0030-graph-unlisted-delegated-scope.md) | Ops scripts | #47 | Offline scenario: GraphSignIn (setup, default-to-operator) |
-| 0031 | [An unattended teardown must delete device objects with the app's own Graph token](0031-app-identity-graph-cleanup.md) | Ops scripts | #<n> | Unit test: Test-AvdAppIdentity |
+| 0031 | [An unattended teardown must delete device objects with the app's own Graph token](0031-app-identity-graph-cleanup.md) | Ops scripts | #91 | Unit test: Test-AvdAppIdentity |
 
 ## Template
 
