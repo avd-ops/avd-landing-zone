@@ -1593,9 +1593,10 @@ function Get-AvdPSRuleFinding {
   param([Parameter(Mandatory)][string[]] $ResourceGroupName)
   # Load the pinned versions when the commands are missing or another version is loaded. Commands
   # with no module behind them are the offline scenarios' stand-ins (AzMock.psm1).
-  $loaded = @(Get-Module PSRule, PSRule.Rules.Azure)
   $pins = [ordered]@{ 'PSRule' = $script:PSRuleVersion; 'PSRule.Rules.Azure' = $script:PSRuleAzureVersion }
   $commands = (Get-Command Export-AzRuleData -ErrorAction SilentlyContinue) -and (Get-Command Invoke-PSRule -ErrorAction SilentlyContinue)
+  # After Get-Command, which can auto-import whatever version is installed.
+  $loaded = @(Get-Module PSRule, PSRule.Rules.Azure)
   $mismatch = @($loaded | Where-Object { $_.Version -ne [version]$pins[$_.Name] })
   if (-not $commands -or $mismatch) {
     foreach ($name in $pins.Keys) {
