@@ -72,6 +72,8 @@ h1{font-size:clamp(2rem,5vw,2.9rem);margin:var(--space-6) 0 var(--space-3);lette
 h2{font-size:1.45rem;margin:2.75rem 0 var(--space-3)} h3{font-size:1.1rem;margin:0 0 .35rem}
 code,.mono{font-family:var(--mono);font-size:.85em}
 pre{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);padding:.9rem 1rem;overflow-x:auto;font:.82rem/1.55 var(--mono)}
+/* Commands show every character as typed: no ligature turns << or != into one glyph. */
+pre,code,.mono{font-variant-ligatures:none}
 .lede{font-size:1.2rem;color:var(--muted)}
 .wrap{max-width:var(--measure);margin:0 auto;padding-block:0 4rem;
   padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
