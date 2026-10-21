@@ -245,6 +245,7 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     Get-StepExit $out 'stopped' | Should -Be 0
     Get-Result 'stopped-calls' | Should -Be 'group-exists,vm-list,vm-start,deployment-create,vm-deallocate'
     Get-Result 'stopped-ids' | Should -Be 'avdlzdsh-001,avdlzdsh-001'
+    Get-Result 'stopped-idpaths' | Should -Be 'True,True' -Because 'resource IDs reach az unchanged (Git Bash rewrites a leading / without MSYS_NO_PATHCONV)'
   }
   It 'deallocates it again when the deployment fails, and still fails' {
     Get-StepExit $out 'stopped-fails' | Should -Be 1

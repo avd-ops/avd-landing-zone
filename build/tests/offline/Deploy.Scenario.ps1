@@ -6,12 +6,14 @@ Set-Location (Join-Path $PSScriptRoot '../../..')
 $env:PATH = (Join-Path $PSScriptRoot 'deploybin') + [IO.Path]::PathSeparator + $env:PATH
 $log = Join-Path ([IO.Path]::GetTempPath()) "avdlz-fake-az-$PID.log"
 $env:FAKE_AZ_LOG = $log
+# AVDLZ_TEST_BASH picks the bash (CI: Git Bash on Windows, Homebrew bash on macOS).
+$bash = if ($env:AVDLZ_TEST_BASH) { $env:AVDLZ_TEST_BASH } else { 'bash' }
 $stopped = '/subscriptions/0000/resourceGroups/rg-avdlz-dev-hosts/providers/Microsoft.Compute/virtualMachines/avdlzdsh-001'
 
 function Invoke-Deploy([string] $Step, [string[]] $Extra) {
   Remove-Item $log -ErrorAction SilentlyContinue
   Write-Host "`n######## $Step" -ForegroundColor Magenta
-  $out = & bash ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus --users-group 'AVD Users' --admins-group 'AVD Admins' @Extra 2>&1 | Out-String
+  $out = & $bash ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus --users-group 'AVD Users' --admins-group 'AVD Admins' @Extra 2>&1 | Out-String
   $exit = $LASTEXITCODE
   Write-Host $out
   Write-Host "RESULT $Step EXIT=$exit"
@@ -20,6 +22,8 @@ function Invoke-Deploy([string] $Step, [string[]] $Extra) {
       ForEach-Object { $_ -replace '^az deployment sub (\S+).*', 'deployment-$1' -replace '^az (\S+) (\S+).*', '$1-$2' })
   Write-Host "RESULT $Step-calls $($calls -join ',')"
   Write-Host "RESULT $Step-ids $(@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -match '^az vm (start|deallocate)' } | ForEach-Object { if ($_ -match '--ids (\S+)') { ($Matches[1] -split '/')[-1] } }) -join ',')"
+  # Git Bash rewrites a leading / unless MSYS_NO_PATHCONV is set: the IDs must reach az unchanged.
+  Write-Host "RESULT $Step-idpaths $(@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -match '^az vm (start|deallocate)' } | ForEach-Object { if ($_ -match '--ids (\S+)') { [bool]($Matches[1] -like '/subscriptions/*') } }) -join ',')"
   Write-Host "RESULT $Step-unmocked $([bool]($out -match 'unmocked call'))"
   Write-Host "RESULT $Step-env $(@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -like 'deploy-env *' }) -join ';')"
   Write-Host "RESULT $Step-jumpbox $(@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -like 'jumpbox-env *' }) -join ';')"

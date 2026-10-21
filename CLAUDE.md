@@ -16,6 +16,7 @@ AVD_USERS_GROUP_ID=00000000-0000-0000-0000-000000000001 AVD_ADMINS_GROUP_ID=0000
 AVD_SERVICE_PRINCIPAL_ID=00000000-0000-0000-0000-000000000003 AVD_LOCAL_ADMIN_PASSWORD='Placeholder-only-for-build-1!' \
   bicep build-params parameters/dev.bicepparam --stdout > /dev/null
 pwsh -c "Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"
+# plus the compatibility passes in validate.yml: build/analyzer/Portable.psd1 (scripts/ops) and WindowsPowerShell.psd1 (in-Azure scripts)
 pwsh -c "Invoke-Pester -Path ./build/tests -CI"            # unit tests, offline scenarios, template guards
 shellcheck scripts/deploy/deploy.sh .claude/hooks/session-start.sh .githooks/pre-commit build/snapshot-diff.sh
 gitleaks git --redact .                              # secret scan, as the secret-scan workflow runs it
