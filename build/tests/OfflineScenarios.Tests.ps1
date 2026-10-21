@@ -785,13 +785,17 @@ Describe 'Run recorder: run store and the cost gate' {
     Get-StepExit $out 'stop-before-cleanup' | Should -Be 0
     $out | Should -Match 'RESULT before-cleanup tables=4 queries=4 rows=2 uploaded=4'
   }
-  It 'closes the run with the first actual cost reading, not settled, naming a meter the estimate missed' {
+  It 'closes the run with the first actual cost reading, not settled, naming a meter the estimate missed, and not flagged as billing on the teardown day' {
     Get-StepExit $out 'stop-end' | Should -Be 0
-    $out | Should -Match 'RESULT stop-end valid=True status=torn-down files=5 readings=1 total=3.5 settled=False unexpected=Standard Static IP afterTeardown=True runStoreInScope=True lzInScope=True'
+    $out | Should -Match 'RESULT stop-end valid=True status=torn-down files=5 readings=1 total=3.5 settled=False unexpected=Standard Static IP afterTeardown=False runStoreInScope=True lzInScope=True'
   }
   It 'keeps earlier readings and records why there is no figure when Cost Management refuses' {
     Get-StepExit $out 'stop-update-forbidden' | Should -Be 0
     $out | Should -Match 'RESULT update-forbidden readings=2 kept=3.5 why=True'
+  }
+  It 'flags billing after teardown only from the landing zone, from the day after teardown' {
+    Get-StepExit $out 'stop-update-after' | Should -Be 0
+    $out | Should -Match 'RESULT update-after readings=3 afterTeardown=True queries=2 afterExcludesStore=True afterFrom=True'
   }
   It 'copies nothing to a public repo' {
     Get-StepExit $out 'copy-public' | Should -Be 1

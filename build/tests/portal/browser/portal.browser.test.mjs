@@ -57,9 +57,15 @@ for (const [name, viewport, colorScheme] of [['desktop', { width: 1280, height: 
     assert.equal(blocks.length, 5);
     for (const b of blocks) assert.match(b, /AVDLZ_RUN_ID = 'run-/);
 
+    // Turned off: the blocks clear the run ID in a shell that already has it.
+    await page.uncheck('#record-on');
+    assert.ok(await page.isHidden('#record-panel'));
+    await page.click('#resume-link');
+    assert.match(await page.textContent('#resume-actions pre'), /Remove-Item Env:AVDLZ_RECORD, Env:AVDLZ_RUN_ID/);
+
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
-    // Filter out blocked third-party loads (fonts); report anything else.
-    assert.deepEqual(errors.filter((e) => !/net::ERR_FAILED|Failed to load resource/.test(e)), []);
+    // Third-party loads (fonts) are blocked above; a 404 from the page's own files still fails.
+    assert.deepEqual(errors.filter((e) => !/net::ERR_FAILED/.test(e)), []);
     await page.close();
   });
 }

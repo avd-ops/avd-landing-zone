@@ -84,6 +84,18 @@ Invoke-ScenarioStep 'stop-update-forbidden' {
 $cost = Get-Content (Join-Path $folder 'cost.json') -Raw | ConvertFrom-Json
 Write-Host "RESULT update-forbidden readings=$(@($cost.actuals).Count) kept=$($cost.actuals[0].total) why=$($cost.actuals[1].unavailable -match 'no access')"
 
+# Two days after teardown, the landing zone's resource groups still bill: flagged. The teardown day never counts.
+$runPath = Join-Path $folder 'run.json'
+$r = Get-Content $runPath -Raw | ConvertFrom-Json -AsHashtable
+$r.ended = [datetime]::UtcNow.AddDays(-2).ToString('yyyy-MM-ddTHH:mm:ssZ'); $r | ConvertTo-Json -Depth 10 | Set-Content $runPath
+Invoke-ScenarioStep 'stop-update-after' {
+  $global:St.runStore.costForbidden = $false; $global:St.runStore.costRowsAfter = @(, @(0.2, 'Standard Static IP', 'USD')); $global:Calls.Clear()
+  & ./scripts/ops/Stop-AvdRunRecorder.ps1 @lzArgs -UpdateCost
+}
+$cost = Get-Content (Join-Path $folder 'cost.json') -Raw | ConvertFrom-Json
+$queries = @($global:Calls | Where-Object { $_ -like 'COSTQUERY *' })
+Write-Host "RESULT update-after readings=$(@($cost.actuals).Count) afterTeardown=$($cost.comparison.billingAfterTeardown) queries=$($queries.Count) afterExcludesStore=$($queries[-1] -notmatch 'avdlz-runs-rg') afterFrom=$($queries[-1] -like "COSTQUERY $([datetime]::UtcNow.AddDays(-1).Date) *")"
+
 Invoke-ScenarioStep 'copy-public' {
   $env:AVDLZ_FAKE_GH = 'public'
   & ./scripts/ops/Stop-AvdRunRecorder.ps1 @lzArgs -CopyTo github -PrivateRepo 'contoso/run-records'

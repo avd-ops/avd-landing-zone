@@ -222,9 +222,12 @@
     s = (s + '0000').slice(0, 4);
     return 'run-' + d.getUTCFullYear() + p(d.getUTCMonth() + 1) + p(d.getUTCDate()) + '-' + p(d.getUTCHours()) + p(d.getUTCMinutes()) + '-' + s;
   }
+  // Turned off (cfg.record kept without a run ID): blocks clear the two variables, so a shell that ran a
+  // recorded block stops writing to that run's journal.
   function recordEnv(cfg) {
     var r = recording(cfg);
-    return r ? ["$env:AVDLZ_RECORD = '" + r.mode + "'; $env:AVDLZ_RUN_ID = '" + r.runId + "'"] : [];
+    if (r) return ["$env:AVDLZ_RECORD = '" + r.mode + "'; $env:AVDLZ_RUN_ID = '" + r.runId + "'"];
+    return cfg && cfg.record ? ['Remove-Item Env:AVDLZ_RECORD, Env:AVDLZ_RUN_ID -ErrorAction SilentlyContinue'] : [];
   }
   function block(cfg, lines) { return [preamble(cfg)].concat(recordEnv(cfg), lines).join('\n'); }
   // Steps that use Microsoft Graph sign in first, once for the session; the scripts reuse the sign-in (decision 0016).
@@ -291,14 +294,15 @@
       return block(cfg, ['./scripts/ops/Get-AvdRunStatus.ps1' + (cfg.namePrefix ? ' -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment : '')]);
     },
     // Open a recorded run (Start-AvdRunRecorder.ps1): run.json and the expected cost, gated at half the cap.
-    // The parameter file reads the portal's sizing from the AVD_* variables, so the price matches what deploys.
-    recordStart: function (cfg, opts) {
+    // The parameter file reads the portal's sizing from the AVD_* variables, so the price matches what deploys;
+    // they are cleared again so later blocks in the same shell use only their own flags.
+    recordStart: function (cfg) {
       var r = recording(cfg); if (!r) return '';
-      opts = opts || {};
-      var s = sized(cfg), env = s ? ["$env:AVD_SESSION_HOST_COUNT = '" + s.hosts + "'; $env:AVD_SESSION_HOST_VM_SIZE = '" + s.vmSize + "'"] : [];
-      var hours = opts.hours > 0 && opts.hours <= 24 ? opts.hours : 3, cap = opts.cap >= 1 && opts.cap <= 1000 ? opts.cap : 10;
-      return block(cfg, env.concat(['./scripts/ops/Start-AvdRunRecorder.ps1 -RunId ' + r.runId + ' -ParameterFile ' + cfg.parameterFile + ' -Location ' + cfg.location +
-        ' -Hours ' + hours + ' -Cap ' + cap + (r.mode === 'on' ? ' -Local' : '')]));
+      var s = sized(cfg), vars = ['AVD_SESSION_HOST_COUNT', 'AVD_SESSION_HOST_VM_SIZE', 'AVD_MAX_SESSION_LIMIT', 'AVD_PROFILE_QUOTA_GIB'];
+      var lines = s ? ["$env:AVD_SESSION_HOST_COUNT = '" + s.hosts + "'; $env:AVD_SESSION_HOST_VM_SIZE = '" + s.vmSize + "'; $env:AVD_MAX_SESSION_LIMIT = '" + s.maxSessions + "'; $env:AVD_PROFILE_QUOTA_GIB = '" + s.profileQuotaGiB + "'"] : [];
+      lines.push('./scripts/ops/Start-AvdRunRecorder.ps1 -RunId ' + r.runId + ' -ParameterFile ' + cfg.parameterFile + ' -Location ' + cfg.location + ' -Hours 3 -Cap 10' + (r.mode === 'on' ? ' -Local' : ''));
+      if (s) lines.push('Remove-Item ' + vars.map(function (v) { return 'Env:' + v; }).join(', ') + ' -ErrorAction SilentlyContinue');
+      return block(cfg, lines);
     },
     // Close a recorded run (Stop-AvdRunRecorder.ps1). mode: 'before-cleanup' (export the AVD logs while the
     // workspace still exists), 'end' (status and the first actual cost), 'copy' (the private companion repo),
@@ -923,10 +927,10 @@
     var a = [
       { title: 'Open the run', why: 'Before the pre-deployment preflight. Prices the run from the parameter file at list prices and refuses if the total is more than half the cap or a line has no price. Writes run.json and cost.json to the run folder' + (store ? ' in the run store (set it up once with Initialize-AvdRunStore.ps1)' : ' in Cloud Shell') + '.', command: cmd.recordStart(cfg) },
       { title: 'Before cleanup: keep the logs', why: 'Cleanup deletes the Log Analytics workspace, the only copy of the AVD logs. This exports them into the run folder and checks the row counts first.', command: cmd.recordStop(cfg, 'before-cleanup') },
-      { title: 'After cleanup: close the run', why: 'Records how the run ended and the first actual cost reading. Cost Management can take a day or more to settle.', command: cmd.recordStop(cfg, 'end') },
-      { title: 'Copy it to your private repo', why: 'Needs AVD_PRIVATE_REPO set to a private repository of yours and the GitHub CLI signed in (gh auth login, device code). Every file is read back and checked. It refuses a public repository.', command: cmd.recordStop(cfg, 'copy') },
-      { title: 'Later: read the cost again', why: 'Appends another actual cost reading; the cost settles once it is unchanged for 72 hours.', command: cmd.recordStop(cfg, 'cost') }
+      { title: 'After cleanup: close the run', why: store ? 'Records how the run ended and the first actual cost reading. Cost Management can take a day or more to settle.' : 'Records how the run ended. Cloud Shell only reads no actual cost; turn on the run store for that.', command: cmd.recordStop(cfg, 'end') },
+      { title: 'Copy it to your private repo', why: 'Needs AVD_PRIVATE_REPO set to a private repository of yours and the GitHub CLI signed in (gh auth login, device code). Every file is read back and checked. It refuses a public repository.', command: cmd.recordStop(cfg, 'copy') }
     ];
+    if (store) a.push({ title: 'Later: read the cost again', why: 'Appends another actual cost reading; the cost settles once it is unchanged for 72 hours. A cost on the landing zone after the day of cleanup is flagged as still billing.', command: cmd.recordStop(cfg, 'cost') });
     return a;
   }
 

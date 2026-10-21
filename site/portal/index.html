@@ -660,11 +660,14 @@
   }
 
   // ---------------------------------------------------------------- where did I leave off (run recorder spec section 4)
+  function renderResume() {
+    if (!$('resume-panel').classList.contains('hidden')) renderActions([{ title: 'Read where the run stands', why: '', command: P.commands.runStatus(config()) }], $('resume-actions'));
+  }
   function showResume(open) {
     $('resume-panel').classList.toggle('hidden', !open);
     $('resume-link').setAttribute('aria-expanded', String(open));
     if (open) {
-      renderActions([{ title: 'Read where the run stands', why: '', command: P.commands.runStatus(config()) }], $('resume-actions'));
+      renderResume();
       $('resume-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
     else $('resume-link').focus({ preventScroll: true });
@@ -688,11 +691,11 @@
   }
   function setRecord(rec) {
     cfg.record = rec; save('record', rec);
-    if (!$('resume-panel').classList.contains('hidden')) showResume(true);
     render();
   }
   $('record-on').addEventListener('change', function () {
-    setRecord($('record-on').checked ? { runId: P.newRunId(), mode: $('record-mode').value === 'on' ? 'on' : 'azure' } : null);
+    var mode = $('record-mode').value === 'on' ? 'on' : 'azure';
+    setRecord($('record-on').checked ? { runId: P.newRunId(), mode: mode } : { mode: mode });
     if (cfg.record) $('record-steps').open = true;
   });
   $('record-mode').addEventListener('change', function () { if (P.recording(cfg)) setRecord({ runId: cfg.record.runId, mode: $('record-mode').value === 'on' ? 'on' : 'azure' }); });
@@ -718,7 +721,7 @@
   }
 
   function render() {
-    renderSteps(); renderSlides(); renderLaunch(); renderRecord();
+    renderSteps(); renderSlides(); renderLaunch(); renderRecord(); renderResume();
     var chip = $('next-chip'), head = $('next-headline');
     if (lastAnalysis) {
       var r = lastAnalysis;
@@ -787,7 +790,10 @@
   $('clear-paste').addEventListener('click', function () { $('paste').value = ''; $('paste-status').textContent = ''; maskedCount = 0; showMasked(); lastAnalysis = null; render(); refreshReport(true); });
   $('reset').addEventListener('click', function () {
     try { Object.keys(localStorage).filter(function (k) { return k.indexOf('avdlz.portal.') === 0; }).forEach(function (k) { localStorage.removeItem(k); }); } catch (e) { /* storage unavailable */ }
-    cfg = Object.assign({}, P.DEFAULTS, { repoUrl: repoUrl, ref: site.ref, sizing: null, power: null, hoursWorkedPerWeek: 50, launch: null, record: null }); step = null; reached = 0; ranked = null; lastAnalysis = null; latency = [];
+    // A shell that ran a recorded block still has the run ID: the next blocks clear it.
+    var wasRecording = P.recording(cfg);
+    cfg = Object.assign({}, P.DEFAULTS, { repoUrl: repoUrl, ref: site.ref, sizing: null, power: null, hoursWorkedPerWeek: 50, launch: null, record: wasRecording ? { mode: wasRecording.mode } : null });
+    if (wasRecording) save('record', cfg.record); step = null; reached = 0; ranked = null; lastAnalysis = null; latency = [];
     pools = [Object.assign({}, P.HOST_POOL_DEFAULTS)]; estimate = null; renderPools(); renderCost();
     reach = null; $('reach-results').classList.add('hidden'); renderReachability();
     $('results').classList.add('hidden'); $('paste').value = ''; maskedCount = 0; showMasked(); setConfig({}); render(); showStep();

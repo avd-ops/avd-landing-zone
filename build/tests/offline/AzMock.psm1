@@ -200,7 +200,11 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
     $q = $Payload | ConvertFrom-Json
     Log "COSTQUERY $($q.timePeriod.from) $(@($q.dataset.filter.dimensions.values) -join ',')"
     if ($rs.costForbidden) { return [pscustomobject]@{ StatusCode=403; Content='{"error":{"code":"RBACAccessDenied","message":"The client does not have authorization to perform action."}}' } }
-    return & $ok @{ properties=@{ columns=@(@{ name='Cost'; type='Number' }, @{ name='Meter'; type='String' }, @{ name='Currency'; type='String' }); rows=@($rs.costRows) } } }
+    # A query without the run store is the after-teardown check: it answers with $rs.costRowsAfter.
+    $rows = $rs.costRows
+    if (@($q.dataset.filter.dimensions.values) -notcontains 'avdlz-runs-rg') { $rows = $rs.costRowsAfter }
+    if ($null -eq $rows) { $rows = @() }
+    return & $ok @{ properties=@{ columns=@(@{ name='Cost'; type='Number' }, @{ name='Meter'; type='String' }, @{ name='Currency'; type='String' }); rows=@($rows) } } }
   if ($rs -and $Path -match '/resourceGroups/avdlz-runs-rg/providers/Microsoft.Storage/storageAccounts/(avdlzruns[0-9a-f]+)\?') {
     if (-not $rs.deployed) { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"ResourceNotFound","message":"The Resource was not found."}}' } }
     return & $ok @{ name=$Matches[1]; properties=@{ allowSharedKeyAccess=$false; minimumTlsVersion='TLS1_2' } } }
