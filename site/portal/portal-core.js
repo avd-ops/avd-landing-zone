@@ -41,7 +41,10 @@
   };
 
   // ---------------------------------------------------------------- helpers
-  function psQuote(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
+  // PowerShell also ends a single-quoted string at U+2018 to U+201B, so every quote of any kind is doubled (as its
+  // own EscapeSingleQuotedStringContent does); psUnquote undoes it when a block is rewritten for Bash.
+  function psQuote(s) { return "'" + String(s).replace(/['\u2018\u2019\u201a\u201b]/g, '$&$&') + "'"; }
+  function psUnquote(s) { return String(s).replace(/(['\u2018\u2019\u201a\u201b])\1/g, '$1'); }
   function merge(a, b) {
     var o = {}, k;
     for (k in a) if (Object.prototype.hasOwnProperty.call(a, k)) o[k] = a[k];
@@ -545,7 +548,7 @@
     for (var i = 0; i < sets.length; i++) {
       var m = /^\$env:([A-Z0-9_]+) = '((?:[^']|'')*)'$/.exec(sets[i]);
       if (!m) return null;
-      out.push(m[1] + '=' + bashQuote(m[2].replace(/''/g, "'")));
+      out.push(m[1] + '=' + bashQuote(psUnquote(m[2])));
     }
     return 'export ' + out.join(' ');
   }
@@ -591,7 +594,7 @@
     body.forEach(function (l) {
       var b = envToBash(l) || unsetToBash(l);
       if (b) { flush(); out.push(b); }
-      else if (/^bash \.\//.test(l)) { flush(); out.push(l.replace(/'((?:[^']|'')*)'/g, function (m, s) { return bashQuote(s.replace(/''/g, "'")); })); }
+      else if (/^bash \.\//.test(l)) { flush(); out.push(l.replace(/'((?:[^']|'')*)'/g, function (m, s) { return bashQuote(psUnquote(s)); })); }
       else ps.push(l);
     });
     flush();
@@ -647,7 +650,7 @@
       var ctx = {}, dm = /deploy\.sh -p (\S+) -l (\S+) --users-group '((?:[^']|'')*)' --admins-group '((?:[^']|'')*)'/.exec(text);
       var pf = /PRE-DEPLOYMENT preflight - (\S+\.bicepparam)/.exec(text);
       if (pf) ctx.parameterFile = pf[1];
-      if (dm) { ctx.parameterFile = dm[1]; ctx.location = dm[2]; ctx.usersGroup = dm[3].replace(/''/g, "'"); ctx.adminsGroup = dm[4].replace(/''/g, "'"); }
+      if (dm) { ctx.parameterFile = dm[1]; ctx.location = dm[2]; ctx.usersGroup = psUnquote(dm[3]); ctx.adminsGroup = psUnquote(dm[4]); }
       var pm = /prefix ([a-z0-9]+), env (dev|test|prod), ([a-z0-9]+),/.exec(text);
       if (pm) { ctx.namePrefix = pm[1]; ctx.environment = pm[2]; ctx.location = ctx.location || pm[3]; }
       return { v: 0, stage: 'predeploy', status: ready && !notReady ? 'ready' : 'notready', fix: fix, context: ctx, failures: failures, warnings: [] };
