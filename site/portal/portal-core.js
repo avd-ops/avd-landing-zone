@@ -478,6 +478,7 @@
   function forRunIn(command, runIn) {
     var r = validRunIn(runIn);
     if (!command || isDefaultRunIn(r)) return command || '';
+    if (/^AVD_PS$/m.test(command)) throw new Error('The block holds a line the Bash version cannot carry.');
     var lines = String(command).split('\n'), pre = [], body = lines;
     var clone = /^if \(-not \(Test-Path (~\/\S+)\)\) \{ git clone (\S+) \S+ \}$/.exec(lines[0] || '');
     var into = clone && /^Set-Location (~\/\S+); (.*)$/.exec(lines[1] || '');
@@ -493,15 +494,17 @@
       if (local && usesCli) pre.push(AZ_CLI_SIGNIN_PS);
       return pre.concat(body).join('\n');
     }
-    // Bash: the clone and checkout in bash, then each run of PowerShell lines in one pwsh process (a Graph
+    // Bash: the clone and checkout in bash, then each stretch of PowerShell lines in one pwsh process (a Graph
     // sign-in and the script that uses it must share it), and bash scripts as they are.
     if (into) pre = ['[ -d ' + into[1] + ' ] || git clone ' + clone[2] + ' ' + clone[1], 'cd ' + into[1] + ' && ' + into[2].split(/;\s*/).join(' && ')];
     if (local && usesCli) pre.push(AZ_CLI_SIGNIN_BASH);
-    var out = [], ps = [];
+    // Each stretch is written word for word to a file through a quoted heredoc (bash expands nothing in it).
+    var out = [], ps = [], file = false;
     var flush = function () {
       if (!ps.length) return;
       if (local && ps.some(azPs)) ps.unshift(AZ_SIGNIN_PS);
-      out.push('pwsh -NoLogo -Command ' + bashQuote(ps.join('\n'))); ps = [];
+      if (!file) { out.push('f="$(mktemp -d)/step.ps1"'); file = true; }
+      out.push("cat > \"$f\" <<'AVD_PS'"); out = out.concat(ps); out.push('AVD_PS', 'pwsh -NoLogo -File "$f"'); ps = [];
     };
     body.forEach(function (l) {
       var b = envToBash(l) || unsetToBash(l);

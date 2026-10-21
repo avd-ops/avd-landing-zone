@@ -1064,9 +1064,8 @@ test('run in: Bash clones in bash, exports the run variables and runs each Power
   assert.equal(out[1], 'cd ~/avd-landing-zone && git checkout -q master && git pull -q --ff-only');
   assert.equal(out[2], "export AVDLZ_RECORD='azure' AVDLZ_RUN_ID='run-20261021-1700-abcd'");
   const rest = out.slice(3).join('\n');
-  assert.equal((rest.match(/^pwsh -NoLogo -Command '/gm) || []).length, 1, 'the Graph sign-in and the preflight share one pwsh');
-  assert.match(rest, /Connect-AvdLandingZone\.ps1\n\.\/scripts\/ops\/Test-AvdLandingZoneReadiness\.ps1/);
-  assert.match(rest, /-UsersGroup '\\''AVD Users'\\''/, 'inner quotes survive bash');
+  assert.equal((rest.match(/^pwsh -NoLogo -File "\$f"$/gm) || []).length, 1, 'the Graph sign-in and the preflight share one pwsh');
+  assert.match(rest, /^f="\$\(mktemp -d\)\/step\.ps1"\ncat > "\$f" <<'AVD_PS'\n\.\/scripts\/ops\/Connect-AvdLandingZone\.ps1\n\.\/scripts\/ops\/Test-AvdLandingZoneReadiness\.ps1 .*-UsersGroup 'AVD Users' .*\nAVD_PS\npwsh -NoLogo -File "\$f"$/, 'the PowerShell goes word for word through a quoted heredoc');
   assert.doesNotMatch(rest, /\$env:|Set-Location|Test-Path/);
   const del = P.forRunIn(P.commands.deploy({ ...runCfg, usersGroup: "O'Brien users" }), { where: 'macos', shell: 'bash' });
   assert.match(del, /^az account show -o none 2>\/dev\/null \|\| az login --use-device-code -o none$/m, 'a local machine signs in to the az CLI first');
