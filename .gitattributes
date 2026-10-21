@@ -1,6 +1,6 @@
 # Line endings stay LF in the repo whatever the clone's core.autocrlf (avd-ops docs/run-anywhere.md):
 # Bash fails on a CRLF script, and the fake az and gh in build/tests/offline have no extension.
-* text=auto
+* text=auto eol=lf
 *.sh text eol=lf
 .githooks/* text eol=lf
 build/tests/offline/bin/* text eol=lf
