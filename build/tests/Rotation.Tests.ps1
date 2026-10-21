@@ -180,6 +180,18 @@ Describe 'Each phase''s next step' {
     $h[0] = New-SessionHost 'avdlzdsha-001' 'a' -Sessions 0 -Allow $false
     (Get-AvdRotationStep -State (& $s 'Wait' @{ deadline = '2026-10-23T12:00Z' }) -SessionHosts $h -Now $now).Action | Should -Be 'remove'
   }
+  It 'keeps the session gates in Remove, so a user on a host reopened mid-removal is never force-deleted' {
+    $h = @((New-SessionHost 'avdlzdsha-001' 'a' -Sessions 1 -Allow $false), (New-SessionHost 'avdlzdshb-001' 'b'))
+    $r = Get-AvdRotationStep -State (& $s 'Remove' @{ deadline = '2026-10-23T12:00Z' }) -SessionHosts $h -Now $now -LogOffAtDeadline
+    $r.Action | Should -Be 'wait-sessions'; $r.Phase | Should -Be 'Remove'
+    $past = & $s 'Remove' @{ deadline = '2026-10-20T11:00Z' }
+    (Get-AvdRotationStep -State $past -SessionHosts $h -Now $now).Action | Should -Be 'wait-sessions'
+    $r = Get-AvdRotationStep -State $past -SessionHosts $h -Now $now -LogOffAtDeadline
+    $r.Action | Should -Be 'notify'; $r.Phase | Should -Be 'Remove'
+    $h[0] = New-SessionHost 'avdlzdsha-001' 'a' -Allow $false
+    $r = Get-AvdRotationStep -State $past -SessionHosts $h -Now $now
+    $r.Action | Should -Be 'remove'; $r.Phase | Should -Be 'Done'
+  }
   It 'signs users out after the deadline only with -LogOffAtDeadline, and only 15 minutes after a final notice' {
     $h = @((New-SessionHost 'avdlzdsha-001' 'a' -Sessions 1 -Allow $false))
     $past = & $s 'Wait' @{ deadline = '2026-10-20T11:00Z' }

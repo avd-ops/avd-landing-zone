@@ -241,20 +241,26 @@ function Get-AvdRotationStep {
       return & $out 'drain' 'Drain' "$($ready.Count) new host(s) ready."
     }
     'Drain' { return & $out 'drain' 'Wait' "Draining $($old.Count) host(s) of generation $(if ($State.from) { $State.from } else { 'none' })." }
-    'Wait' {
+    { $_ -in 'Wait', 'Remove' } {
+      # Remove keeps the same gates: a host reopened while a removal was interrupted can have a user on
+      # it again, who gets the deadline, notice and sign-out opt-in like anyone else. The phase stays
+      # Remove, so a rollback stays refused.
       $sessions = ($old | Measure-Object -Property Sessions -Sum).Sum
-      if (-not $sessions) { return & $out 'remove' 'Remove' 'No sessions left on the old hosts.' }
+      if (-not $sessions) {
+        if ($State.phase -eq 'Remove') { return & $out 'remove' 'Done' "Removing $($old.Count) host(s) of generation $(if ($State.from) { $State.from } else { 'none' })." }
+        return & $out 'remove' 'Remove' 'No sessions left on the old hosts.'
+      }
+      $p = "$($State.phase)"
       $deadline = if ($State.deadline) { [datetime]::Parse($State.deadline, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal) } else { $null }
       if (-not $deadline -or $Now -lt $deadline) {
-        return & $out 'wait-sessions' 'Wait' "$sessions session(s) left on the old hosts$(if ($deadline) { "; deadline $($deadline.ToString('yyyy-MM-dd HH:mm')) UTC" })."
+        return & $out 'wait-sessions' $p "$sessions session(s) left on the old hosts$(if ($deadline) { "; deadline $($deadline.ToString('yyyy-MM-dd HH:mm')) UTC" })."
       }
-      if (-not $LogOffAtDeadline) { return & $out 'wait-sessions' 'Wait' "$sessions session(s) left after the deadline. Run again with -LogOffAtDeadline to sign them out, or wait." }
-      if (-not $State.notice) { return & $out 'notify' 'Wait' "Deadline passed: telling $sessions session(s) they are signed out in $NoticeMinutes minutes." }
+      if (-not $LogOffAtDeadline) { return & $out 'wait-sessions' $p "$sessions session(s) left after the deadline. Run again with -LogOffAtDeadline to sign them out, or wait." }
+      if (-not $State.notice) { return & $out 'notify' $p "Deadline passed: telling $sessions session(s) they are signed out in $NoticeMinutes minutes." }
       $notice = [datetime]::Parse($State.notice, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal)
-      if ($Now -lt $notice.AddMinutes($NoticeMinutes)) { return & $out 'wait-sessions' 'Wait' "Final notice sent at $($notice.ToString('HH:mm')) UTC; signing out after $($notice.AddMinutes($NoticeMinutes).ToString('HH:mm')) UTC." }
-      return & $out 'logoff' 'Wait' "Signing out $sessions session(s) left after the final notice."
+      if ($Now -lt $notice.AddMinutes($NoticeMinutes)) { return & $out 'wait-sessions' $p "Final notice sent at $($notice.ToString('HH:mm')) UTC; signing out after $($notice.AddMinutes($NoticeMinutes).ToString('HH:mm')) UTC." }
+      return & $out 'logoff' $p "Signing out $sessions session(s) left after the final notice."
     }
-    'Remove' { return & $out 'remove' 'Done' "Removing $($old.Count) host(s) of generation $(if ($State.from) { $State.from } else { 'none' })." }
     default { return & $out 'done' 'Done' 'The rotation is complete.' }
   }
 }

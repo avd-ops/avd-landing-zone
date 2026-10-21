@@ -116,6 +116,16 @@ $global:St.rotation.hosts['avdlzdsh-001'].connectOnDrain = $true
 Invoke-ScenarioStep 'reopened' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
 Show-Rotation 'reopened'
 $global:St.rotation.hosts['avdlzdsh-001'].sessions = 0
+# A removal that stopped before deleting anything, then a Lock and Resume reopened a host and a user
+# connected: Remove keeps the session gates, so the host waits for the deadline rules, not deletion.
+$rs = $global:St.rotation.tags['avdlz-rotation'] | ConvertFrom-Json
+$rs.phase = 'Remove'; $rs.PSObject.Properties.Remove('notice')
+$global:St.rotation.tags['avdlz-rotation'] = $rs | ConvertTo-Json -Compress
+$global:St.rotation.hosts['avdlzdsh-001'].allowNew = $true
+$global:St.rotation.hosts['avdlzdsh-001'].connectOnDrain = $true
+Invoke-ScenarioStep 'remove-occupied' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -LogOffAtDeadline }
+Show-Rotation 'remove-occupied'
+$global:St.rotation.hosts['avdlzdsh-001'].sessions = 0
 # Remove: the old session hosts and VMs go; the device objects are listed to delete by hand. One VM is still
 # deleting when the run stops; the next run finds it by its name although its session host is gone.
 $global:St.rotation.vmsSlow = @('avdlzdsh-002')

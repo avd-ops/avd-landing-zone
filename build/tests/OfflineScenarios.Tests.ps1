@@ -547,12 +547,18 @@ Describe 'Blue/green host rotation (image pipeline spec section 6.5)' {
     $states[14].context.sessionsLeft | Should -Be 1
     Get-RotationLine 'reopened' | Should -Match '^phase=Wait .* hosts=avdlzdsh-001:drain,avdlzdsh-002:drain,avdlzdsha-001:open,avdlzdsha-002:open vmsGone= '
   }
+  It 'keeps the session gates in Remove: a user on a reopened host gets a fresh notice, not deletion' {
+    $states[15].status | Should -Be 'waiting'
+    $states[15].warnings[0].id | Should -Be 'rotation-waiting'
+    $states[15].context.phase | Should -Be 'Remove'
+    Get-RotationLine 'remove-occupied' | Should -Match '^phase=Remove .* hosts=avdlzdsh-001:drain,avdlzdsh-002:drain,avdlzdsha-001:open,avdlzdsha-002:open vmsGone= messages=3 '
+  }
   It 'finishes an interrupted removal, finding the VM whose session host is already gone, and lists every device' {
     Get-RotationLine 'remove' | Should -Match '^phase=Remove .* hosts=avdlzdsha-001:open,avdlzdsha-002:open vmsGone=avdlzdsh-001 '
-    $states[15].status | Should -Be 'waiting'
-    @($states[15].warnings | Where-Object id -eq 'devices-left')[0].data.devices | Should -Be @('avdlzdsh-001')
+    $states[16].status | Should -Be 'waiting'
+    @($states[16].warnings | Where-Object id -eq 'devices-left')[0].data.devices | Should -Be @('avdlzdsh-001')
     Get-RotationLine 'remove-resume' | Should -Match '^phase= image=2026\.1101\.1 gen=a next= previous=2026\.1004\.1 hosts=avdlzdsha-001:open,avdlzdsha-002:open vmsGone=avdlzdsh-001,avdlzdsh-002 .* gallery=Merge 2026\.1101\.1,Delete 2026\.1004\.1$'
-    @($states[16].warnings | Where-Object id -eq 'devices-left')[0].data.devices | Should -Be @('avdlzdsh-002')
+    @($states[17].warnings | Where-Object id -eq 'devices-left')[0].data.devices | Should -Be @('avdlzdsh-002')
   }
   It 'after Remove, rolls back by rotating to the previous version and frees the version it leaves' {
     Get-RotationLine 'back-finish' | Should -Match '^phase= image=2026\.1004\.1 gen=b next= previous=2026\.1101\.1 hosts=avdlzdshb-001:open,avdlzdshb-002:open .* gallery=Merge 2026\.1004\.1,Delete 2026\.1101\.1$'
@@ -571,15 +577,15 @@ Describe 'Blue/green host rotation (image pipeline spec section 6.5)' {
     $states[-2].context.version | Should -Be 'rollback'
   }
   It 'does not roll back while the deployment still runs, nor to the version the pool runs again' {
-    $states[20].status | Should -Be 'waiting'
-    $states[20].warnings[0].detail | Should -Match 'avdlz-dev-rota-\d{8}-\d{6} of generation a is still running'
+    $states[21].status | Should -Be 'waiting'
+    $states[21].warnings[0].detail | Should -Match 'avdlz-dev-rota-\d{8}-\d{6} of generation a is still running'
     Get-RotationLine 'rb-running' | Should -Match '^phase=Deploy image=2026\.1004\.1 gen= next=2026\.1101\.1 '
     $states[-1].status | Should -Be 'refused'
     @($states[-1].failures.id) | Should -Be @('rotation-image')
     $states[-1].failures[0].remediation | Should -Match 'Nothing to roll back to'
   }
   It 'prints a portal state line for every run, with the parameter file' {
-    ($states | ForEach-Object status) -join ' ' | Should -Be 'refused refused refused refused waiting waiting waiting waiting waiting waiting refused waiting waiting waiting waiting waiting done waiting done waiting waiting waiting waiting waiting done refused'
+    ($states | ForEach-Object status) -join ' ' | Should -Be 'refused refused refused refused waiting waiting waiting waiting waiting waiting refused waiting waiting waiting waiting waiting waiting done waiting done waiting waiting waiting waiting waiting done refused'
     @($states | Where-Object { $_.context.parameterFile -ne 'parameters/dev.bicepparam' }).context.parameterFile | Should -Be 'parameters/test.bicepparam'
   }
 }

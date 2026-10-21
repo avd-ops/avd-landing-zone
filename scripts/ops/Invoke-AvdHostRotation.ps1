@@ -238,7 +238,8 @@ elseif (-not $state) {
   }
   elseif (-not $ImageId) { $ImageId = "$($tags['avdlz-image-next'])" }
   $old = @($hosts | Where-Object { $_.Generation -eq $currentGen })
-  $count = if ($old.Count) { $old.Count } elseif ($params) { [int]$params.sessionHostCount.value } else { 0 }
+  # The same count the deployment uses: as many as the landing zone is meant to have, or more if more are registered.
+  $count = [Math]::Max($old.Count, $(if ($params -and $params.sessionHostCount.value) { [int]$params.sessionHostCount.value } else { 0 }))
   $vcpu = 0; $free = $null
   $size = if ($params) { "$($params.sessionHostVmSize.value)" } else { '' }
   if ($size -and $lz.Location) {
@@ -398,7 +399,8 @@ for ($i = 0; $i -lt 20; $i++) {
       Complete-Rotation 'waiting' 0
     }
     'remove' {
-      if ($state.phase -eq 'Wait') { $state.phase = 'Remove'; Save-State $state }
+      # A notice sent during Wait is spent: anyone found on a host later gets a notice of their own.
+      if ($state.phase -eq 'Wait') { $state.phase = 'Remove'; $state | Add-Member -NotePropertyName notice -NotePropertyValue $null -Force; Save-State $state }
       Write-AvdSection 'Remove'
       # The retiring generation, from its session hosts and from the VMs themselves: a rerun after an
       # interrupted removal still finds a VM whose session host is already gone.
