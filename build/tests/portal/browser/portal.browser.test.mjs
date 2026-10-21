@@ -51,6 +51,9 @@ for (const [name, viewport, colorScheme] of [['desktop', { width: 1280, height: 
     await page.check('#record-on');
     const id = (await page.textContent('#record-id')).trim();
     assert.match(id, /^run-\d{8}-\d{4}-[a-z0-9]{4}$/);
+    // Settings is a sheet over the step (design system 2.5.0): Escape closes it, and the Recording box is on the page.
+    await page.keyboard.press('Escape');
+    assert.ok(await page.isHidden('#settings-panel'));
     await page.click('#record-new');
     assert.notEqual((await page.textContent('#record-id')).trim(), id);
     const blocks = await page.locator('#record-actions pre').allTextContents();
@@ -58,12 +61,23 @@ for (const [name, viewport, colorScheme] of [['desktop', { width: 1280, height: 
     for (const b of blocks) assert.match(b, /AVDLZ_RUN_ID = 'run-/);
 
     // Turned off: the blocks clear the run ID in a shell that already has it.
+    await page.click('#settings-link');
     await page.uncheck('#record-on');
     assert.ok(await page.isHidden('#record-panel'));
+    await page.keyboard.press('Escape');
+    assert.ok(await page.isHidden('#settings-panel'));
     await page.click('#resume-link');
     assert.match(await page.textContent('#resume-actions pre'), /Remove-Item Env:AVDLZ_RECORD, Env:AVDLZ_RUN_ID/);
 
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
+    // Every step fits the screen too: a positioned element in a step that is off to the side in the step track
+    // (the screen-reader-only text in a title) once widened the page to the whole track.
+    for (const step of ['predeploy', 'verify']) {
+      await page.evaluate((s) => { localStorage.setItem('avdlz.portal.step', JSON.stringify(s)); localStorage.setItem('avdlz.portal.reachedStep', JSON.stringify(s)); }, step);
+      await page.reload();
+      assert.equal(await page.getAttribute(`#steps button[aria-current="step"]`, 'aria-label'), step === 'verify' ? '8. Verify access' : '4. Pre-deployment preflight');
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, `${step}: no horizontal scroll`);
+    }
     // Third-party loads (fonts) are blocked above; a 404 from the page's own files still fails.
     assert.deepEqual(errors.filter((e) => !/net::ERR_FAILED/.test(e)), []);
     await page.close();

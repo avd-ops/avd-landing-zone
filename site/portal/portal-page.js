@@ -30,7 +30,7 @@
   $('source-repo').href = repoUrl; $('source-repo').textContent = repoUrl.replace(/^https:\/\/github\.com\//, '');
   $('source-ref').textContent = site.ref || 'master';
   if (site.commit) $('source-line').appendChild(document.createTextNode(' This portal was built from commit ' + site.commit.slice(0, 7) + '.'));
-  if (site.ignored.length) $('source-line').appendChild(document.createTextNode(' This copy\'s portal-config.js has an invalid ' + site.ignored.join(' and ') + ', so the commands use the default.'));
+  if (site.ignored.length) { $('source-line').appendChild(document.createTextNode(' This copy\'s portal-config.js has an invalid ' + site.ignored.join(' and ') + ', so the commands use the default.')); $('source-more').open = true; }
   // Report a problem files into the repo the commands run from, and the issue is public (red team PH-10).
   var repoSlug = repoUrl.replace(/^https:\/\/github\.com\//, '');
   $('issues-link').textContent = repoSlug;
@@ -66,7 +66,7 @@
     var keep = {}; FIELDS.forEach(function (k) { keep[k] = cfg[k]; }); save('config', keep);
     FIELDS.forEach(function (k) { var el = $(k); if (el && el.value !== cfg[k]) el.value = cfg[k] || ''; });
     $('region-summary').textContent = cfg.location + (ranked && ranked.length ? (ranked[0] === cfg.location ? ' (closest measured)' : '') : ' (not measured yet)');
-    $('region-skip').textContent = 'Skip: use ' + cfg.location + ' (change it in Deployment settings)';
+    $('region-skip').textContent = 'I already know: use ' + cfg.location;
   }
   function showRejected(names) {
     var w = $('settings-warning');
@@ -81,11 +81,30 @@
   });
 
   // ---------------------------------------------------------------- deployment settings (header link)
+  // Settings and "Where did I leave off?" open as sheets over the step; one at a time, Escape or the backdrop closes.
+  // While a sheet is open the page behind it is inert, and closing it returns focus to what opened it.
+  function sheetOpen() { return !$('settings-panel').classList.contains('hidden') ? 'settings' : !$('resume-panel').classList.contains('hidden') ? 'resume' : null; }
+  var sheetOpener = null;
+  function syncBackdrop() {
+    var open = !!sheetOpen();
+    if (open && !sheetOpener) sheetOpener = document.activeElement;
+    $('sheet-backdrop').classList.toggle('hidden', !open);
+    document.querySelectorAll('main, .wz-nav, .after').forEach(function (n) { if (open) n.setAttribute('inert', ''); else n.removeAttribute('inert'); });
+  }
+  function sheetClosed(fallback) {
+    var to = sheetOpener && document.contains(sheetOpener) && sheetOpener !== document.body ? sheetOpener : fallback;
+    sheetOpener = null;
+    if (!sheetOpen()) to.focus({ preventScroll: true });
+  }
+  $('sheet-backdrop').addEventListener('click', function () { if (sheetOpen() === 'settings') showSettings(false); else if (sheetOpen() === 'resume') showResume(false); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && sheetOpen()) $('sheet-backdrop').click(); });
   function showSettings(open) {
+    if (open && sheetOpen() === 'resume') showResume(false);
     $('settings-panel').classList.toggle('hidden', !open);
     $('settings-link').setAttribute('aria-expanded', String(open));
-    if (open) { $('settings-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); $('parameterFile').focus({ preventScroll: true }); }
-    else $('settings-link').focus({ preventScroll: true });
+    syncBackdrop();
+    if (open) $('parameterFile').focus({ preventScroll: true });
+    else sheetClosed($('settings-link'));
   }
   $('settings-link').addEventListener('click', function (e) { e.preventDefault(); showSettings($('settings-panel').classList.contains('hidden')); });
   $('settings-close').addEventListener('click', function () { showSettings(false); });
@@ -104,29 +123,46 @@
     render();
     if (opts.scroll !== false) showStep(opts.page);
   }
-  // Short labels and phases for the progress rail; the full step titles stay everywhere else.
+  // The steps, grouped by phase (Plan, Deploy, Use), twice: as the list down the left on a wide screen (#steps) and
+  // as the progress bar over the step on a narrow one (#steps-bar), where each phase is as wide as its steps.
+  // A step not reached yet stays locked.
+  var LIST = { predeploy: 'Preflight', deploy: 'Deploy', postdeploy: 'Setup' };
   var RAIL = { region: ['Region', 'Plan'], size: ['Size'], cost: ['Cost'], predeploy: ['Preflight', 'Deploy'], deploy: ['Deploy'], postdeploy: ['Setup'], signin: ['Sign in', 'Use'], verify: ['Verify'] };
   function renderSteps() {
-    var cur = curIndex(), ol = $('steps');
-    ol.textContent = '';
+    var cur = curIndex(), list = $('steps'), bar = $('steps-bar'), phase = null, segs = null;
+    list.textContent = ''; bar.textContent = '';
     P.STEPS.forEach(function (s, i) {
-      var li = document.createElement('li');
-      li.className = i > reached ? 'locked' : i === cur ? 'current' : i < reached || i < cur ? 'done' : '';
-      var b = document.createElement('button');
-      b.type = 'button';
-      b.disabled = i > reached;
-      if (i > reached) b.title = 'Reached after the steps before it';
-      b.setAttribute('aria-current', i === cur ? 'step' : 'false');
-      b.innerHTML = '<span class="n">' + (li.className === 'done' ? '✓' : (i + 1)) + '</span>';
       var rail = RAIL[s.id] || [s.title];
-      if (rail[1]) li.setAttribute('data-phase-start', rail[1]);
-      b.setAttribute('aria-label', (i + 1) + '. ' + s.title);
-      b.appendChild(el('span', 'lbl', rail[0]));
-      b.addEventListener('click', function () { goTo(s.id); });
-      li.appendChild(b); ol.appendChild(li);
+      var state = i > reached ? 'locked' : i === cur ? 'current' : i < reached || i < cur ? 'done' : '';
+      if (rail[1] || !phase) {
+        // The phase name is a visible heading only; each step's own label carries its number.
+        if (rail[1]) { var g = el('li', 'group', rail[1]); g.setAttribute('aria-hidden', 'true'); list.appendChild(g); }
+        phase = el('li', 'phase'); phase.setAttribute('data-steps', '0');
+        phase.appendChild(el('span', 'phase-name', rail[1] || ''));
+        segs = el('div', 'segs'); phase.appendChild(segs); bar.appendChild(phase);
+      }
+      phase.setAttribute('data-steps', String(Number(phase.getAttribute('data-steps')) + 1));
+      if (i === cur) phase.classList.add('now');
+      var label = (i + 1) + '. ' + s.title + (state === 'done' ? ', done' : '');
+      [['step ' + state, list], ['seg ' + state, segs]].forEach(function (k, n) {
+        var b = el('button', k[0]);
+        b.type = 'button';
+        b.disabled = i > reached;
+        b.setAttribute('aria-current', i === cur ? 'step' : 'false');
+        if (n === 0) {
+          b.appendChild(el('span', 'n', state === 'done' ? '\u2713' : String(i + 1)));
+          b.appendChild(el('span', 'lbl', LIST[s.id] || s.title));
+          if (i > reached) b.title = 'Reached after the steps before it';
+          b.setAttribute('aria-label', label);
+          var li = el('li'); li.appendChild(b); list.appendChild(li);
+        } else {
+          b.title = (i + 1) + '. ' + s.title;
+          b.setAttribute('aria-label', label);
+          k[1].appendChild(b);
+        }
+        b.addEventListener('click', function () { goTo(s.id); });
+      });
     });
-    // Keep the current step in view when the tracker scrolls sideways (phones).
-    var li = ol.children[cur]; if (li) ol.scrollLeft = Math.max(0, li.offsetLeft - ol.offsetLeft - 16);
   }
   function slides() { return Array.prototype.slice.call(document.querySelectorAll('#track > .slide')); }
   function currentSlide() { return slides()[curIndex()]; }
@@ -143,9 +179,9 @@
     ['next', 'paste-box'].forEach(function (id) { if ($(id).parentNode !== home) home.appendChild($(id)); });
     $('prev-step').disabled = cur === 0;
     $('next-step').disabled = cur >= P.STEPS.length - 1;
-    $('next-step').innerHTML = (cur < reached ? 'Next' : 'Skip to next step') + ' &rarr;';
+    $('next-step').innerHTML = (cur < reached ? 'Next' : 'Skip ahead') + ' &rarr;';
     $('next-step').classList.toggle('primary', cur < reached);
-    $('step-pos').textContent = 'Step ' + (cur + 1) + ' of ' + P.STEPS.length + ': ' + P.STEPS[cur].title;
+    $('step-pos').textContent = 'Step ' + (cur + 1) + ' of ' + P.STEPS.length + ', ' + P.STEPS[cur].title;
     fitTrack();
   }
   var track = $('track'), programmatic = 0;
@@ -158,7 +194,7 @@
     var sl = currentSlide(); if (!sl) return;
     programmatic = Date.now();
     track.scrollTo({ left: sl.offsetLeft - track.offsetLeft, behavior: page === 'instant' ? 'auto' : 'smooth' });
-    if (page !== 'instant' && track.getBoundingClientRect().top < (bar ? bar.getBoundingClientRect().bottom : 0)) $('steps').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (page !== 'instant' && track.getBoundingClientRect().top < (bar ? bar.getBoundingClientRect().bottom : 0)) window.scrollTo({ top: 0, behavior: 'smooth' });
   }
   // Scrolling the track sideways (swipe, trackpad, keyboard) changes the step in view.
   var scrollTimer = null;
@@ -190,7 +226,9 @@
   // ---------------------------------------------------------------- run in (avd-ops docs/design-system.md, "Run in")
   // Kept under one key for every avd-ops portal, in this browser only; blocked storage means the default.
   var runIn = (function () { try { return P.validRunIn(JSON.parse(localStorage.getItem('avd-ops-runin') || 'null')); } catch (e) { return P.validRunIn(null); } })();
+  $('runline-change').addEventListener('click', function () { showSettings(true); var r = document.querySelector('input[name="runin-where"]:checked'); if (r) r.focus({ preventScroll: true }); });
   function syncRunIn() {
+    $('runline-where').textContent = P.PLACES[runIn.where] + ', ' + (runIn.shell === 'bash' ? 'Bash' : 'PowerShell');
     var bash = document.querySelector('input[name="runin-shell"][value="bash"]');
     bash.disabled = runIn.where === 'windows';
     bash.parentNode.title = bash.disabled ? 'On Windows the commands run in PowerShell 7' : '';
@@ -238,10 +276,10 @@
     });
     // Spec section 4.3: a reset loses the shell, not the deployment.
     if (box === $('actions') && actions.some(function (a) { return /scripts\//.test(a.command || ''); })) {
-      var hint = el('p', 'muted resume-hint', 'If Cloud Shell resets, the deployment keeps running. Use ');
-      var link = el('a', '', 'Where did I leave off?'); link.href = '#resume';
+      var hint = el('p', 'muted resume-hint', 'If Cloud Shell resets, the deployment keeps running: ');
+      var link = el('a', '', 'Resume'); link.href = '#resume';
       link.addEventListener('click', function (e) { e.preventDefault(); showResume(true); });
-      hint.appendChild(link); hint.appendChild(document.createTextNode(' at the top to pick up from there.'));
+      hint.appendChild(link); hint.appendChild(document.createTextNode(' picks up from there.'));
       box.appendChild(hint);
     }
   }
@@ -251,13 +289,15 @@
     if (!$('resume-panel').classList.contains('hidden')) renderActions([{ title: 'Read where the run stands', why: '', command: P.commands.runStatus(config()) }], $('resume-actions'));
   }
   function showResume(open) {
+    if (open && sheetOpen() === 'settings') showSettings(false);
     $('resume-panel').classList.toggle('hidden', !open);
+    syncBackdrop();
     $('resume-link').setAttribute('aria-expanded', String(open));
     if (open) {
       renderResume();
-      $('resume-panel').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      $('resume-close').focus({ preventScroll: true });
     }
-    else $('resume-link').focus({ preventScroll: true });
+    else sheetClosed($('resume-link'));
   }
   $('resume-link').addEventListener('click', function (e) { e.preventDefault(); showResume($('resume-panel').classList.contains('hidden')); });
   $('resume-close').addEventListener('click', function () { showResume(false); });
@@ -272,7 +312,7 @@
     $('record-panel').classList.toggle('hidden', !r);
     if (!r) return;
     $('record-id').textContent = r.runId;
-    $('record-note').textContent = 'Every command below sets this run ID, so it keeps recording after a Cloud Shell reset. Open the run before the pre-deployment preflight; the run folder is kept ' +
+    $('record-note').textContent = 'Open the run before the pre-deployment preflight. Every command carries this run ID; the run folder is kept ' +
       (r.mode === 'azure' ? 'in the run store (outside the landing zone, so cleanup never removes it) and in Cloud Shell.' : 'in Cloud Shell only (~/clouddrive/avdlz-runs when clouddrive is mounted).');
     renderActions(P.recordActions(config()), $('record-actions'));
   }
@@ -283,7 +323,6 @@
   $('record-on').addEventListener('change', function () {
     var mode = $('record-mode').value === 'on' ? 'on' : 'azure';
     setRecord($('record-on').checked ? { runId: P.newRunId(), mode: mode } : { mode: mode });
-    if (cfg.record) $('record-steps').open = true;
   });
   $('record-mode').addEventListener('change', function () { if (P.recording(cfg)) setRecord({ runId: cfg.record.runId, mode: $('record-mode').value === 'on' ? 'on' : 'azure' }); });
   $('record-new').addEventListener('click', function () { if (P.recording(cfg)) setRecord({ runId: P.newRunId(), mode: P.recording(cfg).mode }); });
@@ -310,6 +349,7 @@
   function render() {
     renderSteps(); renderSlides(); renderLaunch(); renderRecord(); renderResume();
     var chip = $('next-chip'), head = $('next-headline');
+    $('next').classList.toggle('answered', !!lastAnalysis);
     if (lastAnalysis) {
       var r = lastAnalysis;
       $('next-title').textContent = r.recognized ? 'What to do next' : 'Not recognized';
@@ -327,7 +367,7 @@
       renderActions(r.actions);
     }
     else {
-      $('next-title').textContent = 'Run in ' + P.PLACES[runIn.where];
+      $('next-title').textContent = 'Run it';
       chip.className = 'chip hidden'; head.classList.add('hidden'); $('findings').classList.add('hidden'); $('estimate-line').classList.add('hidden'); $('version-line').classList.add('hidden');
       renderActions(P.actionsForStep(step || 'region', config()));
     }

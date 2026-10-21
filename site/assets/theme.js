@@ -1,4 +1,4 @@
-/* avd-ops theme and drawer v2.4.1 (https://avd-ops.dev/, avd-ops/avd-ops site/assets/theme.js). MIT.
+/* avd-ops theme and drawer v2.5.0 (https://avd-ops.dev/, avd-ops/avd-ops site/assets/theme.js). MIT.
    Personal project, not for production, as is; not affiliated with the author's employer or Microsoft.
    Load it in <head> without defer: it applies a saved theme before the page paints, then wires the shell's theme
    button (.theme) and menu button (.menu, the drawer for the side list below 64rem). No libraries, no requests.
