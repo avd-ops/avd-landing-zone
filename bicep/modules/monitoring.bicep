@@ -166,6 +166,44 @@ WVDErrors
 | where Errors > 10
 '''
   }
+  // The next three read counters the AVD Insights rule above already collects, so they add no
+  // ingestion. Thresholds are the Severity 2 ones of the Azure Monitor Baseline Alerts AVD pattern.
+  {
+    name: 'host-low-disk'
+    displayName: 'AVD: session host low on disk space'
+    description: 'A session host has less than 10% free space on C: over the evaluation window.'
+    severity: 2
+    query: '''
+Perf
+| where ObjectName == "LogicalDisk" and CounterName == "% Free Space" and InstanceName == "C:"
+| summarize FreePercent = avg(CounterValue) by Computer
+| where FreePercent < 10
+'''
+  }
+  {
+    name: 'host-low-memory'
+    displayName: 'AVD: session host low on memory'
+    description: 'A session host averaged less than 2 GB of available memory over the evaluation window.'
+    severity: 2
+    query: '''
+Perf
+| where ObjectName == "Memory" and CounterName =~ "Available MBytes"
+| summarize AvailableMB = avg(CounterValue) by Computer
+| where AvailableMB < 2048
+'''
+  }
+  {
+    name: 'host-high-cpu'
+    displayName: 'AVD: session host CPU saturated'
+    description: 'A session host averaged more than 85% CPU over the evaluation window.'
+    severity: 2
+    query: '''
+Perf
+| where ObjectName == "Processor Information" and CounterName == "% Processor Time" and InstanceName == "_Total"
+| summarize CpuPercent = avg(CounterValue) by Computer
+| where CpuPercent > 85
+'''
+  }
 ]
 
 resource scheduledQueryAlerts 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = [
