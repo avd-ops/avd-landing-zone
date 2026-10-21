@@ -8,6 +8,9 @@ $log = Join-Path ([IO.Path]::GetTempPath()) "avdlz-fake-az-$PID.log"
 $env:FAKE_AZ_LOG = $log
 # AVDLZ_TEST_BASH picks the bash (CI: Git Bash on Windows, Homebrew bash on macOS).
 $bash = if ($env:AVDLZ_TEST_BASH) { $env:AVDLZ_TEST_BASH } else { 'bash' }
+# deploy.sh refuses to read the runbook from master (avd-ops decision 0008); a CI checkout is a merge
+# commit no remote branch contains, so the scenario passes the pin the way an operator can.
+$env:AVD_RUNBOOK_URI = 'https://raw.githubusercontent.com/contoso/avd-landing-zone/0000000/scripts/automation/Invoke-AvdPowerAction.ps1'
 $stopped = '/subscriptions/0000/resourceGroups/rg-avdlz-dev-hosts/providers/Microsoft.Compute/virtualMachines/avdlzdsh-001'
 
 function Invoke-Deploy([string] $Step, [string[]] $Extra) {
@@ -26,6 +29,7 @@ function Invoke-Deploy([string] $Step, [string[]] $Extra) {
   Write-Host "RESULT $Step-idpaths $(@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -match '^az vm (start|deallocate)' } | ForEach-Object { if ($_ -match '--ids (\S+)') { [bool]($Matches[1] -like '/subscriptions/*') } }) -join ',')"
   Write-Host "RESULT $Step-unmocked $([bool]($out -match 'unmocked call'))"
   Write-Host "RESULT $Step-env $(@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -like 'deploy-env *' }) -join ';')"
+  Write-Host "RESULT $Step-runbook $(@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -like 'runbook-env *' } | ForEach-Object { $_.Substring(12) }) -join ';')"
   Write-Host "RESULT $Step-jumpbox $(@(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -like 'jumpbox-env *' }) -join ';')"
 }
 
@@ -147,4 +151,26 @@ Invoke-Deploy 'subscription-missing' @('-s', 'other-sub')
 $env:FAKE_SUB_MISSING = ''; $env:FAKE_SUB_TENANT = '00000000-0000-0000-0000-0000000000f2'
 Invoke-Deploy 'subscription-other-tenant' @('-s', 'other-sub')
 $env:FAKE_SUB_TENANT = ''
+
+# No runbook pin and no commit git can find on a remote: refused, never read from master (avd-ops decision 0008).
+$pin = $env:AVD_RUNBOOK_URI; $env:AVD_RUNBOOK_URI = ''; $env:GIT_DIR = Join-Path ([IO.Path]::GetTempPath()) "avdlz-no-git-$PID"
+Invoke-Deploy 'runbook-unpinned'
+# A what-if deploys nothing: it previews with master and says a deployment would stop.
+Invoke-Deploy 'runbook-unpinned-whatif' @('--what-if')
+# A commit a remote has: pinned to that commit (a throwaway repo stands in for the clone).
+$repo = Join-Path ([IO.Path]::GetTempPath()) "avdlz-git-$PID"
+$env:GIT_DIR = $null
+git init -q $repo; git -C $repo -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m t
+git -C $repo remote add origin https://github.com/contoso/avd-landing-zone.git; git -C $repo update-ref refs/remotes/origin/master HEAD
+$env:GIT_DIR = Join-Path $repo '.git'; $script:pinnedSha = git -C $repo rev-parse HEAD
+# What git in bash sees, for a failure message on a platform where it differs.
+Write-Host "RESULT runbook-pinned-git $((& $bash -c 'git rev-parse HEAD; git remote get-url origin; git branch -r --contains HEAD' 2>&1 | Out-String) -replace '\s+', ' ')"
+Invoke-Deploy 'runbook-pinned'
+Write-Host "RESULT runbook-pinned-sha $script:pinnedSha"
+# A preset pin must be a raw URL at a commit or a v* tag, never a branch.
+$env:GIT_DIR = $null
+$env:AVD_RUNBOOK_URI = 'https://raw.githubusercontent.com/contoso/avd-landing-zone/master/scripts/automation/Invoke-AvdPowerAction.ps1'
+Invoke-Deploy 'runbook-branch'
+Remove-Item -Recurse -Force $repo -ErrorAction SilentlyContinue
+$env:AVD_RUNBOOK_URI = $pin
 Remove-Item $log -ErrorAction SilentlyContinue

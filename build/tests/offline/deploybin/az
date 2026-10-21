@@ -61,8 +61,9 @@ case "$1 $2" in
   "vm start"|"vm deallocate") exit 0 ;;
   "deployment sub")
     case "$3" in
-      what-if) echo "(what-if output)" ;;
+      what-if) echo "runbook-env ${AVD_RUNBOOK_URI:-}" >> "$FAKE_AZ_LOG"; echo "(what-if output)" ;;
       create) echo "deploy-env image=${AVD_SESSION_HOST_IMAGE_ID:-} gen=${AVD_SESSION_HOST_GENERATION:-} tags=${AVD_HOST_POOL_STATE_TAGS:-}" >> "$FAKE_AZ_LOG"
+        echo "runbook-env ${AVD_RUNBOOK_URI:-}" >> "$FAKE_AZ_LOG"
         echo "jumpbox-env deploy=${AVD_DEPLOY_JUMPBOX:-} exists=${AVD_JUMPBOX_EXISTS:-} until=${AVD_JUMPBOX_KEEP_RUNNING_UNTIL:-} os=${AVD_JUMPBOX_OS:-}" >> "$FAKE_AZ_LOG"
         echo '{}'; exit "${FAKE_DEPLOY_EXIT:-0}" ;;
       show) [[ "$*" == *controlPlane* ]] && echo rg-avdlz-dev-avd || echo stavdlzdevfake ;;

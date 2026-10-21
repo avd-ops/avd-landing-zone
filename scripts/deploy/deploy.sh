@@ -136,6 +136,34 @@ if $JUMPBOX && [[ "$BASTION_DEVELOPER_REGIONS" != *" ${LOCATION,,} "* ]]; then
   exit 1
 fi
 
+# Pin the auto-shutdown runbook (decision 0011) to the commit being deployed, before anything touches
+# Azure. It is never read from master (avd-ops decision 0008): when GitHub doesn't have this commit,
+# push it or set AVD_RUNBOOK_URI to the raw URL at a commit or v* tag. A what-if deploys nothing, so
+# it previews with master and says so.
+RUNBOOK_PIN='^https://raw\.githubusercontent\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/([0-9a-f]{7,40}|v[0-9][A-Za-z0-9.-]*)/scripts/automation/Invoke-AvdPowerAction\.ps1$'
+if [[ -n "${AVD_RUNBOOK_URI:-}" ]]; then
+  [[ $AVD_RUNBOOK_URI =~ $RUNBOOK_PIN ]] \
+    || { echo "AVD_RUNBOOK_URI must be the runbook's raw.githubusercontent.com URL at a commit SHA or a v* tag: '$AVD_RUNBOOK_URI'"; exit 1; }
+else
+  # pwd -W gives Git Bash's Windows path: with MSYS_NO_PATHCONV set, native git can't read /d/... paths.
+  repo_dir=$(cd "$(dirname "$0")/../.." && { pwd -W 2>/dev/null || pwd; })
+  sha=$(git -C "$repo_dir" rev-parse HEAD 2>/dev/null || true)
+  origin=$(git -C "$repo_dir" remote get-url origin 2>/dev/null || true)
+  if [[ $origin =~ github\.com[:/]([^/]+)/([^/]+)$ ]] && [[ -n "$sha" ]] &&
+     git -C "$repo_dir" branch -r --contains "$sha" 2>/dev/null | grep -q .; then
+    owner=${BASH_REMATCH[1]}; repo=${BASH_REMATCH[2]%.git}
+    AVD_RUNBOOK_URI="https://raw.githubusercontent.com/$owner/$repo/$sha/scripts/automation/Invoke-AvdPowerAction.ps1"
+  elif $WHATIF; then
+    echo "Note: commit ${sha:-unknown} is not on a GitHub remote; this what-if previews the runbook from master. A deployment would stop here."
+    AVD_RUNBOOK_URI="https://raw.githubusercontent.com/avd-ops/avd-landing-zone/master/scripts/automation/Invoke-AvdPowerAction.ps1"
+  else
+    echo "ERROR: can't pin the auto-shutdown runbook: commit ${sha:-unknown} is not on a GitHub remote of this clone." >&2
+    echo "       Deploy from a release tag or a pushed commit, or set AVD_RUNBOOK_URI to the runbook's raw URL at a commit or v* tag." >&2
+    exit 1
+  fi
+fi
+export AVD_RUNBOOK_URI
+
 echo "==> Checking az and Bicep"
 az bicep version >/dev/null 2>&1 || az bicep install
 az account show >/dev/null 2>&1 || { echo "Run 'az login' first."; exit 1; }
@@ -241,18 +269,6 @@ fi
 
 AVD_LOCATION="$LOCATION"
 export AVD_USERS_GROUP_ID AVD_ADMINS_GROUP_ID AVD_SERVICE_PRINCIPAL_ID AVD_LOCAL_ADMIN_PASSWORD AVD_LOCATION
-# Pin the auto-shutdown runbook (decision 0011) to the commit being deployed, when GitHub has it;
-# otherwise the repo's master branch.
-repo_dir=$(cd "$(dirname "$0")/../.." && pwd)
-if origin=$(git -C "$repo_dir" remote get-url origin 2>/dev/null) && [[ $origin =~ github\.com[:/]([^/]+)/([^/]+)$ ]]; then
-  owner=${BASH_REMATCH[1]}; repo=${BASH_REMATCH[2]%.git}
-  ref=master
-  sha=$(git -C "$repo_dir" rev-parse HEAD 2>/dev/null || true)
-  if [[ -n "$sha" ]] && git -C "$repo_dir" branch -r --contains "$sha" 2>/dev/null | grep -q .; then ref=$sha; fi
-  AVD_RUNBOOK_URI="https://raw.githubusercontent.com/$owner/$repo/$ref/scripts/automation/Invoke-AvdPowerAction.ps1"
-  export AVD_RUNBOOK_URI
-fi
-
 # Sizing overrides (empty = the parameter file's values).
 AVD_SESSION_HOST_COUNT="$HOSTS" AVD_SESSION_HOST_VM_SIZE="$VM_SIZE" AVD_MAX_SESSION_LIMIT="$MAX_SESSIONS" AVD_PROFILE_QUOTA_GIB="$PROFILE_QUOTA"
 export AVD_SESSION_HOST_COUNT AVD_SESSION_HOST_VM_SIZE AVD_MAX_SESSION_LIMIT AVD_PROFILE_QUOTA_GIB

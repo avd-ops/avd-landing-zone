@@ -27,6 +27,8 @@ They share `AvdLandingZone.psm1`. The landing zone's resources, Entra groups and
 
 ## Running them
 
+Command blocks check out the **latest release tag** (`vMAJOR.MINOR.PATCH`), so a block run twice runs the same code until a new release is cut; with no release yet they fall back to `master`. To run the newest unreleased code, use `git checkout master; git pull` instead. Each release is immutable and attested: `gh release verify <tag> -R avd-ops/avd-landing-zone` (avd-ops decision 0008, [code signing](https://github.com/avd-ops/avd-ops/blob/main/docs/code-signing.md)).
+
 ```powershell
 # Cloud Shell (PowerShell), in the landing zone subscription
 git clone https://github.com/avd-ops/avd-landing-zone.git
@@ -67,7 +69,7 @@ Scopes: `Application.ReadWrite.All`, `DelegatedPermissionGrant.ReadWrite.All`, `
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
-Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' })[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 ./scripts/ops/Initialize-AvdGraphApp.ps1 -SaveToProfile    # -OperatorsGroup 'AVD Admins' by default; -WhatIf to preview
 ```
 
@@ -285,7 +287,7 @@ Run it by hand from Cloud Shell, with your own sign-in (`-WhatIf` shows what it 
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
-Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' })[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 ./scripts/automation/Invoke-AvdPowerAction.ps1 -Action Resume -NamePrefix avdlz -Environment dev
 ```
 
@@ -331,7 +333,7 @@ You don't need this: the portal on GitHub Pages works for everyone. Publish a co
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
-Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' })[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 ./scripts/ops/Publish-AvdPortal.ps1 -NamePrefix avdlz -Environment dev -Location eastus2
 ```
 
@@ -370,7 +372,7 @@ Same-tenant recovery is part of the landing zone and works on its own: any regio
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
-Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' })[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 ./scripts/ops/Get-AvdRecoveryStatus.ps1 -NamePrefix avdlz -Environment dev -RecoveryTier R0
 ```
 
@@ -378,7 +380,7 @@ Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
-Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' })[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 ./scripts/ops/Connect-AvdLandingZone.ps1
 ./scripts/ops/Export-AvdConfiguration.ps1 -NamePrefix avdlz -Environment dev -IncludeIdentity
 # It prints the copy command with the run ID, for example:
@@ -389,7 +391,7 @@ Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
-Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' })[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 ./scripts/ops/Start-AvdRecoveryTest.ps1 -NamePrefix avdlz -Environment dev          # plan and estimate
 ./scripts/ops/Start-AvdRecoveryTest.ps1 -NamePrefix avdlz -Environment dev -Go      # restore and measure
 ./scripts/ops/Start-AvdRecoveryTest.ps1 -NamePrefix avdlz -Environment dev -Cleanup -RunId <run ID>
@@ -401,7 +403,7 @@ The restore goes to a new storage account in the **vault's region** (Azure Backu
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
-Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' })[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 ./scripts/ops/Test-AvdRecoveryCopies.ps1 -NamePrefix avdlz -Environment dev -PrivateRepo '<owner>/<private companion repo>'
 ```
 
@@ -417,7 +419,7 @@ Confirms from the connection logs that a real sign-in reached the desktop ([deci
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git ~/avd-landing-zone }
-Set-Location ~/avd-landing-zone; git checkout -q master; git pull -q --ff-only
+Set-Location ~/avd-landing-zone; git fetch -q --tags origin; $t = @(git tag -l 'v*' --sort=-v:refname | Where-Object { $_ -match '^v\d+\.\d+\.\d+$' })[0]; if ($t) { git checkout -q $t } else { git checkout -q master; git pull -q --ff-only }
 ./scripts/ops/Test-AvdUserConnection.ps1 -NamePrefix avdlz -Environment dev
 ```
 
