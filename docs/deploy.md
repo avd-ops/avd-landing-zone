@@ -7,6 +7,7 @@
 **Azure**
 - A dedicated subscription for the landing zone. The deploying identity needs **Owner** (it creates role and policy assignments).
 - Azure CLI ≥ 2.65 (`az upgrade`), with Bicep (`az bicep install`).
+- Bash 4 or later for `deploy.sh`: Azure Cloud Shell has it; on macOS run it with a newer bash (`brew install bash`, the stock one is 3.2); on Windows use Git Bash.
 - vCPU quota for `sessionHostCount × sessionHostVmSize` in the region, and a region that supports Premium ZRS file shares if you keep `profileStorageSku = 'Premium_ZRS'`.
 
 **Entra ID / Microsoft 365**

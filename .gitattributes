@@ -1,3 +1,11 @@
+# Line endings stay LF in the repo whatever the clone's core.autocrlf (avd-ops docs/run-anywhere.md):
+# Bash fails on a CRLF script, and the fake az and gh in build/tests/offline have no extension.
+* text=auto
+*.sh text eol=lf
+.githooks/* text eol=lf
+build/tests/offline/bin/* text eol=lf
+build/tests/offline/deploybin/* text eol=lf
+
 # Vendored contract files are hashed byte for byte (contracts/PINS.json).
 contracts/schemas/*.json -text
 contracts/examples/*.json -text

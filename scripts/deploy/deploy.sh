@@ -34,6 +34,15 @@
 #   AVD_ALERT_EMAIL, AVD_MONTHLY_BUDGET       optional (a budget also arms the auto-shutdown trigger)
 set -euo pipefail
 
+# Bash 4 or later (lowercase expansion, mapfile). macOS ships Bash 3.2 (avd-ops docs/run-anywhere.md).
+if (( BASH_VERSINFO[0] < 4 )); then
+  echo "deploy.sh needs Bash 4 or later; this is Bash $BASH_VERSION (macOS ships 3.2)." >&2
+  echo "Run it from Azure Cloud Shell, or install a newer bash (brew install bash) and run it with that bash." >&2
+  exit 1
+fi
+# Git Bash on Windows rewrites arguments that start with / (resource IDs) into Windows paths.
+export MSYS_NO_PATHCONV=1
+
 PARAM_FILE=""
 LOCATION=""
 SUBSCRIPTION=""

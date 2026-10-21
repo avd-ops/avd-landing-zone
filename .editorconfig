@@ -1,0 +1,13 @@
+# Runs anywhere (avd-ops docs/run-anywhere.md): the same line endings and encoding in every editor.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+indent_style = space
+indent_size = 2
+
+# Scripts with non-ASCII text keep their UTF-8 BOM (Windows PowerShell 5.1 needs it).
+[*.{ps1,psm1}]
+charset = unset
