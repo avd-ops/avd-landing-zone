@@ -258,6 +258,33 @@
       return block(cfg, ['./scripts/ops/Test-AvdUserConnection.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment +
         (opts.user ? ' -UserPrincipalName ' + psQuote(opts.user) : '') + (opts.demo ? ' -Demo' : '') + (opts.timeout ? ' -TimeoutMinutes ' + opts.timeout : '')]);
     },
+    // Where did I leave off (run recorder spec section 4): reads where the run stands from Azure.
+    runStatus: function (cfg) {
+      return block(cfg, ['./scripts/ops/Get-AvdRunStatus.ps1' + (cfg.namePrefix ? ' -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment : '')]);
+    },
+    // Same-tenant recovery (build/specs/recovery-spec.md): read-only status, the configuration snapshot, and a
+    // recovery test that only plans and prices until it is run again with -Go.
+    recoveryStatus: function (cfg, opts) {
+      opts = opts || {};
+      var tier = /^R[012]$/.test(opts.tier || '') ? opts.tier : '';
+      var loc = /^[a-z0-9]+$/.test(opts.recoveryLocation || '') ? opts.recoveryLocation : '';
+      return block(cfg, ['./scripts/ops/Get-AvdRecoveryStatus.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment +
+        (tier && tier !== 'R0' ? ' -RecoveryTier ' + tier : '') + (loc ? ' -RecoveryLocation ' + loc : '')]);
+    },
+    exportConfig: function (cfg, identity) {
+      return block(cfg, (identity ? [signIn(cfg)] : []).concat(['./scripts/ops/Export-AvdConfiguration.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment + (identity ? ' -IncludeIdentity' : '')]));
+    },
+    // Blue/green host rotation (build/specs/image-pipeline-spec.md section 6.5): each run continues where the last stopped.
+    rotation: function (cfg, opts) {
+      opts = opts || {};
+      // The parameter file the rotation deploys with travels in the state line; the default one is left out.
+      var pf = cfg.parameterFile && cfg.parameterFile !== 'parameters/' + cfg.environment + '.bicepparam' ? ' -ParameterFile ' + psQuote(cfg.parameterFile) : '';
+      return block(cfg, ['./scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment + pf +
+        (opts.logOff ? ' -LogOffAtDeadline' : '') + (opts.rollback ? ' -Rollback' : '')]);
+    },
+    recoveryTest: function (cfg) {
+      return block(cfg, ['./scripts/ops/Start-AvdRecoveryTest.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment]);
+    },
     removeDemo: function (cfg) {
       return block(cfg, [signIn(cfg), './scripts/ops/Remove-AvdDemo.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment]);
     },
@@ -577,6 +604,83 @@
       note('Session hosts stopped', (pw.deallocated || []).length + ' deallocated' + ((pw.skipped || []).length ? ', ' + pw.skipped.length + ' left running because users are signed in' : '') + '. They start again on the next connection.', '');
       return { step: 'signin', actions: a };
     }
+    if (S === 'resume') {
+      // Get-AvdRunStatus.ps1 (run recorder spec section 4): Azure says where the run stands; the journal only adds detail.
+      var rc = state.context || {}, basis = rc.basis ? ' ' + rc.basis : '';
+      if (rc.lastStage === 'deploy' && rc.lastStatus === 'running') {
+        note('Wait for the deployment', 'Azure shows the deployment still running.' + basis + ' Do not start it again. Check on it with this, and paste the result when it shows Succeeded or Failed.', cmd.deployStatus(cfg, rc.deploymentName));
+        return { step: 'deploy', actions: a };
+      }
+      if (state.status !== 'ready' || !rc.nextStage) {
+        note('Couldn\'t tell where the run stands', 'The status check saw something it doesn\'t recognize.' + basis + ' Use Report a problem so it can be added, and pick the step yourself from the list.', '');
+        return { step: null, actions: a };
+      }
+      if (rc.lastStage === 'deploy' && rc.lastStatus === 'failed') {
+        note('Find out what failed', 'The last deployment failed.' + basis + ' This lists the failed resources and their error codes; paste the result here.', cmd.deployStatus(cfg, rc.deploymentName));
+        return { step: 'deploy', actions: a };
+      }
+      var NEXT = { predeploy: 'Run the pre-deployment preflight', deploy: 'Deploy the landing zone', postdeploy: 'Run the post-deployment setup', signin: 'Deploy the demo and sign in', verify: 'Check access' };
+      note(NEXT[rc.nextStage] || 'Continue', 'This is where the run left off.' + basis, rerunForStep(rc.nextStage, cfg, rc.nextStage === 'postdeploy' ? true : undefined));
+      return { step: rc.nextStage, actions: a };
+    }
+    if (S === 'rotation') {
+      // Invoke-AvdHostRotation.ps1: refused before anything changed, waiting (run it again), done or failed.
+      // Rotation runs on a deployed landing zone, so its actions show on the post-deployment slide.
+      var ro = state.context || {}, wait = byId(warnings, 'rotation-waiting')[0];
+      if (state.status === 'refused') {
+        note('The rotation did not start', ((failures[0] || {}).detail || '') + ' ' + ((failures[0] || {}).remediation || '') + ' Nothing was changed.', '');
+        return { step: 'postdeploy', actions: a };
+      }
+      if (state.status === 'failed') {
+        var f0 = failures[0] || {};
+        if (f0.id === 'rotation-deploy') note('The new hosts did not deploy', (f0.detail || '') + ' Fix what deploy.sh reported and run the rotation again (it continues), or roll back.', cmd.rotation(cfg));
+        else note('The rotation stopped in phase ' + (ro.phase || 'Deploy'), (f0.detail || '') + ' ' + (f0.remediation || '') + ' Nothing after that was changed.', cmd.rotation(cfg));
+        if (!ro.rollback && ro.phase !== 'Remove') note('Or roll back', 'The original hosts take sessions again and the new ones are removed.', cmd.rotation(cfg, { rollback: true }));
+        return { step: 'postdeploy', actions: a };
+      }
+      if (state.status === 'waiting') {
+        var afterDeadline = wait && /-LogOffAtDeadline/.test((wait.detail || '') + ' ' + (wait.remediation || ''));
+        // A rollback that waited for the deployment to end is run again as a rollback.
+        if (ro.rollbackPending) {
+          note('Roll back once the deployment ends', ((wait || {}).detail || '') + ' Run the rollback again then.', cmd.rotation(cfg, { rollback: true }));
+          return { step: 'postdeploy', actions: a };
+        }
+        note(ro.phase === 'Wait' ? 'Users are moving to the new hosts' : 'Run the rotation again', ((wait || {}).detail || '') + ' It continues from phase ' + (ro.phase || 'Deploy') + '.', cmd.rotation(cfg, { logOff: afterDeadline }));
+        if (!ro.rollback && ro.phase !== 'Remove') note('Or roll back', 'Before the old hosts are removed, a rollback puts users back on them and removes the new ones.', cmd.rotation(cfg, { rollback: true }));
+        return { step: 'postdeploy', actions: a };
+      }
+      var left = byId(warnings, 'devices-left');
+      if (left.length) {
+        var dn = [].concat.apply([], left.map(function (w) { return (w.data && w.data.devices) || []; }));
+        note('Delete the old device objects', 'Entra ID and Intune still hold ' + (dn.join(', ') || 'the removed hosts') + '. Delete them there by hand once you have checked they are these hosts.', '');
+      }
+      note(ro.rollback ? 'The rollback is complete' : 'The rotation is complete', ro.rollback ? 'The original hosts take every session; the new ones are removed.' : 'Every session host runs ' + (ro.version || 'the new version') + '. To go back, rotate to the previous version.', ro.rollback ? '' : cmd.rotation(cfg, { rollback: true }));
+      return { step: 'postdeploy', actions: a };
+    }
+    if (S === 'recovery') {
+      // Get-AvdRecoveryStatus.ps1 and Start-AvdRecoveryTest.ps1: one action for the first thing that isn't met.
+      var rv = state.context || {}, open = failures.concat(warnings);
+      var has = function (id) { return byId(open, id).length > 0; };
+      var opts = { tier: rv.tier, recoveryLocation: rv.recoveryLocation };
+      if (rv.test) {
+        if (rv.mode === 'plan' && state.status === 'ready') note('Run the recovery test when you are ready', 'The plan above restores the newest recovery point into a new storage account and prints its cost. Nothing was created. Add -Go to the same command to run it, and remove it after with -Cleanup.', cmd.recoveryTest(cfg) + ' -Go');
+        else if (rv.mode === 'plan') note('Not ready for a recovery test', ((failures[0] || {}).detail || '') + ' Nothing was created.', '');
+        else if (state.status === 'passed') note('Remove the test copy', 'The restore passed; the measured RPO and restore time are in the run record. Remove the test copy now so it stops billing.', cmd.recoveryTest(cfg) + ' -Cleanup -RunId ' + psQuote(rv.runId || ''));
+        else if (state.status === 'done') note('Check the recovery status again', 'The test copy is removed. The status check now counts the passed test.', cmd.recoveryStatus(cfg, opts));
+        else note('Remove the test, then look at the error', ((failures[0] || {}).detail || 'The test did not pass.') + ' Remove what it created first, so nothing keeps billing.', rv.runId ? cmd.recoveryTest(cfg) + ' -Cleanup -RunId ' + psQuote(rv.runId) : '');
+        return { step: 'recovery', actions: a };
+      }
+      if (state.status === 'met') {
+        note('Recovery tier ' + (rv.tier || 'R0') + ' is met', rv.met + ' of ' + rv.total + ' items are met. Run the status check again monthly, after a snapshot and a copy.', '');
+        return { step: 'recovery', actions: a };
+      }
+      if (has('dr-profile-backup') || has('dr-profile-backup-access')) note('Fix the profile backup first', [(byId(open, 'dr-profile-backup')[0] || byId(open, 'dr-profile-backup-access')[0]).detail, 'The post-deployment preflight reports the cause it knows.'].join(' '), cmd.postdeploy(cfg, false));
+      if (has('dr-config') || has('dr-identity')) note('Take a configuration snapshot', 'It records what the Bicep doesn\'t hold (assignments, scaling schedules, drain state' + (has('dr-identity') ? ', and the AVD groups and their Conditional Access policies' : '') + '). Then copy it with the command it prints, so it counts.', cmd.exportConfig(cfg, has('dr-identity')));
+      if (has('dr-tested')) note('Plan a recovery test', 'A tier only counts once a restore has been tested. This prints the plan and the estimate; nothing is created.', cmd.recoveryTest(cfg));
+      if (has('dr-iac')) note('Deploy from a pushed commit', byId(open, 'dr-iac')[0].detail, '');
+      if (!a.length) note('Recovery tier ' + (rv.tier || 'R0') + ' is not met', 'See the failures above.', '');
+      return { step: 'recovery', actions: a };
+    }
     if (S === 'cleanup') {
       // A Graph sign-in that timed out leaves the hosts' device objects (build/lessons/0029).
       var left = byId(warnings, 'devices-left'), lz = state.context && state.context.includeLandingZone;
@@ -592,8 +696,8 @@
     return { step: null, actions: a };
   }
 
-  var STAGE_LABEL = { predeploy: 'Pre-deployment preflight', deploy: 'Deployment', postdeploy: 'Post-deployment setup', demo: 'Demo validation', cleanup: 'Cleanup', power: 'Auto shutdown', verify: 'Access check' };
-  var STATUS_LABEL = { done: 'Done', ready: 'Ready', notready: 'Not ready', succeeded: 'Succeeded', failed: 'Failed', started: 'Still running (or disconnected)', whatif: 'What-if only', locked: 'Locked', resumed: 'Resumed', stopped: 'Stopped', verified: 'Verified', notverified: 'Not verified' };
+  var STAGE_LABEL = { predeploy: 'Pre-deployment preflight', deploy: 'Deployment', postdeploy: 'Post-deployment setup', demo: 'Demo validation', cleanup: 'Cleanup', power: 'Auto shutdown', verify: 'Access check', resume: 'Where you left off', recovery: 'Recovery', rotation: 'Host rotation' };
+  var STATUS_LABEL = { done: 'Done', ready: 'Ready', notready: 'Not ready', succeeded: 'Succeeded', failed: 'Failed', started: 'Still running (or disconnected)', whatif: 'What-if only', locked: 'Locked', resumed: 'Resumed', stopped: 'Stopped', verified: 'Verified', notverified: 'Not verified', unknown: 'Unknown', met: 'Met', notmet: 'Not met', passed: 'Passed', refused: 'Refused', waiting: 'Waiting' };
 
   /*
    * analyze(text, config, options) -> {

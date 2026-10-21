@@ -1,5 +1,7 @@
 # Cloud-native AVD Landing Zone
 
+Part of [avd-ops](https://avd-ops.dev/), the open toolkit for Azure Virtual Desktop.
+
 An **enterprise-ready Azure Virtual Desktop landing zone for greenfield, cloud-native organizations** — Entra ID-joined, Intune-managed, private by default, and deployed end to end from one Bicep template.
 
 > [!WARNING]
@@ -21,7 +23,7 @@ It is deliberately *not* a general-purpose accelerator. Microsoft's [AVD Landing
 | **Session hosts** | Memory-optimized E-series on Premium SSD (sized per workload in the portal), Trusted Launch (Secure Boot + vTPM), encryption at host, zone-spread, Windows 11 24H2 multi-session + M365, AMA + AVD Insights, Guest Configuration | Secure by default; registered and FSLogix-configured **declaratively** by managed Run Commands |
 | **Control plane** | Pooled host pool with **AVD Private Link** for session hosts, Start VM on Connect, scheduled agent updates, hardened RDP properties, weekday/weekend autoscale | Hosts reach AVD privately; idle cost is scaled away |
 | **Network** | Spoke with **no default outbound access**: NAT Gateway (standalone) or hub firewall (hub-peered, peering created both ways); NSG on the private endpoint subnet; private DNS | Egress is always explicit, which suits the retirement of Azure's default outbound access |
-| **Operations** | Log Analytics, AVD Insights DCR, diagnostics on every resource, alerts (unhealthy hosts, FSLogix errors, connection errors, Service Health), activity log export | Day-2 visibility from day 1 |
+| **Operations** | Log Analytics, AVD Insights DCR, diagnostics on every resource, alerts (unhealthy hosts, FSLogix errors, connection errors, low disk, low memory, high CPU, Service Health), activity log export | Day-2 visibility from day 1 |
 | **Governance** | Azure Policy guardrails (allowed locations, tag inheritance), Defender for Cloud (Servers P2, Storage, Key Vault), subscription budget | The subscription arrives governed |
 | **Auto shutdown** | An Automation runbook stops the session hosts on a schedule and locks them off when the budget is exceeded (Resume undoes it) | Spend stops when the budget runs out, not at the end of the month |
 | **Delivery** | Strict Bicep linting, PSScriptAnalyzer, shellcheck, PSRule for Azure, subscription what-if on PRs, environment-gated deploy workflow (OIDC) | Changes are reviewed as code and promoted with approvals |

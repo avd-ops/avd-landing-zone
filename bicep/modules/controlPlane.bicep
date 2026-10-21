@@ -4,6 +4,9 @@
 
 param location string
 param tags object
+
+@description('Rotation tags the host pool keeps across deployments (main.bicep hostPoolStateTags).')
+param hostPoolStateTags object = {}
 param hostPoolName string
 param appGroupName string
 param workspaceName string
@@ -44,7 +47,7 @@ module hostPool 'br/public:avm/res/desktop-virtualization/host-pool:0.8.1' = {
   params: {
     name: hostPoolName
     location: location
-    tags: startVmOnConnect ? tags : union(tags, { 'avdlz-start-vm-on-connect': 'false' })
+    tags: union(tags, hostPoolStateTags, startVmOnConnect ? {} : { 'avdlz-start-vm-on-connect': 'false' })
     hostPoolType: 'Pooled'
     loadBalancerType: 'BreadthFirst'
     preferredAppGroupType: 'Desktop'

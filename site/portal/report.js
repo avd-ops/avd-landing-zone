@@ -38,6 +38,7 @@
     '082f0a83-3be5-4ba1-904c-961cca79b387', // Desktop Virtualization Contributor
     'd3881f73-407a-4167-8283-e981cbba0404', // Automation Operator
     'b24988ac-6180-42a0-ab88-20f7382dd24c', // Contributor
+    'ba92f5b4-2d11-453d-a403-e96b0029c9fe', // Storage Blob Data Contributor
     'acdd72a7-3385-48ef-bd42-f606fba81ae7', // Reader
     '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1', // Storage Blob Data Reader
     // Entra directory role templates (group owner check in the preflight and deploy.sh)
@@ -72,6 +73,8 @@
    * redact(text, options) -> { text, counts {kind: n}, total }
    * options.known: [{ kind, value }] values from the operator's settings (name prefix, groups, ...)
    * options.extraTerms: [string] anything else the operator wants removed
+   * options.level: 'public' (default, everything above) or 'private' (secrets only: what the run
+   *   journal keeps in the operator's own tenant, build/specs/run-recorder-spec.md section 5)
    */
   function redact(text, options) {
     options = options || {};
@@ -111,6 +114,9 @@
         if (!keyLike) return s;
         count('secret'); return '<secret>';
       });
+
+    // Private level (run recorder spec section 5): secrets only, for what stays in the operator's own tenant.
+    if (options.level === 'private') return finish();
 
     // 2. The operator's own terms and settings.
     replaceTerms('custom', (options.extraTerms || []).map(function (t) { return String(t).trim(); }));
@@ -179,8 +185,12 @@
       .replace(/(\/home\/)(?!<)([A-Za-z0-9._-]+)/g, function (a, p, u) { return p + token('user', u); })
       .replace(/([A-Za-z]:\\Users\\)(?!<)([^\\\s"']+)/g, function (a, p, u) { return p + token('user', u); });
 
-    var total = 0; Object.keys(counts).forEach(function (k) { if (counts[k] > 0) total += counts[k]; else delete counts[k]; });
-    return { text: text, counts: counts, total: total };
+    return finish();
+
+    function finish() {
+      var total = 0; Object.keys(counts).forEach(function (k) { if (counts[k] > 0) total += counts[k]; else delete counts[k]; });
+      return { text: text, counts: counts, total: total };
+    }
   }
 
   function describe(counts) {

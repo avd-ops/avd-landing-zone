@@ -261,3 +261,161 @@ Describe 'Demo hosts stop on their own (avd-second-brain decision 0017)' {
     if ($lz) { $lz['properties']['parameters'].Keys | Should -Not -Contain 'autoShutdownTime' }
   }
 }
+
+Describe 'Recovery region and profile backup tier (build/specs/recovery-spec.md)' {
+  It 'allows only location by default, and adds AVD_RECOVERY_LOCATION when set (set-but-empty = none, lesson 0004)' {
+    $t = Get-CompiledTemplate 'parameters/dev.bicepparam'
+    $t.parameters.recoveryLocation.defaultValue | Should -Be ''
+    $t.parameters.allowedLocations.defaultValue | Should -Be "[union(createArray(parameters('location')), if(empty(parameters('recoveryLocation')), createArray(), createArray(parameters('recoveryLocation'))))]"
+    foreach ($file in 'parameters/dev.bicepparam', 'parameters/test.bicepparam', 'parameters/prod.bicepparam') {
+      $read = { param($v) $env:AVD_RECOVERY_LOCATION = $v; try { ((& $script:bicep build-params $file --stdout | ConvertFrom-Json).parametersJson | ConvertFrom-Json).parameters.recoveryLocation.value } finally { $env:AVD_RECOVERY_LOCATION = '' } }
+      & $read '' | Should -Be '' -Because $file
+      & $read 'southcentralus' | Should -Be 'southcentralus' -Because $file
+    }
+  }
+  It 'keeps storage key access off unless the vaulted backup tier needs it' {
+    $t = Get-CompiledTemplate 'parameters/dev.bicepparam'
+    $t.parameters.profileBackupTier.defaultValue | Should -Be 'Snapshot'
+    $storage = Find-Deployment $t 'avdlz-storage'
+    $storage.properties.parameters.allowSharedKeyAccess.value | Should -Be "[and(parameters('enableProfileBackup'), equals(parameters('profileBackupTier'), 'Vaulted'))]"
+    $account = Find-Deployment $storage['properties']['template'] 'storage-account'
+    $account.properties.parameters.allowSharedKeyAccess.value | Should -Be "[parameters('allowSharedKeyAccess')]"
+    $account.properties.parameters.publicNetworkAccess.value | Should -Be 'Disabled'
+    $account.properties.parameters.fileServices.value.protocolSettings.smb.authenticationMethods | Should -Be 'Kerberos;'
+  }
+}
+
+Describe 'Profile backup tier (build/specs/recovery-spec.md section 4)' {
+  BeforeAll {
+    $t = Get-CompiledTemplate 'parameters/prod.bicepparam'
+    $script:backup = Find-Deployment $t 'avdlz-backup'
+    $inner = $script:backup['properties']['template']
+    $res = @($inner['resources'].Values) + @($inner['resources']) | Where-Object { $_ -is [System.Collections.IDictionary] }
+    $script:vault = $res | Where-Object { $_['type'] -eq 'Microsoft.RecoveryServices/vaults' }
+    $script:policy = $res | Where-Object { $_['type'] -eq 'Microsoft.RecoveryServices/vaults/backupPolicies' }
+    $script:main = $t
+  }
+  It 'passes profileBackupTier from main.bicep, defaulting to Snapshot' {
+    $script:backup['properties']['parameters']['profileBackupTier']['value'] | Should -Be "[parameters('profileBackupTier')]"
+    $script:main['parameters']['profileBackupTier']['defaultValue'] | Should -Be 'Snapshot'
+  }
+  It 'changes the vault''s redundancy only for the vaulted tier, so the default deployment is unchanged' {
+    $script:vault['properties'] | Should -Match "if\(variables\('vaulted'\), createObject\('redundancySettings', createObject\('standardTierStorageRedundancy', 'GeoRedundant', 'crossRegionRestore', 'Enabled'\)\), createObject\(\)\)"
+  }
+  It 'keeps the snapshot policy name for the default tier and adds a vault retention policy only for Vaulted' {
+    $script:policy['name'] | Should -Match "if\(variables\('vaulted'\), 'fslogix-daily-vaulted', 'fslogix-daily'\)"
+    $script:policy['properties'] | Should -Match "if\(variables\('vaulted'\), createObject\('vaultRetentionPolicy'"
+  }
+}
+
+Describe 'Host resource alerts read only what AVD Insights collects' {
+  # The disk, memory and CPU alerts query Perf. They fire only for counters the AVD Insights data
+  # collection rule sends, so a counter dropped from the rule would silence its alert without an error.
+  BeforeAll {
+    $t = Get-CompiledTemplate 'parameters/dev.bicepparam'
+    $script:mon = Find-Deployment $t 'avdlz-monitoring'
+    $dcr = Find-Deployment $mon['properties']['template'] 'dcr-avd-insights'
+    $script:counters = @($dcr['properties']['parameters']['dataCollectionRuleProperties']['value']['dataSources']['performanceCounters'] |
+        ForEach-Object { $_['counterSpecifiers'] })
+    $script:alerts = @($mon['properties']['template']['variables']['logAlerts'])
+  }
+  It 'has the low disk, low memory and high CPU alerts' {
+    $alerts.name | Should -Contain 'host-low-disk'
+    $alerts.name | Should -Contain 'host-low-memory'
+    $alerts.name | Should -Contain 'host-high-cpu'
+  }
+  It 'collects every counter a Perf alert reads' {
+    foreach ($a in @($alerts | Where-Object { $_.query -match '^\s*Perf\b' })) {
+      $object = [regex]::Match($a.query, 'ObjectName == "([^"]+)"').Groups[1].Value
+      $counter = [regex]::Match($a.query, 'CounterName (?:==|=~) "([^"]+)"').Groups[1].Value
+      $object | Should -Not -BeNullOrEmpty -Because $a.name
+      $hit = @($counters | Where-Object { $_ -like "\$object(*\$counter" -or $_ -like "\$object\$counter" })
+      $hit.Count | Should -BeGreaterThan 0 -Because "$($a.name) reads $object\$counter"
+    }
+  }
+}
+
+Describe 'Image and generation for host rotation (build/specs/image-pipeline-spec.md section 6.1)' {
+  BeforeAll {
+    $script:t = Get-CompiledTemplate 'parameters/dev.bicepparam'
+  }
+  It 'takes the image, generation and rotation tags from the environment, and defaults to none when empty (lesson 0004)' {
+    foreach ($file in 'parameters/dev.bicepparam', 'parameters/test.bicepparam', 'parameters/prod.bicepparam') {
+      $env:AVD_SESSION_HOST_IMAGE_ID = '/subscriptions/x/resourceGroups/r/providers/Microsoft.Compute/galleries/g/images/d/versions/2026.1004.1'
+      $env:AVD_SESSION_HOST_GENERATION = 'b'
+      $env:AVD_HOST_POOL_STATE_TAGS = '{"avdlz-image":"/v/1","avdlz-generation":"a"}'
+      try { $p = ((& $script:bicep build-params $file --stdout | ConvertFrom-Json).parametersJson | ConvertFrom-Json).parameters }
+      finally { $env:AVD_SESSION_HOST_IMAGE_ID = ''; $env:AVD_SESSION_HOST_GENERATION = ''; $env:AVD_HOST_POOL_STATE_TAGS = '' }
+      $p.sessionHostImageId.value | Should -Match '/versions/2026\.1004\.1$'
+      $p.sessionHostGeneration.value | Should -Be 'b'
+      $p.hostPoolStateTags.value.'avdlz-generation' | Should -Be 'a'
+      $p = ((& $script:bicep build-params $file --stdout | ConvertFrom-Json).parametersJson | ConvertFrom-Json).parameters
+      $p.sessionHostImageId.value | Should -BeNullOrEmpty
+      $p.sessionHostGeneration.value | Should -BeNullOrEmpty
+      @($p.hostPoolStateTags.value.PSObject.Properties).Count | Should -Be 0
+    }
+  }
+  It 'keeps the marketplace image and the original host names by default' {
+    $t.variables['hostImageReference'] | Should -Match "if\(empty\(parameters\('sessionHostImageId'\)\), parameters\('sessionHostImage'\), createObject\('id', parameters\('sessionHostImageId'\)\)\)"
+    $t.variables['hostNamePrefix'] | Should -Match "if\(empty\(parameters\('sessionHostGeneration'\)\), parameters\('sessionHostNamePrefix'\), format\('\{0\}\{1\}', take\(parameters\('sessionHostNamePrefix'\), 10\), parameters\('sessionHostGeneration'\)\)\)"
+    $t.parameters['sessionHostGeneration']['allowedValues'] | Should -Be @('', 'a', 'b')
+    $hosts = Find-Deployment $t 'avdlz-session-hosts'
+    $hosts['properties']['parameters']['namePrefix']['value'] | Should -Be "[variables('hostNamePrefix')]"
+    $hosts['properties']['parameters']['imageReference']['value'] | Should -Be "[variables('hostImageReference')]"
+  }
+  It 'gives each generation valid, distinct names of 15 characters at most' {
+    foreach ($prefix in 'avdlzdsh', 'contosoprsh') {
+      $names = foreach ($gen in '', 'a', 'b') {
+        $p = if ($gen) { $prefix.Substring(0, [Math]::Min(10, $prefix.Length)) + $gen } else { $prefix }
+        "$p-001"
+      }
+      @($names | Sort-Object -Unique).Count | Should -Be 3
+      $names | ForEach-Object { $_.Length | Should -BeLessOrEqual 15 }
+    }
+  }
+  It 'keeps only the rotation tags on the host pool, and only when set' {
+    $t.variables['rotationTagNames'] | Should -Be @('avdlz-image', 'avdlz-generation', 'avdlz-image-next', 'avdlz-image-previous', 'avdlz-rotation')
+    $t.variables['keptHostPoolStateTags'] | Should -Match "contains\(variables\('rotationTagNames'\)"
+    $t.variables['keptHostPoolStateTags'] | Should -Match 'not\(empty\('
+    $cp = Find-Deployment $t 'avdlz-control-plane'
+    $cp['properties']['parameters']['hostPoolStateTags']['value'] | Should -Be "[variables('keptHostPoolStateTags')]"
+    $pool = Find-Deployment $cp['properties']['template'] 'host-pool'
+    $pool['properties']['parameters']['tags']['value'] | Should -Match "parameters\('hostPoolStateTags'\)"
+  }
+}
+
+Describe 'Pinned tool versions' {
+  # The checks only mean the same everywhere if they run the same tools: CI, the session hook,
+  # and the live -WellArchitected review (PSRule) read one set of versions from validate.yml.
+  BeforeAll {
+    $root = Join-Path $PSScriptRoot '../..'
+    $workflow = Get-Content (Join-Path $root '.github/workflows/validate.yml') -Raw
+    $script:pin = @{}
+    foreach ($m in [regex]::Matches($workflow, '(?m)^  ([A-Z_]+_VERSION): (\S+)$')) { $script:pin[$m.Groups[1].Value] = $m.Groups[2].Value }
+    $script:hook = Get-Content (Join-Path $root '.claude/hooks/session-start.sh') -Raw
+    $script:module = Get-Content (Join-Path $root 'scripts/ops/AvdLandingZone.psm1') -Raw
+  }
+  It 'pins every tool in validate.yml and fetches no latest release' {
+    foreach ($k in 'BICEP_VERSION', 'PSRULE_VERSION', 'PSRULE_AZURE_VERSION', 'PSSCRIPTANALYZER_VERSION', 'PESTER_VERSION') { $script:pin[$k] | Should -Not -BeNullOrEmpty -Because $k }
+    Get-Content (Join-Path $PSScriptRoot '../../.github/workflows/validate.yml') -Raw | Should -Not -Match 'releases/latest|MinimumVersion'
+    $script:hook | Should -Not -Match 'releases/latest|MinimumVersion'
+  }
+  It 'uses the same versions in the session hook' {
+    $script:hook | Should -Match ([regex]::Escape("bicep/releases/download/$($script:pin.BICEP_VERSION)/"))
+    $script:hook | Should -Match ([regex]::Escape("PSScriptAnalyzer/releases/download/$($script:pin.PSSCRIPTANALYZER_VERSION)/"))
+    $script:hook | Should -Match ([regex]::Escape("Save-Module Pester -RequiredVersion $($script:pin.PESTER_VERSION) "))
+    # An older cached copy is replaced, not kept.
+    $script:hook | Should -Match ([regex]::Escape("grep -q 'version $($script:pin.BICEP_VERSION.TrimStart('v')) '"))
+    $script:hook | Should -Match ([regex]::Escape("modules/Pester/$($script:pin.PESTER_VERSION)"))
+  }
+  It 'builds images with the Bicep version CI checks' {
+    Get-Content (Join-Path $PSScriptRoot '../../.github/workflows/image-build.yml') -Raw | Should -Match ([regex]::Escape("bicep/releases/download/$($script:pin.BICEP_VERSION)/"))
+  }
+  It 'runs the live PSRule review on the rules version CI uses' {
+    $script:module | Should -Match ([regex]::Escape("`$script:PSRuleAzureVersion = '$($script:pin.PSRULE_AZURE_VERSION)'"))
+    $script:module | Should -Match ([regex]::Escape("`$script:PSRuleVersion = '$($script:pin.PSRULE_VERSION)'"))
+    $rules = Get-Content (Join-Path $PSScriptRoot '../../ps-rule.yaml') -Raw
+    $rules | Should -Match ([regex]::Escape("PSRule: '$($script:pin.PSRULE_VERSION)'"))
+    $rules | Should -Match ([regex]::Escape("PSRule.Rules.Azure: '$($script:pin.PSRULE_AZURE_VERSION)'"))
+  }
+}

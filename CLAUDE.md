@@ -17,7 +17,7 @@ AVD_SERVICE_PRINCIPAL_ID=00000000-0000-0000-0000-000000000003 AVD_LOCAL_ADMIN_PA
   bicep build-params parameters/dev.bicepparam --stdout > /dev/null
 pwsh -c "Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"
 pwsh -c "Invoke-Pester -Path ./build/tests -CI"            # unit tests, offline scenarios, template guards
-shellcheck scripts/deploy/deploy.sh .claude/hooks/session-start.sh .githooks/pre-commit
+shellcheck scripts/deploy/deploy.sh .claude/hooks/session-start.sh .githooks/pre-commit build/snapshot-diff.sh
 gitleaks git --redact .                              # secret scan, as the secret-scan workflow runs it
 node --test "build/tests/portal/*.test.mjs"                # deployment portal engine
 ```
@@ -63,5 +63,5 @@ Without Pester, run an offline scenario directly: `pwsh -File build/tests/offlin
 
 ## Git and PRs
 - Work on the designated branch; open PRs only when asked. The PR template asks for a Lessons section.
-- **Knowledge capture and handoffs** ([AGENTS.md](AGENTS.md); ai-brain decisions 0011 and 0012): a PR that changes code carries `KB: <link>` to the lesson in avd-second-brain's KB, or the `no-kb` label and a `No KB entry: <reason>` line (`kb-capture` check, Stop hook). Before starting work, check this repo's open `handoff` issues (the SessionStart hook lists them).
+- **Knowledge capture and handoffs** ([AGENTS.md](AGENTS.md); avd-second-brain decisions 0013 and 0014): a PR that changes code carries `KB: <link>` to the lesson in avd-second-brain's KB, or the `no-kb` label and a `No KB entry: <reason>` line (`kb-capture` check, Stop hook). Before starting work, check this repo's open `handoff` issues (the SessionStart hook lists them).
 - **Before resetting the branch to `origin/master`, check that no open PR still needs it:** `git merge-base --is-ancestor origin/<branch> origin/master` must succeed. Otherwise build on the branch. (0017)

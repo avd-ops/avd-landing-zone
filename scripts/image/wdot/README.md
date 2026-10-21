@@ -2,6 +2,8 @@
 
 The image build runs the [Windows Desktop Optimization Tool](https://github.com/The-Virtual-Desktop-Team/Windows-Desktop-Optimization-Tool) (WDOT, MIT License, by The Virtual Desktop Team) with this profile. See `build/specs/image-pipeline-spec.md` §5.5.
 
+WDOT is the family's one image optimization tool: avd-current-state reads the pin back from the image version's tags, and avd-assess judges images against this reviewed profile. Its repository's `LICENSE` is MIT, while its README and `EULA.txt` describe Microsoft's sample code terms (illustration only, as is, test before production). The build passes `-AcceptEULA`, so running the image pipeline accepts those terms; read them before your first build.
+
 - **`wdot.lock.json`** pins WDOT to a commit (release `v1.1`) and records the SHA-256 of every WDOT file the build runs. `Invoke-Wdot.ps1` downloads the commit's archive and refuses to run if any file's hash differs. A newer WDOT is a PR that updates the lock. The archive itself isn't pinned by hash, because GitHub doesn't promise stable archive bytes; the files are what run.
 - **`profile/`** holds the JSON files WDOT reads, generated from WDOT's `Configurations/Templates` at that commit (each item's `OptimizationState` set as below, written as indented JSON with ASCII escapes; lesson 0027 records how they were rebuilt). Every item's `OptimizationState` was reviewed. `profileSha256` in the lock covers them: a profile change without a lock update fails CI (`build/tests/ImageScripts.Tests.ps1`).
 

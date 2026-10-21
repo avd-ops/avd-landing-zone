@@ -46,6 +46,7 @@ function Add-AvdCheckResult {
       Id          = $Id
       Data        = $Data
     })
+  if ($env:AVDLZ_RECORD) { Write-AvdJournalEvent 'check' ([ordered]@{ step = $script:JournalStep.Name; id = $Id; status = $Status; area = $Area; check = $Check; data = $Data }) }
   $color = @{ Pass = 'Green'; Fixed = 'Cyan'; Fail = 'Red'; Warn = 'Yellow'; Skip = 'DarkGray' }[$Status]
   Write-Host ('  [{0,-5}] {1}' -f $Status.ToUpper(), $Check) -ForegroundColor $color
   if ($Detail) { Write-Host "          $Detail" -ForegroundColor DarkGray }
@@ -61,7 +62,7 @@ function Get-AvdPortalState {
     warning with its stable Id and Data. Schema: site/portal/README.md.
   #>
   param(
-    [Parameter(Mandatory)][ValidateSet('predeploy', 'postdeploy', 'demo', 'cleanup', 'verify')][string] $Stage,
+    [Parameter(Mandatory)][ValidateSet('predeploy', 'postdeploy', 'demo', 'cleanup', 'verify', 'resume', 'recovery', 'rotation')][string] $Stage,
     [switch] $Fix,
     [hashtable] $Context = @{},
     # A stage-specific outcome (verify: verified, failed, notverified) instead of ready/notready.
@@ -97,6 +98,10 @@ function Write-AvdPortalState {
   Write-Host ''
   Write-Host "Deployment portal: paste this output into $script:PortalUrl for the next step." -ForegroundColor DarkGray
   Write-Host "<<<AVDLZ-STATE $json AVDLZ-STATE>>>" -ForegroundColor DarkGray
+  if ($env:AVDLZ_RECORD) {
+    $sec = if ($script:JournalStep) { [math]::Round(([datetime]::UtcNow - $script:JournalStep.Started).TotalSeconds, 1) } else { $null }
+    Write-AvdJournalEvent 'step.end' ([ordered]@{ step = $script:JournalStep.Name; durationSec = $sec; state = $State })
+  }
 }
 
 function Write-AvdSummary {
@@ -116,6 +121,109 @@ function Write-AvdSummary {
 }
 
 # =====================================================================
+# Run journal (build/specs/run-recorder-spec.md section 6): opt in with AVDLZ_RECORD and
+# AVDLZ_RUN_ID; one JSON object per line, schema contracts/schemas/run-journal.schema.json
+# (avd-second-brain contract C17, vendored). Without both
+# variables nothing is written. A journal that can't be written warns once and never stops the run.
+# =====================================================================
+$script:JournalRunIdPattern = '^run-\d{8}-\d{4}-[a-z0-9]{4}$'
+$script:JournalSecretName = '(?i)password|secret|token|credential|sas|key'
+$script:JournalWarned = $false
+$script:JournalStep = $null
+
+function Get-AvdJournalSetting {
+  <# Where the journal goes, from the two variables and the shell's home. Pure: returns Enabled and Path, or Enabled $false and Reason. #>
+  param(
+    [string] $Record,
+    [string] $RunId,
+    [Parameter(Mandatory)][string] $HomePath,
+    [bool] $CloudDriveExists
+  )
+  if (-not $Record -or $Record -eq 'off') { return [pscustomobject]@{ Enabled = $false; Reason = 'off' } }
+  if ($Record -notin 'on', 'azure') { return [pscustomobject]@{ Enabled = $false; Reason = "AVDLZ_RECORD must be on, azure or off, not '$Record'." } }
+  if ($RunId -cnotmatch $script:JournalRunIdPattern) { return [pscustomobject]@{ Enabled = $false; Reason = 'AVDLZ_RUN_ID is missing or not a run ID (run-yyyyMMdd-HHmm-xxxx); the portal generates one.' } }
+  # Azure mode writes the local journal too; the run store upload comes with Start-AvdRunRecorder (section 6.3).
+  $root = if ($CloudDriveExists) { Join-Path $HomePath 'clouddrive' } else { $HomePath }
+  $folder = Join-Path (Join-Path $root 'avdlz-runs') $RunId
+  [pscustomobject]@{ Enabled = $true; Mode = $Record; RunId = $RunId; Folder = $folder; Path = (Join-Path $folder 'journal.jsonl'); Durable = $CloudDriveExists }
+}
+
+function Get-AvdJournalParam {
+  <# A script's parameters for the journal: secrets and anything named like one become '<set>', switches become booleans. #>
+  param([System.Collections.IDictionary] $Parameter)
+  $o = [ordered]@{}
+  if (-not $Parameter) { return $o }
+  foreach ($k in @($Parameter.Keys | Sort-Object)) {
+    $v = $Parameter[$k]
+    $o[$k] = if ($v -is [securestring] -or $v -is [pscredential] -or $k -match $script:JournalSecretName) { '<set>' }
+    elseif ($v -is [switch]) { [bool]$v }
+    elseif ($null -eq $v) { $null }
+    elseif ($v -is [array]) { @($v | ForEach-Object { "$_" }) }
+    else { "$v" }
+  }
+  $o
+}
+
+function Get-AvdJournalEvent {
+  <# One journal line as an ordered dictionary: v, event, runId, ts, then the event's fields. #>
+  param(
+    [Parameter(Mandatory)][ValidateSet('step.start', 'check', 'api.error', 'step.end', 'operator.note')][string] $Name,
+    [Parameter(Mandatory)][string] $RunId,
+    [System.Collections.IDictionary] $Field = @{},
+    [datetime] $Now = [datetime]::UtcNow
+  )
+  $e = [ordered]@{ v = 1; event = $Name; runId = $RunId; ts = $Now.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ') }
+  foreach ($k in $Field.Keys) { $e[$k] = $Field[$k] }
+  $e
+}
+
+function Write-AvdJournalEvent {
+  param(
+    [Parameter(Mandatory, Position = 0)][string] $Name,
+    [Parameter(Position = 1)][System.Collections.IDictionary] $Field = @{},
+    [string] $HomePath = $(if ($HOME) { $HOME } else { [Environment]::GetFolderPath('UserProfile') })
+  )
+  $cfg = Get-AvdJournalSetting -Record $env:AVDLZ_RECORD -RunId $env:AVDLZ_RUN_ID -HomePath $HomePath -CloudDriveExists (Test-Path (Join-Path $HomePath 'clouddrive'))
+  if (-not $cfg.Enabled) {
+    if ($cfg.Reason -ne 'off' -and -not $script:JournalWarned) { $script:JournalWarned = $true; Write-Warning "Run journal off: $($cfg.Reason)" }
+    return
+  }
+  try {
+    if (-not (Test-Path $cfg.Folder)) { $null = New-Item -ItemType Directory -Path $cfg.Folder -Force -ErrorAction Stop }
+    $line = Get-AvdJournalEvent -Name $Name -RunId $cfg.RunId -Field $Field | ConvertTo-Json -Compress -Depth 10
+    Add-Content -LiteralPath $cfg.Path -Value $line -Encoding utf8 -ErrorAction Stop
+  }
+  catch {
+    if (-not $script:JournalWarned) { $script:JournalWarned = $true; Write-Warning "Run journal not written ($($cfg.Path)): $($_.Exception.Message)" }
+  }
+}
+
+function Start-AvdRunJournal {
+  <# step.start for the script that called Initialize-AvdAzContext: its name, parameters and commit. #>
+  [CmdletBinding(SupportsShouldProcess)]
+  param([System.Management.Automation.InvocationInfo] $Invocation)
+  if (-not $env:AVDLZ_RECORD -or $env:AVDLZ_RECORD -eq 'off' -or -not $Invocation) { return }
+  if (-not $PSCmdlet.ShouldProcess('run journal', 'Write step.start')) { return }
+  $script:JournalStep = [pscustomobject]@{ Name = if ($Invocation.MyCommand.Name) { $Invocation.MyCommand.Name } else { 'interactive' }; Started = [datetime]::UtcNow }
+  $commit = $null
+  if (Get-Command git -ErrorAction SilentlyContinue) {
+    $commit = git -C $PSScriptRoot rev-parse --short HEAD 2>$null
+    if ($LASTEXITCODE) { $commit = $null }
+  }
+  Write-AvdJournalEvent 'step.start' ([ordered]@{
+      step = $script:JournalStep.Name; portalStep = $env:AVDLZ_PORTAL_STEP; params = (Get-AvdJournalParam $Invocation.BoundParameters)
+      repoCommit = $commit; shell = 'pwsh'; cloudShell = (Test-AvdCloudShell)
+    })
+}
+
+function Add-AvdRunNote {
+  <# Records what was done by hand ("I set X in the Azure portal") in the run journal. #>
+  param([Parameter(Mandatory, Position = 0)][string] $Text)
+  if (-not $env:AVDLZ_RECORD -or $env:AVDLZ_RECORD -eq 'off') { Write-Warning 'Recording is off: set AVDLZ_RECORD and AVDLZ_RUN_ID as the portal shows.'; return }
+  Write-AvdJournalEvent 'operator.note' ([ordered]@{ step = $script:JournalStep.Name; text = $Text })
+}
+
+# =====================================================================
 # Azure context, ARM and Graph helpers
 # =====================================================================
 function Test-AvdCloudShell {
@@ -132,6 +240,7 @@ function Initialize-AvdAzContext {
   if ($SubscriptionId -and $ctx.Subscription.Id -ne $SubscriptionId) {
     $ctx = Set-AzContext -SubscriptionId $SubscriptionId -ErrorAction Stop
   }
+  if ($env:AVDLZ_RECORD) { Start-AvdRunJournal -Invocation (Get-PSCallStack)[1].InvocationInfo }
   return $ctx
 }
 
@@ -146,7 +255,15 @@ function Invoke-AvdArm {
   if ($null -ne $Body) { $p.Payload = ($Body | ConvertTo-Json -Depth 30 -Compress) }
   $r = Invoke-AzRestMethod @p
   if ($AllowNotFound -and $r.StatusCode -eq 404) { return $null }
-  if ($r.StatusCode -ge 400) { throw "ARM $Method $Path failed ($($r.StatusCode)): $($r.Content)" }
+  if ($r.StatusCode -ge 400) {
+    if ($env:AVDLZ_RECORD) {
+      $code = try { ($r.Content | ConvertFrom-Json -ErrorAction Stop).error.code } catch { $null }
+      $corr = if ($r.Headers) { try { @($r.Headers['x-ms-correlation-request-id'])[0] } catch { $null } }
+      $body = if ($r.Content -and $r.Content.Length -gt 2000) { $r.Content.Substring(0, 2000) + '...' } else { $r.Content }
+      Write-AvdJournalEvent 'api.error' ([ordered]@{ step = $script:JournalStep.Name; api = 'arm'; method = $Method; path = $Path; status = [int]$r.StatusCode; code = $code; body = $body; correlationId = $corr })
+    }
+    throw "ARM $Method $Path failed ($($r.StatusCode)): $($r.Content)"
+  }
   if ($r.Content) { return $r.Content | ConvertFrom-Json -Depth 30 }
 }
 
@@ -687,6 +804,175 @@ function Test-AvdHostPoolRegion {
   else {
     Add-AvdCheckResult $area "AVD host pools offered in $Location" 'Fail' -Id 'hostpool-region' -Data @{ location = $Location; regions = @($regions | Sort-Object) } -Detail "Host pool regions: $(($regions | Sort-Object) -join ', ')" -Remediation 'The landing zone deploys the host pool in its own region: pick one of these (the deployment portal ranks them by latency).'
   }
+}
+
+# =====================================================================
+# Checks - recovery (build/specs/recovery-spec.md). Warnings, never failures: recovery is optional,
+# and nothing here stops a deployment or a sign-in.
+# =====================================================================
+# Built-in "Allowed locations" (resources) and "Allowed locations for resource groups".
+$script:AllowedLocationDefinitions = @('e56962a6-4747-49cd-b67b-bf8b01975c4c', 'e765b5de-1225-4ba3-bd56-1ac6695af988')
+
+function Get-AvdLocationPolicyVerdict {
+  <#
+    The allowed-locations policy assignments that leave Location out. Pure: takes the assignments read
+    from ARM ($filter=atScope(), so inherited ones too). Managed: the landing zone's own (avdlz-*), set by
+    its allowedLocations parameter. Enforced: false for DoNotEnforce, which only reports.
+    Initiatives (policy sets) that include the definitions are not read.
+  #>
+  param([AllowEmptyCollection()][object[]] $Assignment = @(), [Parameter(Mandatory)][string] $Location)
+  foreach ($a in @($Assignment | Where-Object { $_ })) {
+    $p = $a.properties
+    if (-not $p -or -not $p.policyDefinitionId) { continue }
+    if ((("$($p.policyDefinitionId)" -split '/')[-1]) -notin $script:AllowedLocationDefinitions) { continue }
+    $allowed = @($p.parameters.listOfAllowedLocations.value | Where-Object { $_ } | ForEach-Object { "$_".ToLower() })
+    if (-not $allowed.Count -or $allowed -contains $Location.ToLower()) { continue }
+    [pscustomobject]@{
+      Name     = $a.name
+      Display  = $(if ($p.displayName) { $p.displayName } else { $a.name })
+      Managed  = ($a.name -like 'avdlz-*')
+      Enforced = ($p.enforcementMode -ne 'DoNotEnforce')
+      Allowed  = $allowed
+    }
+  }
+}
+
+function Get-AvdProfileBackupVerdict {
+  <#
+    The profile share's backup, from the storage account and the vault's protected items. Pure; returns
+    findings (Id, Check, Status, Detail, Remediation). Get-AvdRecoveryStatus.ps1 maps the same findings.
+    Property names: AzureFileshareProtectedItem (protectionState, healthStatus, lastBackupStatus,
+    lastBackupTime). ARM leaves out what has not happened yet, such as lastBackupTime before the first backup.
+  #>
+  param(
+    $StorageAccount,
+    [AllowEmptyCollection()][object[]] $ProtectedItem = @(),
+    [datetime] $Now = [datetime]::UtcNow,
+    [string] $VaultName = 'the vault',
+    # A backup older than this is stale: the policy is daily.
+    [int] $MaxAgeHours = 26
+  )
+  $items = @($ProtectedItem | Where-Object { $_ })
+  $sa = if ($StorageAccount) { $StorageAccount.properties }
+  # Microsoft's prerequisites: key access, or public network access disabled. The vaulted tier needs key access.
+  if ($sa) {
+    $keys = $sa.allowSharedKeyAccess -ne $false
+    $public = $sa.publicNetworkAccess -ne 'Disabled'
+    $access = [ordered]@{ Id = 'profile-backup-access'; Check = 'Azure Backup can reach the profile storage account'; Status = 'Pass'; Detail = ''; Remediation = '' }
+    if (-not $keys -and $public) {
+      $access.Status = 'Warn'; $access.Detail = 'Key access is off and public network access is not disabled; Azure Backup needs one of the two.'
+      $access.Remediation = 'Redeploy the storage module (bicep/modules/storage.bicep disables public network access).'
+    }
+    else { $access.Detail = $(if ($keys) { 'Key access on (vaulted tier); SMB stays Kerberos-only.' } else { 'Key access off, public network access disabled (enough for the snapshot tier).' }) }
+    [pscustomobject]$access
+  }
+  $f = [ordered]@{ Id = 'profile-backup'; Check = 'Profile share backup'; Status = 'Pass'; Detail = ''; Remediation = '' }
+  if (-not $items.Count) {
+    $f.Status = 'Warn'; $f.Detail = "No protected item in $VaultName."
+    $f.Remediation = 'Set enableProfileBackup = true in the parameter file and deploy again.'
+    return [pscustomobject]$f
+  }
+  $problems = @(); $fix = ''
+  foreach ($i in $items) {
+    $p = $i.properties
+    $name = $(if ($p.friendlyName) { $p.friendlyName } else { $i.name })
+    if ($p.protectionState -and $p.protectionState -ne 'Protected') { $problems += "$name protection state $($p.protectionState)" }
+    if ($p.lastBackupStatus -and $p.lastBackupStatus -ne 'Healthy') {
+      $problems += "$name last backup $($p.lastBackupStatus)"
+      if ($sa -and $sa.allowSharedKeyAccess -eq $false) { $fix = 'If the failed job says UserErrorStorageKeyBasedAuthenticationNotPermitted, the tier needs key access: set profileBackupTier = Vaulted (it turns key access on) or tell us in an issue.' }
+    }
+    if ($p.healthStatus -and $p.healthStatus -notin 'Passed') { $problems += "$name health $($p.healthStatus)" }
+    if (-not $p.lastBackupTime) { $problems += "$name has no backup yet" }
+    else {
+      $age = ($Now - ([datetime]$p.lastBackupTime).ToUniversalTime()).TotalHours
+      if ($age -gt $MaxAgeHours) { $problems += ('{0} last backup {1:N0} hours ago' -f $name, $age) }
+    }
+  }
+  if ($problems.Count) {
+    $f.Status = 'Warn'; $f.Detail = $problems -join '; '
+    $f.Remediation = (@('Open the vault''s Backup jobs for the error code (Portal > Recovery Services vault > Backup jobs).', $fix) | Where-Object { $_ }) -join ' '
+  }
+  else {
+    $last = @($items | ForEach-Object { [datetime]$_.properties.lastBackupTime } | Sort-Object)[0]
+    $f.Detail = "$($items.Count) protected item(s) in $VaultName, healthy; oldest last backup $($last.ToUniversalTime().ToString('yyyy-MM-dd HH:mm')) UTC"
+  }
+  [pscustomobject]$f
+}
+
+function Test-AvdRecoveryRegion {
+  <#
+    The recovery region (recovery spec section 4.1): allowed by every allowed-locations policy, and vCPU
+    quota there for recovery test hosts. PlannedAllowedLocations: what this deployment writes into the
+    landing zone's own guardrail (pre-deployment); empty after deployment.
+  #>
+  param(
+    [Parameter(Mandatory)][string] $Location,
+    [string] $RecoveryLocation,
+    [string[]] $PlannedAllowedLocations = @(),
+    [string] $VmSize = $script:DefaultVmSize,
+    [int] $Count = 1,
+    [string] $SubscriptionId = (Get-AzContext).Subscription.Id
+  )
+  $area = 'Recovery'
+  if (-not $RecoveryLocation) { Add-AvdCheckResult $area 'Recovery region' 'Skip' -Detail 'None set (AVD_RECOVERY_LOCATION or -RecoveryLocation).'; return }
+  $rl = $RecoveryLocation.ToLower()
+  if ($rl -eq $Location.ToLower()) {
+    Add-AvdCheckResult $area "Recovery region $rl" 'Warn' -Id 'recovery-region-policy' -Data @{ location = $rl; blocking = @() } -Detail 'It is the landing zone''s own region, so a regional outage takes both.' -Remediation 'Set AVD_RECOVERY_LOCATION to another region, normally the Azure region pair.'
+    return
+  }
+  Write-Host "  Reading the policy assignments that apply to the subscription..." -ForegroundColor DarkGray
+  try {
+    $assignments = @(Get-AvdArmList -Path "/subscriptions/$SubscriptionId/providers/Microsoft.Authorization/policyAssignments?api-version=2024-04-01&`$filter=atScope()")
+    $blocking = @(Get-AvdLocationPolicyVerdict -Assignment $assignments -Location $rl | Where-Object Enforced)
+    $planned = @($PlannedAllowedLocations | ForEach-Object { "$_".ToLower() }) -contains $rl
+    $foreign = @($blocking | Where-Object { -not $_.Managed })
+    $own = @($blocking | Where-Object Managed)
+    $data = @{ location = $rl; blocking = @($blocking | ForEach-Object { @{ name = $_.Name; managed = $_.Managed; allowed = @($_.Allowed) } }) }
+    $check = "Recovery region $rl allowed by Azure Policy"
+    if ($foreign.Count) {
+      Add-AvdCheckResult $area $check 'Warn' -Id 'recovery-region-policy' -Data $data -Detail ('Blocked by: ' + (($foreign | ForEach-Object { "$($_.Display) (allows $($_.Allowed -join ', '))" }) -join '; ')) `
+        -Remediation 'These assignments are not the landing zone''s: ask their owner to add the region, or pick a region they allow.'
+    }
+    elseif ($own.Count -and -not $planned) {
+      Add-AvdCheckResult $area $check 'Warn' -Id 'recovery-region-policy' -Data $data -Detail "The landing zone's guardrail allows only $($own[0].Allowed -join ', ')." `
+        -Remediation "Run export AVD_RECOVERY_LOCATION=$rl and deploy the landing zone again (deploy.sh); its guardrail then allows the region."
+    }
+    elseif ($own.Count) { Add-AvdCheckResult $area $check 'Pass' -Detail 'This deployment adds it to the landing zone''s guardrail.' }
+    else { Add-AvdCheckResult $area $check 'Pass' }
+  }
+  catch { Add-AvdCheckResult $area "Recovery region $rl allowed by Azure Policy" 'Warn' -Detail "Could not read policy assignments: $($_.Exception.Message)" }
+
+  $sku = @(Get-AzComputeResourceSku -Location $rl -ErrorAction SilentlyContinue | Where-Object { $_.ResourceType -eq 'virtualMachines' -and $_.Name -eq $VmSize }) | Select-Object -First 1
+  if (-not $sku -or @($sku.Restrictions | Where-Object { $_.ReasonCode -eq 'NotAvailableForSubscription' -and $_.Type -eq 'Location' }).Count) {
+    Add-AvdCheckResult $area "VM size $VmSize in $rl" 'Warn' -Id 'recovery-quota' -Data @{ location = $rl; vmSize = $VmSize } -Detail 'Not offered to this subscription there.' -Remediation 'Pick a size offered in both regions, or another recovery region.'
+    return
+  }
+  $need = [int](($sku.Capabilities | Where-Object Name -eq 'vCPUs').Value) * $Count
+  $usage = @(Get-AzVMUsage -Location $rl)
+  $short = @(foreach ($name in @($sku.Family, 'cores')) {
+      $u = $usage | Where-Object { $_.Name.Value -eq $name } | Select-Object -First 1
+      if ($u -and ($u.Limit - $u.CurrentValue) -lt $need) { "$name $($u.Limit - $u.CurrentValue) free" }
+    })
+  $data = @{ location = $rl; vmSize = $VmSize; needed = $need }
+  if ($short.Count) { Add-AvdCheckResult $area "vCPU quota in $rl for $Count x $VmSize" 'Warn' -Id 'recovery-quota' -Data $data -Detail "$need needed; $($short -join ', ')." -Remediation 'Request a quota increase in the recovery region (Portal > Quotas) before a recovery test or failover. Quota is not capacity: Microsoft guarantees neither in a regional outage.' }
+  else { Add-AvdCheckResult $area "vCPU quota in $rl for $Count x $VmSize" 'Pass' -Detail "$need needed" }
+}
+
+function Test-AvdProfileBackup {
+  <# The profile share's backup: reachable and recent (Get-AvdProfileBackupVerdict). #>
+  param([Parameter(Mandatory)] $Lz)
+  $area = 'Recovery'
+  if (-not $Lz.RecoveryVault) { Add-AvdCheckResult $area 'Profile share backup' 'Skip' -Detail 'No Recovery Services vault (enableProfileBackup = false).'; return }
+  try {
+    $sa = if ($Lz.StorageAccount) { Invoke-AvdArm -Path "$($Lz.StorageAccount.Id)?api-version=2023-05-01" }
+    $vid = "$($Lz.ResourceGroupIds.Storage)/providers/Microsoft.RecoveryServices/vaults/$($Lz.RecoveryVault.Name)"
+    $filter = [uri]::EscapeDataString("backupManagementType eq 'AzureStorage'")
+    $items = @(Get-AvdArmList -Path "$vid/backupProtectedItems?api-version=2024-04-01&`$filter=$filter")
+    foreach ($r in @(Get-AvdProfileBackupVerdict -StorageAccount $sa -ProtectedItem $items -VaultName $Lz.RecoveryVault.Name)) {
+      Add-AvdCheckResult $area $r.Check $r.Status -Detail $r.Detail -Remediation $r.Remediation -Id $r.Id
+    }
+  }
+  catch { Add-AvdCheckResult $area 'Profile share backup' 'Warn' -Detail "Could not read the backup: $($_.Exception.Message)" }
 }
 
 # =====================================================================
@@ -1293,18 +1579,36 @@ function Add-AvdWafResult {
   Add-AvdCheckResult $area $Check 'Warn' -Detail $Detail -Remediation $Remediation -Id "waf-$Key" -Data @{ pillar = $Pillar; accepted = [bool]$accepted }
 }
 
+# The PSRule engine and PSRule for Azure versions CI checks the templates with (validate.yml
+# PSRULE_VERSION, PSRULE_AZURE_VERSION; Template.Tests.ps1 keeps them equal), so a finding here
+# means the same as one in CI.
+$script:PSRuleVersion = '2.9.0'
+$script:PSRuleAzureVersion = '1.47.0'
+
 function Get-AvdPSRuleFinding {
   <#
     PSRule for Azure (the rules CI applies to the templates) against the deployed resources,
     with the repo's suppressions. Returns the failed rule records.
   #>
   param([Parameter(Mandatory)][string[]] $ResourceGroupName)
-  if (-not (Get-Command Export-AzRuleData -ErrorAction SilentlyContinue) -or -not (Get-Command Invoke-PSRule -ErrorAction SilentlyContinue)) {
-    if (-not (Get-Module -ListAvailable -Name PSRule.Rules.Azure)) {
-      Write-Host '          Installing PSRule.Rules.Azure from the PowerShell Gallery (first run only) ...' -ForegroundColor DarkGray
-      Install-Module -Name PSRule.Rules.Azure -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+  # Load the pinned versions when the commands are missing or another version is loaded. Commands
+  # with no module behind them are the offline scenarios' stand-ins (AzMock.psm1).
+  $pins = [ordered]@{ 'PSRule' = $script:PSRuleVersion; 'PSRule.Rules.Azure' = $script:PSRuleAzureVersion }
+  $commands = (Get-Command Export-AzRuleData -ErrorAction SilentlyContinue) -and (Get-Command Invoke-PSRule -ErrorAction SilentlyContinue)
+  # After Get-Command, which can auto-import whatever version is installed.
+  $loaded = @(Get-Module PSRule, PSRule.Rules.Azure)
+  $mismatch = @($loaded | Where-Object { $_.Version -ne [version]$pins[$_.Name] })
+  if (-not $commands -or $mismatch) {
+    foreach ($name in $pins.Keys) {
+      $version = $pins[$name]
+      if (-not (Get-Module -ListAvailable -Name $name | Where-Object { $_.Version -eq [version]$version })) {
+        Write-Host "          Installing $name $version from the PowerShell Gallery, the version CI uses (first run only) ..." -ForegroundColor DarkGray
+        Install-Module -Name $name -RequiredVersion $version -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
+      }
     }
-    Import-Module PSRule.Rules.Azure -ErrorAction Stop
+    if ($mismatch) { $mismatch | Remove-Module -Force -ErrorAction SilentlyContinue }
+    Import-Module PSRule -RequiredVersion $script:PSRuleVersion -Force -ErrorAction Stop
+    Import-Module PSRule.Rules.Azure -RequiredVersion $script:PSRuleAzureVersion -Force -ErrorAction Stop
   }
   $out = Join-Path ([IO.Path]::GetTempPath()) "avdlz-psrule-$([guid]::NewGuid().ToString('n'))"
   $suppressions = Join-Path $PSScriptRoot '../../.ps-rule'
@@ -1395,8 +1699,19 @@ function Test-AvdWellArchitected {
       $hard = @()
       if ($p.minimumTlsVersion -ne 'TLS1_2') { $hard += "minimum TLS $($p.minimumTlsVersion)" }
       if ($p.supportsHttpsTrafficOnly -eq $false) { $hard += 'HTTP allowed' }
-      if ($p.allowSharedKeyAccess -ne $false) { $hard += 'shared key access allowed' }
-      & $waf 'Security' 'storage-hardening' 'Profile storage: TLS 1.2, HTTPS only, no shared keys' (-not $hard.Count) ($hard -join '; ') 'Redeploy the storage module (bicep/modules/storage.bicep sets all three).'
+      $why = ''
+      if ($p.allowSharedKeyAccess -ne $false) {
+        # The vaulted backup tier needs key access (profileBackupTier = Vaulted turns it on); a vaulted policy has vaultRetentionPolicy.
+        $vaulted = $false
+        if ($Lz.RecoveryVault) {
+          $filter = [uri]::EscapeDataString("backupManagementType eq 'AzureStorage'")
+          $policies = @(Get-AvdArmList -Path "$($Lz.ResourceGroupIds.Storage)/providers/Microsoft.RecoveryServices/vaults/$($Lz.RecoveryVault.Name)/backupPolicies?api-version=2024-04-01&`$filter=$filter")
+          $vaulted = [bool]@($policies | Where-Object { $_.properties.vaultRetentionPolicy }).Count
+        }
+        if ($vaulted) { $why = 'shared key access on for the vaulted backup tier (SMB stays Kerberos-only)' }
+        else { $hard += 'shared key access allowed' }
+      }
+      & $waf 'Security' 'storage-hardening' 'Profile storage: TLS 1.2, HTTPS only, no shared keys' (-not $hard.Count) ((@($hard) + @($why) | Where-Object { $_ }) -join '; ') 'Redeploy the storage module (bicep/modules/storage.bicep sets all three; key access only with profileBackupTier = Vaulted).'
       $fs = Invoke-AvdArm -Path "$($Lz.StorageAccount.Id)/fileServices/default?api-version=2023-05-01"
       $sd = $fs.properties.shareDeleteRetentionPolicy
       & $waf 'Reliability' 'share-soft-delete' 'Profile share soft delete' ([bool]$sd.enabled) $(if ($sd.enabled) { "$($sd.days) days" } else { 'Disabled' }) 'Enable soft delete for file shares on the storage account.'
@@ -1410,7 +1725,10 @@ function Test-AvdWellArchitected {
       $filter = [uri]::EscapeDataString("backupManagementType eq 'AzureStorage'")
       $protected = @(Get-AvdArmList -Path "$vid/backupProtectedItems?api-version=2024-04-01&`$filter=$filter")
     }
-    & $waf 'Reliability' 'profile-backup' 'Profile share backed up' ([bool]$protected.Count) $(if ($protected.Count) { "$($protected.Count) protected item(s) in $($Lz.RecoveryVault.Name)" } else { 'No backup of the profile share.' }) 'Set enableProfileBackup = true in the parameter file and deploy again.' -tradeOff
+    # Protected is not the same as working: an item whose last backup failed is reported too.
+    $unhealthy = @($protected | Where-Object { $_.properties.lastBackupStatus -and $_.properties.lastBackupStatus -ne 'Healthy' })
+    $detail = if (-not $protected.Count) { 'No backup of the profile share.' } elseif ($unhealthy.Count) { "Last backup $($unhealthy[0].properties.lastBackupStatus) in $($Lz.RecoveryVault.Name); the post-deployment preflight's Recovery section says more." } else { "$($protected.Count) protected item(s) in $($Lz.RecoveryVault.Name)" }
+    & $waf 'Reliability' 'profile-backup' 'Profile share backed up' ([bool]$protected.Count -and -not $unhealthy.Count) $detail $(if ($protected.Count) { 'Open the vault''s Backup jobs for the error code.' } else { 'Set enableProfileBackup = true in the parameter file and deploy again.' }) -tradeOff
   }
 
   & $read 'Security' 'Defender for Cloud plans' {
@@ -1567,7 +1885,9 @@ function Invoke-AvdReadinessCheck {
     [switch] $SkipNtfs,
     [string] $NtfsHostResourceGroup,
     [string] $NtfsHostName,
-    [switch] $AllowHostStart
+    [switch] $AllowHostStart,
+    # Recovery region (build/specs/recovery-spec.md); empty: AVD_RECOVERY_LOCATION.
+    [string] $RecoveryLocation = $env:AVD_RECOVERY_LOCATION
   )
   Write-AvdSection 'Tooling'
   Test-AvdTooling
@@ -1597,6 +1917,9 @@ function Invoke-AvdReadinessCheck {
   Test-AvdLandingZoneResource -Lz $Lz
   Write-AvdSection 'RBAC'
   Test-AvdLandingZoneRbac -Lz $Lz
+  Write-AvdSection 'Recovery'
+  Test-AvdProfileBackup -Lz $Lz
+  if ($Lz.Location) { Test-AvdRecoveryRegion -Location $Lz.Location -RecoveryLocation $RecoveryLocation -VmSize $VmSize -SubscriptionId $Lz.SubscriptionId }
 
   $storageApp = $null
   if ($SkipTenant) {
@@ -1674,7 +1997,9 @@ function Get-AvdDeploymentPlan {
     [string] $Location,
     # Sizing overrides (hosts, vmSize, maxSessions, profileQuotaGiB, and the power settings autoShutdownTime
     # and startVmOnConnect): the parameter files read AVD_SESSION_HOST_COUNT etc.
-    [hashtable] $Sizing = @{}
+    [hashtable] $Sizing = @{},
+    # Recovery region override: the parameter files read it from AVD_RECOVERY_LOCATION.
+    [string] $RecoveryLocation
   )
   $bicep = Get-Command bicep -ErrorAction SilentlyContinue
   if (-not $bicep) { throw 'The Bicep CLI is required to read the parameter file.' }
@@ -1687,6 +2012,7 @@ function Get-AvdDeploymentPlan {
     AVD_LOCAL_ADMIN_PASSWORD = 'Preflight-placeholder-only-1!'
   }
   if ($Location) { $vars.AVD_LOCATION = $Location }
+  if ($RecoveryLocation) { $vars.AVD_RECOVERY_LOCATION = $RecoveryLocation }
   $sizingVars = @{ hosts = 'AVD_SESSION_HOST_COUNT'; vmSize = 'AVD_SESSION_HOST_VM_SIZE'; maxSessions = 'AVD_MAX_SESSION_LIMIT'; profileQuotaGiB = 'AVD_PROFILE_QUOTA_GIB'
     autoShutdownTime = 'AVD_AUTO_SHUTDOWN_TIME'; startVmOnConnect = 'AVD_START_VM_ON_CONNECT' }
   foreach ($k in $sizingVars.Keys) { $vars[$sizingVars[$k]] = $(if ($Sizing[$k]) { [string]$Sizing[$k] } else { '' }) }
@@ -2026,7 +2352,9 @@ function Test-AvdPreDeployment {
     # Desired sizing from the deployment portal (hosts, vmSize, maxSessions, profileQuotaGiB); validated and priced.
     [hashtable] $Sizing = @{},
     # Hours per week each host runs, for the cost estimate.
-    [int] $ActiveHoursPerWeek = 50
+    [int] $ActiveHoursPerWeek = 50,
+    # Recovery region (build/specs/recovery-spec.md); empty: what the parameter file reads from AVD_RECOVERY_LOCATION.
+    [string] $RecoveryLocation
   )
   $avdAppId = '9cdead84-a844-4324-93f2-b2e6bb768d07'
 
@@ -2067,7 +2395,7 @@ function Test-AvdPreDeployment {
   # ---- Parameter file ----
   Write-AvdSection 'Parameter file'
   try {
-    $plan = Get-AvdDeploymentPlan -ParameterFile $ParameterFile -UsersGroupId $users.id -AdminsGroupId $admins.id -AvdServicePrincipalId $avdSp.id -Location $Location -Sizing $Sizing
+    $plan = Get-AvdDeploymentPlan -ParameterFile $ParameterFile -UsersGroupId $users.id -AdminsGroupId $admins.id -AvdServicePrincipalId $avdSp.id -Location $Location -Sizing $Sizing -RecoveryLocation $RecoveryLocation
   }
   catch {
     Add-AvdCheckResult 'Parameters' "Compile $ParameterFile" 'Fail' -Detail $_.Exception.Message -Remediation 'Fix the parameter file (az bicep build-params).'
@@ -2108,6 +2436,15 @@ function Test-AvdPreDeployment {
   if ($plan.monthlyBudgetAmount -le 0 -and $plan.environmentName -ne 'prod') {
     Add-AvdCheckResult 'Parameters' 'Budget backstop' 'Warn' -Detail "No budget is planned for this $($plan.environmentName) landing zone, so nothing alerts or locks the hosts if a run is left up. A standing budget on the subscription covers this too." -Remediation 'Set AVD_MONTHLY_BUDGET and AVD_ALERT_EMAIL before deploy.sh.'
   }
+
+  # ---- Recovery region (warnings only) ----
+  Write-AvdSection 'Recovery'
+  $recovery = if ($RecoveryLocation) { $RecoveryLocation } else { $plan.recoveryLocation }
+  # allowedLocations' default is an expression, so the plan has it only when the file sets it.
+  $planned = if ($plan.ContainsKey('allowedLocations')) { @($plan.allowedLocations) } else { @($plan.location, $recovery) | Where-Object { $_ } }
+  if ($plan.enablePolicyGuardrails -eq $false -or $plan.deploySubscriptionSettings -eq $false) { $planned = @() }
+  Test-AvdRecoveryRegion -Location $plan.location -RecoveryLocation $recovery -PlannedAllowedLocations $planned -VmSize $plan.sessionHostVmSize -SubscriptionId $lz.SubscriptionId
+
   # Budget parameters are skipped silently by the template if incomplete; say so here.
   if ($plan.monthlyBudgetAmount -gt 0 -and (-not $plan.budgetStartDate -or -not @($plan.alertEmailAddresses).Count)) {
     Add-AvdCheckResult 'Parameters' 'Budget will be created' 'Warn' -Detail 'monthlyBudgetAmount is set but budgetStartDate or alertEmailAddresses (AVD_ALERT_EMAIL) is empty, so no budget is created.'
@@ -2206,6 +2543,69 @@ function Get-AvdImageVersionName {
   $taken = @($Existing | Where-Object { $_ -like "$prefix.*" } | ForEach-Object { [int]($_.Split('.')[2]) })
   $next = if ($taken.Count) { ($taken | Measure-Object -Maximum).Maximum + 1 } else { 1 }
   "$prefix.$next"
+}
+
+function Get-AvdRunPosition {
+  <#
+    Where a run stands, for Get-AvdRunStatus.ps1 (build/specs/run-recorder-spec.md section 4).
+    Azure is the source of truth: the newest deploy.sh deployment record (avdlz-<parameter file>-<yyyyMMdd-HHmmss>),
+    the landing zone's resource groups and the demo's deployment record. Anything it can't classify is
+    'unknown' with what it saw, never a guess. A running deployment wins over everything.
+    Returns @{ Status = ready|unknown; LastStage; LastStatus; NextStage; DeploymentName; Basis }.
+  #>
+  param(
+    [Parameter(Mandatory)][string] $Environment,
+    # ARM subscription deployment records (name, properties.provisioningState, properties.timestamp).
+    [AllowEmptyCollection()][object[]] $Deployment = @(),
+    # Get-AvdLandingZone's RgExists: Network, Management, Storage, ControlPlane, Hosts, Demo.
+    [Parameter(Mandatory)][hashtable] $RgExists,
+    # The demo's record (avdlz-demo-<prefix>-<env>), if there is one.
+    [object] $DemoDeployment,
+    [datetime] $Now = (Get-Date).ToUniversalTime()
+  )
+  $o = [ordered]@{ Status = 'ready'; LastStage = $null; LastStatus = $null; NextStage = $null; DeploymentName = $null; Basis = '' }
+  $runs = @($Deployment | Where-Object { $_ -and $_.name -match '^avdlz-(?!demo-).+-\d{8}-\d{6}$' })
+  $mine = @($runs | Where-Object { $_.name -match "^avdlz-$([regex]::Escape($Environment))-\d{8}-\d{6}$" })
+  if ($mine.Count) { $runs = $mine }
+  $latest = $runs | Sort-Object { [datetime]$_.properties.timestamp } -Descending | Select-Object -First 1
+  $core = @('Network', 'Management', 'Storage', 'ControlPlane', 'Hosts' | Where-Object { $RgExists[$_] })
+  $ago = { param($t, $n) $m = [math]::Max(0, [math]::Round(($n - ([datetime]$t).ToUniversalTime()).TotalMinutes)); if ($m -lt 120) { "$m minutes ago" } else { "$([math]::Round($m / 60)) hours ago" } }
+
+  if ($latest) {
+    $o.DeploymentName = $latest.name
+    $state = "$($latest.properties.provisioningState)"
+    $when = & $ago $latest.properties.timestamp $Now
+    if ($state -in 'Running', 'Accepted', 'Deploying', 'Created') {
+      $o.LastStage = 'deploy'; $o.LastStatus = 'running'; $o.NextStage = 'deploy'
+      $o.Basis = "Azure shows deployment $($latest.name) running (last update $when)."
+      return $o
+    }
+    if ($state -in 'Failed', 'Canceled') {
+      $o.LastStage = 'deploy'; $o.LastStatus = 'failed'; $o.NextStage = 'deploy'
+      $o.Basis = "Azure shows deployment $($latest.name) $($state.ToLower()) ($when)."
+      return $o
+    }
+  }
+  if (-not $core.Count) {
+    $o.LastStage = if ($latest) { 'cleanup' } else { $null }
+    $o.NextStage = 'predeploy'
+    $o.Basis = if ($latest) { "No landing zone resource groups found; the last deployment ($($latest.name)) was removed since." } else { 'No landing zone and no deployment record found: start from the beginning.' }
+    return $o
+  }
+  if (-not $latest -or "$($latest.properties.provisioningState)" -ne 'Succeeded' -or $core.Count -lt 5) {
+    $o.Status = 'unknown'
+    $o.Basis = "Found resource groups ($($core -join ', ')) but $(if ($latest) { "deployment $($latest.name) is $($latest.properties.provisioningState) and not every group exists" } else { 'no deployment record' })."
+    return $o
+  }
+  $o.LastStage = 'deploy'; $o.LastStatus = 'succeeded'
+  if ($RgExists['Demo'] -and $DemoDeployment -and "$($DemoDeployment.properties.provisioningState)" -eq 'Succeeded') {
+    $o.LastStage = 'demo'; $o.NextStage = 'verify'
+    $o.Basis = "The landing zone and the demo are deployed ($(& $ago $DemoDeployment.properties.timestamp $Now)): check that you can connect."
+    return $o
+  }
+  $o.NextStage = 'postdeploy'
+  $o.Basis = "Azure shows the deployment succeeded ($(& $ago $latest.properties.timestamp $Now)). The post-deployment setup is safe to run again if it already ran."
+  $o
 }
 
 Export-ModuleMember -Function *-Avd*

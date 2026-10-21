@@ -123,6 +123,20 @@ param sessionHostImage object = {
   version: 'latest'
 }
 
+@description('Azure Compute Gallery image version resource ID for session hosts, from the image pipeline (build/specs/image-pipeline-spec.md section 6.1). A version, never a definition or latest, so nothing changes software silently. Empty: the marketplace image above.')
+param sessionHostImageId string = ''
+
+@description('Host generation for blue/green rotation: empty keeps the original host names; a or b gives take(sessionHostNamePrefix, 10) + the generation, so the two generations never collide. Only the rotation script changes it.')
+@allowed([
+  ''
+  'a'
+  'b'
+])
+param sessionHostGeneration string = ''
+
+@description('The host pool tags the rotation script owns (avdlz-image, avdlz-generation, avdlz-image-next, avdlz-image-previous, avdlz-rotation). deploy.sh passes the pool\'s current values so a deployment keeps them; nothing else sets them.')
+param hostPoolStateTags object = {}
+
 @description('Maximum sessions per host (breadth-first). Size to your workload.')
 param maxSessionLimit int = 8
 
@@ -163,6 +177,13 @@ param enableProfileBackup bool = true
 
 @description('Daily backup retention for the profile share, in days.')
 param profileBackupRetentionDays int = 30
+
+@description('Profile backup tier (build/specs/recovery-spec.md). Snapshot: snapshots kept in the share, lost with it. Vaulted: copies kept in the Recovery Services vault, the offsite copy; Azure Backup then needs storage account key access, so the profile storage account allows it (SMB stays Kerberos-only).')
+@allowed([
+  'Snapshot'
+  'Vaulted'
+])
+param profileBackupTier string = 'Snapshot'
 
 // ---------- Scaling ----------
 @description('Start a deallocated session host when a user connects (Start VM on Connect). Off: users can only connect while the scaling plan keeps hosts running, and hosts run longer (cost).')
@@ -237,10 +258,11 @@ param deploySubscriptionSettings bool = true
 @description('Assign the landing zone\'s Azure Policy guardrails (allowed locations, tag inheritance) to the subscription.')
 param enablePolicyGuardrails bool = true
 
-@description('Allowed regions for resources and resource groups when policy guardrails are on.')
-param allowedLocations string[] = [
-  location
-]
+@description('Recovery region (build/specs/recovery-spec.md): a second region the guardrails also allow, for restores and recovery tests. Empty: none, and the guardrails allow only location.')
+param recoveryLocation string = ''
+
+@description('Allowed regions for resources and resource groups when policy guardrails are on. The default is location plus recoveryLocation when set.')
+param allowedLocations string[] = union([location], empty(recoveryLocation) ? [] : [recoveryLocation])
 
 // =====================================================================
 // Derived values
@@ -286,6 +308,17 @@ var names = {
 }
 
 var profileShareName = 'profiles'
+// Rotation (image pipeline spec section 6.1): the image and the names of this deployment's hosts.
+var hostImageReference = empty(sessionHostImageId) ? sessionHostImage : { id: sessionHostImageId }
+var hostNamePrefix = empty(sessionHostGeneration) ? sessionHostNamePrefix : '${take(sessionHostNamePrefix, 10)}${sessionHostGeneration}'
+var rotationTagNames = [
+  'avdlz-image'
+  'avdlz-generation'
+  'avdlz-image-next'
+  'avdlz-image-previous'
+  'avdlz-rotation'
+]
+var keptHostPoolStateTags = toObject(filter(items(hostPoolStateTags), t => contains(rotationTagNames, t.key) && !empty(t.value)), t => t.key, t => string(t.value))
 var useCentralDns = !empty(centralPrivateDnsZoneResourceIds)
 
 // =====================================================================
@@ -437,6 +470,8 @@ module storage 'modules/storage.bicep' = {
     logAnalyticsWorkspaceResourceId: monitoring.outputs.logAnalyticsWorkspaceResourceId
     usersGroupObjectId: avdUsersGroupObjectId
     adminsGroupObjectId: avdAdminsGroupObjectId
+    // Microsoft's Azure Files backup support matrix: the vaulted tier needs key access on the source account.
+    allowSharedKeyAccess: enableProfileBackup && profileBackupTier == 'Vaulted'
   }
 }
 
@@ -450,6 +485,7 @@ module backup 'modules/backup.bicep' = if (enableProfileBackup) {
     storageAccountResourceId: storage.outputs.resourceId
     shareName: profileShareName
     retentionDays: profileBackupRetentionDays
+    profileBackupTier: profileBackupTier
     logAnalyticsWorkspaceResourceId: monitoring.outputs.logAnalyticsWorkspaceResourceId
   }
 }
@@ -475,6 +511,7 @@ module controlPlane 'modules/controlPlane.bicep' = {
     avdPrivateDnsZoneResourceId: dnsZoneIds.avd
     scalingTimeZone: scalingTimeZone
     startVmOnConnect: startVmOnConnect
+    hostPoolStateTags: keptHostPoolStateTags
     logAnalyticsWorkspaceResourceId: monitoring.outputs.logAnalyticsWorkspaceResourceId
     usersGroupObjectId: avdUsersGroupObjectId
     avdServicePrincipalObjectId: avdServicePrincipalObjectId
@@ -492,10 +529,10 @@ module sessionHosts 'modules/sessionHosts.bicep' = {
     location: location
     tags: allTags
     count: sessionHostCount
-    namePrefix: sessionHostNamePrefix
+    namePrefix: hostNamePrefix
     vmSize: sessionHostVmSize
     availabilityZones: availabilityZones
-    imageReference: sessionHostImage
+    imageReference: hostImageReference
     encryptionAtHost: encryptionAtHost
     subnetResourceId: network.outputs.sessionHostSubnetResourceId
     enrollInIntune: enrollInIntune

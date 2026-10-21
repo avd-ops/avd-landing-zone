@@ -36,6 +36,12 @@ Describe 'Post-deployment: preflight, demo and cleanup' {
   It 'is clean when checked again' { Get-StepExit $out 'recheck' | Should -Be 0 }
   It 'warns when Security Defaults is on, without blocking' { $out | Should -Match 'RESULT security-defaults warned=True stillReady=True' }
   It 'fails when the profile share allows only AES-256-GCM channel encryption (lesson 0028)' { $out | Should -Match 'RESULT smb-channel failed=True notReady=True' }
+  It 'checks the recovery region against every allowed-locations policy and its quota, as warnings' {
+    $out | Should -Match 'RESULT recovery-region skipped=True ownWarned=True ownSaysRedeploy=True foreignNamed=True quotaWarned=True allowedPassed=True stillReady=True'
+  }
+  It 'reports the profile backup''s access, last status and age, as warnings' {
+    $out | Should -Match 'RESULT profile-backup healthy=True access=True failedWarned=True keyHint=True stale=True never=True stillReady=True'
+  }
   It 'tells the storage app Azure created from a user-registered one of the same name by its owners' { $out | Should -Match 'RESULT storage-app-imposter besideReady=True besideApp=True onlyFailed=True onlyExcluded=0' }
   It 'fails the demo host check by name when a Kerberos client service is stopped' { $out | Should -Match 'RESULT kerberos-services failed=True named=True' }
   It 'deploys and validates the demo, then removes it' {
@@ -104,6 +110,14 @@ Describe 'Pre-deployment: empty subscription, then a blocked prod deployment' {
     Get-StepExit $out 'recheck' | Should -Be 0
     $out | Should -Match 'deploy\.sh -p parameters/dev\.bicepparam -l northcentralus'
   }
+  It 'passes a recovery region this deployment adds to its own guardrail, and warns on one a management group blocks' {
+    $planned = $out.Substring($out.IndexOf('######## recovery-planned'))
+    $planned | Should -Match '\[PASS \] Recovery region southcentralus allowed by Azure Policy\s+This deployment adds it'
+    $foreign = $out.Substring($out.IndexOf('######## recovery-foreign'))
+    $foreign | Should -Match '\[WARN \] Recovery region southcentralus allowed by Azure Policy\s+Blocked by: Corp allowed RG locations \(allows northcentralus\)'
+    Get-StepExit $out 'recovery-foreign' | Should -Be 0
+    $out | Should -Match '\[SKIP \] Recovery region\s+None set'
+  }
   It 'reads the AVD host pool regions from the provider API' { $out | Should -Match '\[PASS \] AVD host pools offered in northcentralus' }
   It 'warns when a dev landing zone has no budget backstop (avd-second-brain decision 0017)' { $out | Should -Match '\[WARN\s*\] Budget backstop' }
   It 'blocks prod on a soft-deleted, purge-protected Key Vault' {
@@ -112,7 +126,7 @@ Describe 'Pre-deployment: empty subscription, then a blocked prod deployment' {
   }
   It 'gives the portal the context and structured failures it needs' {
     $s = Get-PortalState $out
-    ($s | ForEach-Object { "$($_.stage):$($_.status)" }) -join ' ' | Should -Be 'predeploy:notready predeploy:ready predeploy:ready predeploy:notready predeploy:notready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:notready predeploy:ready'
+    ($s | ForEach-Object { "$($_.stage):$($_.status)" }) -join ' ' | Should -Be 'predeploy:notready predeploy:ready predeploy:ready predeploy:notready predeploy:notready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:notready predeploy:ready predeploy:ready predeploy:ready'
     $s[1].context.parameterFile | Should -Be 'parameters/dev.bicepparam'
     $s[1].context.location | Should -Be 'northcentralus'
     $s[1].context.usersGroup | Should -Be 'AVD Users'
@@ -260,6 +274,46 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     Get-Result 'admin-owned-group-calls' | Should -Be 'group-exists,vm-list,deployment-create'
     Get-StepExit $out 'group-by-id' | Should -Be 0
   }
+  It 'keeps the image and generation the host pool records, and passes its rotation tags back (image pipeline spec 6.1)' {
+    Get-StepExit $out 'pool-tags' | Should -Be 0
+    Get-Result 'pool-tags-env' | Should -Match 'image=\S+/versions/2026\.1004\.1 gen=a tags=\{"avdlz-image":"\S+/versions/2026\.1004\.1","avdlz-generation":"a"\}$'
+    Get-StepExit $out 'first-image' | Should -Be 0
+    # A new pool records its first image and generation, so the next routine deployment keeps them.
+    Get-Result 'first-image-env' | Should -Match 'image=\S+/versions/2026\.1004\.1 gen=a tags=\{"avdlz-image":"\S+/versions/2026\.1004\.1","avdlz-generation":"a"\}$'
+    Get-Result 'running-env' | Should -Be 'deploy-env image= gen= tags='
+  }
+  It 'refuses a different image or generation, and any deployment during a rotation, except from the rotation script' {
+    Get-StepExit $out 'pool-tags-new-generation' | Should -Be 1
+    Get-Result 'pool-tags-new-generation-calls' | Should -Be ''
+    $out | Should -Match "Not deploying a different one"
+    Get-StepExit $out 'pool-rotating' | Should -Be 1
+    Get-Result 'pool-rotating-calls' | Should -Be ''
+    $out | Should -Match 'A host rotation is in progress on vdpool-avdlz-dev'
+    Get-StepExit $out 'pool-rotation-deploy' | Should -Be 0
+    Get-Result 'pool-rotation-deploy-env' | Should -Match 'image=\S+/versions/2026\.1101\.1 gen=b tags=.*"avdlz-rotation":"\{\\"phase\\":\\"Deploy\\"\}"'
+  }
+  It 'starts and deallocates only the new generation during a rotation' {
+    Get-StepExit $out 'pool-rotation-stopped' | Should -Be 0
+    Get-Result 'pool-rotation-stopped-calls' | Should -Be 'group-exists,vm-list,vm-start,deployment-create,vm-deallocate'
+    Get-Result 'pool-rotation-stopped-ids' | Should -Be 'avdlzdshb-001,avdlzdshb-001'
+    $out | Should -Match 'Leaving avdlzdsh-001 as it is'
+  }
+  It 'reads the host pool even when its hosts resource group is gone' {
+    Get-StepExit $out 'pool-no-hosts-rg' | Should -Be 1
+    Get-Result 'pool-no-hosts-rg-calls' | Should -Be ''
+    Get-StepExit $out 'pool-no-hosts-rg-keeps' | Should -Be 0
+    Get-Result 'pool-no-hosts-rg-keeps-env' | Should -Match 'image=\S+/versions/2026\.1004\.1 gen=a tags=\{"avdlz-image":"\S+/versions/2026\.1004\.1","avdlz-generation":"a"\}$'
+  }
+  It 'stops when the host pool cannot be read, rather than treating it as missing' {
+    Get-StepExit $out 'pool-unreadable' | Should -Be 1
+    Get-Result 'pool-unreadable-calls' | Should -Be ''
+    $out | Should -Match 'Could not read the host pool vdpool-avdlz-dev .* Not deploying\.'
+    $out | Should -Match 'AuthorizationFailed'
+  }
+  It 'takes only a gallery image version as the image' {
+    Get-StepExit $out 'bad-image' | Should -Be 1
+    $out | Should -Match '--image-id takes a Compute Gallery image version resource ID'
+  }
   It 'makes no az call the fake does not know' {
     foreach ($s in 'stopped', 'stopped-fails', 'whatif', 'running', 'first', 'locked', 'locked-whatif', 'locked-unlock', 'owned-group', 'admin-owned-group', 'group-by-id') { Get-Result "$s-unmocked" | Should -Be 'False' }
   }
@@ -278,6 +332,29 @@ Describe 'Post-deployment quota on a deployed landing zone (real run, 2026-09-30
     $q.data.needed | Should -Be 4
     $q.data.deployed | Should -Be 4
     $q.detail | Should -Be '0 free, 8 needed (4 already used by this landing zone''s hosts, so 4 more)'
+  }
+}
+
+Describe 'Where did I leave off' {
+  BeforeAll { $script:out = Invoke-OfflineScenario 'RunStatus' }
+
+  It 'waits for a running deployment and never deploys again' {
+    Get-StepExit $out 'running' | Should -Be 0
+    $s = (Get-PortalState $out)[0]
+    $s.stage | Should -Be 'resume'
+    $s.context.lastStatus | Should -Be 'running'
+    $s.context.nextStage | Should -Be 'deploy'
+    $s.context.deploymentName | Should -Be 'avdlz-dev-20261020-171800'
+  }
+  It 'finds the only landing zone and moves on to the post-deployment setup' {
+    $s = (Get-PortalState $out)[1]
+    $s.context.namePrefix | Should -Be 'avdlz'
+    $s.context.nextStage | Should -Be 'postdeploy'
+  }
+  It 'starts again from the preflight after cleanup' {
+    $s = (Get-PortalState $out)[2]
+    $s.context.lastStage | Should -Be 'cleanup'
+    $s.context.nextStage | Should -Be 'predeploy'
   }
 }
 
@@ -400,6 +477,121 @@ Describe 'Auto shutdown runbook' {
   }
 }
 
+Describe 'Blue/green host rotation (image pipeline spec section 6.5)' {
+  # scripts/ops/Invoke-AvdHostRotation.ps1: two hosts on version 2026.1004.1 (001 with a session) move to 2026.1101.1
+  # as generation a, one run at a time, then back to the previous version; then a rotation rolled back before Remove.
+  BeforeAll {
+    $script:out = Invoke-OfflineScenario 'Rotation'
+    function Get-RotationLine([string] $Step, [string] $Kind = 'state') { [regex]::Match($out, "RESULT $Step-$Kind (.*)").Groups[1].Value }
+    $script:states = @(Get-PortalState $out | Where-Object stage -eq 'rotation')
+  }
+
+  It 'refuses the version the pool already runs, and too little quota for both generations, changing nothing' {
+    Get-StepExit $out 'same-image' | Should -Be 1
+    $states[0].status | Should -Be 'refused'
+    @($states[0].failures.id) | Should -Contain 'rotation-image'
+    Get-StepExit $out 'no-quota' | Should -Be 1
+    @($states[1].failures.id) | Should -Be @('rotation-quota')
+    $states[1].failures[0].data.needed | Should -Be 8
+    Get-RotationLine 'no-quota' | Should -Match '^phase= image=2026\.1004\.1 gen= next= previous= hosts=avdlzdsh-001:open,avdlzdsh-002:open vmsGone= '
+  }
+  It 'refuses a parameter file for another landing zone, and Azure CLI on another subscription' {
+    Get-StepExit $out 'wrong-file' | Should -Be 1
+    @($states[2].failures.id) | Should -Be @('rotation-parameter-file')
+    $states[2].failures[0].detail | Should -Match "deploys 'avdlz-test', not 'avdlz-dev'"
+    Get-StepExit $out 'cli-sub' | Should -Be 1
+    @($states[3].failures.id) | Should -Be @('rotation-cli-subscription')
+    Get-RotationLine 'cli-sub' | Should -Match '^phase= image=2026\.1004\.1 gen= next= previous= '
+  }
+  It 'takes the settings from this pool''s last deployment, not another landing zone''s or the demo''s' {
+    $out | Should -Not -Match 'otherdsh'
+    Get-RotationLine 'deploy' 'deploy' | Should -Match '^create;deploy-env image=2026\.1101\.1 gen=a '
+  }
+  It 'deploys generation a beside the old hosts with the target image, through deploy.sh --rotation, keeping the pool tags' {
+    Get-RotationLine 'deploy' | Should -Match '^phase=Deploy image=2026\.1004\.1 gen= next=2026\.1101\.1 previous=2026\.1004\.1 hosts=avdlzdsh-001:open,avdlzdsh-002:open'
+    Get-RotationLine 'deploy' 'deploy' | Should -Match 'tags=\{"avdlz-image":"2026\.1004\.1","avdlz-image-next":"2026\.1101\.1","avdlz-image-previous":"2026\.1004\.1","avdlz-rotation":.*avdlz-dev-rota-\d{8}-\d{6}'
+    $out | Should -Match 'Hosts: image .*/versions/2026\.1101\.1, generation a'
+  }
+  It 'waits for a deployment still running after a disconnect, and deploys again after a failed one' {
+    Get-RotationLine 'deploy-running' 'deploy' | Should -BeNullOrEmpty
+    $states[5].warnings[0].detail | Should -Match 'still running in Azure'
+    Get-RotationLine 'deploy-retry' 'deploy' | Should -Match '^create;'
+    $out | Should -Match '1 of 2 new host\(s\) registered and the deployment failed; deploying again'
+  }
+  It 'waits for every new host to be Available and healthy, without deploying again' {
+    Get-RotationLine 'hosts-wait' 'deploy' | Should -BeNullOrEmpty
+    $states[7].warnings[0].detail | Should -Match '0 of 2 new host'
+  }
+  It 'records the new image on the pool only once the new hosts are ready, then drains the old ones with a message' {
+    Get-RotationLine 'drain' | Should -Match '^phase=Wait image=2026\.1101\.1 gen=a .* hosts=avdlzdsh-001:drain,avdlzdsh-002:drain,avdlzdsha-001:open,avdlzdsha-002:open vmsGone= messages=1 signedOut=0 gallery=Merge 2026\.1101\.1$'
+    # Out of the scaling plan too, or its ramp-up would reopen them.
+    Get-RotationLine 'drain' 'excluded' | Should -Be 'avdlzdsh-001,avdlzdsh-002'
+    $d = [regex]::Match($out, 'RESULT drain-deadline (\S+)').Groups[1].Value
+    ([datetime]::Parse($d, [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::AdjustToUniversal) - [datetime]::UtcNow).TotalHours | Should -BeLessThan 24.1
+    # One in-use marker per pool, so a same-named landing zone in another subscription never clears this one's.
+    $out | Should -Match 'RESULT gallery-key avdlz-in-use-dev-avdlz-00000000-aaaa-bbbb-cccc-000000000001'
+  }
+  It 'waits for Resume after a budget lock, then drains and excludes the retiring hosts again' {
+    $states[10].status | Should -Be 'refused'
+    @($states[10].failures.id) | Should -Be @('rotation-locked')
+    Get-RotationLine 'locked' | Should -Match 'hosts=avdlzdsh-001:drain,avdlzdsh-002:drain,avdlzdsha-001:open,avdlzdsha-002:open'
+    Get-RotationLine 'resumed' | Should -Match '^phase=Wait .* hosts=avdlzdsh-001:drain,avdlzdsh-002:drain,avdlzdsha-001:open,avdlzdsha-002:open .*messages=1 '
+    Get-RotationLine 'resumed' 'excluded' | Should -Be 'avdlzdsh-001,avdlzdsh-002'
+  }
+  It 'signs nobody out after the deadline unless asked, then gives 15 minutes'' notice first' {
+    Get-RotationLine 'deadline' | Should -Match 'messages=1 signedOut=0'
+    $out | Should -Match 'left after the deadline\. Run again with -LogOffAtDeadline'
+    Get-RotationLine 'notice' | Should -Match 'messages=2 signedOut=0'
+    Get-RotationLine 'logoff' | Should -Match 'messages=2 signedOut=1'
+  }
+  It 'drains a reopened host before choosing the next step, so a user who connected meanwhile is never removed' {
+    $states[14].status | Should -Be 'waiting'
+    $states[14].context.sessionsLeft | Should -Be 1
+    Get-RotationLine 'reopened' | Should -Match '^phase=Wait .* hosts=avdlzdsh-001:drain,avdlzdsh-002:drain,avdlzdsha-001:open,avdlzdsha-002:open vmsGone= '
+  }
+  It 'keeps the session gates in Remove: a user on a reopened host gets a fresh notice, not deletion' {
+    $states[15].status | Should -Be 'waiting'
+    $states[15].warnings[0].id | Should -Be 'rotation-waiting'
+    $states[15].context.phase | Should -Be 'Remove'
+    Get-RotationLine 'remove-occupied' | Should -Match '^phase=Remove .* hosts=avdlzdsh-001:drain,avdlzdsh-002:drain,avdlzdsha-001:open,avdlzdsha-002:open vmsGone= messages=3 '
+  }
+  It 'finishes an interrupted removal, finding the VM whose session host is already gone, and lists every device' {
+    Get-RotationLine 'remove' | Should -Match '^phase=Remove .* hosts=avdlzdsha-001:open,avdlzdsha-002:open vmsGone=avdlzdsh-001 '
+    $states[16].status | Should -Be 'waiting'
+    @($states[16].warnings | Where-Object id -eq 'devices-left')[0].data.devices | Should -Be @('avdlzdsh-001')
+    Get-RotationLine 'remove-resume' | Should -Match '^phase= image=2026\.1101\.1 gen=a next= previous=2026\.1004\.1 hosts=avdlzdsha-001:open,avdlzdsha-002:open vmsGone=avdlzdsh-001,avdlzdsh-002 .* gallery=Merge 2026\.1101\.1,Delete 2026\.1004\.1$'
+    @($states[17].warnings | Where-Object id -eq 'devices-left')[0].data.devices | Should -Be @('avdlzdsh-002')
+  }
+  It 'after Remove, rolls back by rotating to the previous version and frees the version it leaves' {
+    Get-RotationLine 'back-finish' | Should -Match '^phase= image=2026\.1004\.1 gen=b next= previous=2026\.1101\.1 hosts=avdlzdshb-001:open,avdlzdshb-002:open .* gallery=Merge 2026\.1004\.1,Delete 2026\.1101\.1$'
+  }
+  It 'rolls back before Remove: the original hosts take sessions again and the new ones are removed; a preview writes nothing' {
+    Get-RotationLine 'rb-drain' | Should -Match 'hosts=avdlzdsh-001:drain,avdlzdsh-002:drain,avdlzdsha-001:open,avdlzdsha-002:open'
+    Get-RotationLine 'rb-drain' 'excluded' | Should -Be 'avdlzdsh-001,avdlzdsh-002'
+    Get-RotationLine 'rollback' 'excluded' | Should -Be 'avdlzdsha-001,avdlzdsha-002'
+    $out | Should -Match 'RESULT rollback-whatif-writes 0'
+    # Not while an original host is stopped: the new ones keep serving.
+    $states[-3].status | Should -Be 'waiting'
+    $states[-3].warnings[0].detail | Should -Match 'Not Available with every health check passing: avdlzdsh-001\. The new hosts keep taking sessions'
+    Get-RotationLine 'rollback-stopped' | Should -Match '^phase=Drain .* hosts=avdlzdsh-001:open,avdlzdsh-002:open,avdlzdsha-001:open,avdlzdsha-002:open '
+    Get-RotationLine 'rollback' | Should -Match '^phase= image=2026\.1004\.1 gen= next= previous=2026\.1004\.1 hosts=avdlzdsh-001:open,avdlzdsh-002:open vmsGone=avdlzdsha-001,avdlzdsha-002 .*Delete 2026\.1101\.1$'
+    $states[-2].status | Should -Be 'done'
+    $states[-2].context.version | Should -Be 'rollback'
+  }
+  It 'does not roll back while the deployment still runs, nor to the version the pool runs again' {
+    $states[21].status | Should -Be 'waiting'
+    $states[21].warnings[0].detail | Should -Match 'avdlz-dev-rota-\d{8}-\d{6} of generation a is still running'
+    Get-RotationLine 'rb-running' | Should -Match '^phase=Deploy image=2026\.1004\.1 gen= next=2026\.1101\.1 '
+    $states[-1].status | Should -Be 'refused'
+    @($states[-1].failures.id) | Should -Be @('rotation-image')
+    $states[-1].failures[0].remediation | Should -Match 'Nothing to roll back to'
+  }
+  It 'prints a portal state line for every run, with the parameter file' {
+    ($states | ForEach-Object status) -join ' ' | Should -Be 'refused refused refused refused waiting waiting waiting waiting waiting waiting refused waiting waiting waiting waiting waiting waiting done waiting done waiting waiting waiting waiting waiting done refused'
+    @($states | Where-Object { $_.context.parameterFile -ne 'parameters/dev.bicepparam' }).context.parameterFile | Should -Be 'parameters/test.bicepparam'
+  }
+}
+
 Describe 'Golden image build' {
   # build/specs/image-pipeline-spec.md section 5; red-team M1, M2, M3, M5, M7.
   BeforeAll {
@@ -513,4 +705,98 @@ Describe 'One Microsoft Graph sign-in per session (decision 0016)' {
     $out | Should -Match 'RESULT default-session connects=1 client=client=default'
   }
   It 'names a client ID that is not a GUID and how to clear it' { $out | Should -Match 'RESULT bad-client-id exit=1 named=True wayOut=True' }
+}
+
+Describe 'Run recorder: run store and the cost gate' {
+  BeforeAll { $script:out = Invoke-OfflineScenario 'RunRecorder' }
+
+  It 'refuses to open a run in Azure without a run store' { Get-StepExit $out 'start-no-store' | Should -Be 1 }
+  It 'refuses the run store while Defender for Storage would bill it, and deploys nothing' {
+    Get-StepExit $out 'store-defender-on' | Should -Be 1
+    $out | Should -Match 'RESULT defender-on deploys=0'
+  }
+  It 'refuses a public companion repo' {
+    Get-StepExit $out 'store-public-repo' | Should -Be 1
+    $out | Should -Match 'RESULT public-repo deploys=0'
+  }
+  It 'deploys nothing with -WhatIf' {
+    Get-StepExit $out 'store-whatif' | Should -Be 0
+    $out | Should -Match 'RESULT whatif deploys=0'
+  }
+  It 'deploys the run store with the teardown preference and the private repo' {
+    Get-StepExit $out 'store' | Should -Be 0
+    $out | Should -Match 'RESULT store deploys=1 runstore=avdlzruns[0-9a-f]{12} teardownLogs=Ask repo=contoso/run-records activityLog=True'
+  }
+  It 'writes run.json and cost.json that match contract C17, and uploads them to the run folder' {
+    Get-StepExit $out 'start' | Should -Be 0
+    $out | Should -Match 'RESULT start-files valid=True gate=True limit=5 unpriced=0 totalUnderLimit=True useCase=landing-zone teardown=not-started uploaded=runs/run-20261020-1800-t3st/cost.json,runs/run-20261020-1800-t3st/run.json'
+  }
+  It 'exports the four AVD tables before cleanup and stores them with the run' {
+    Get-StepExit $out 'stop-before-cleanup' | Should -Be 0
+    $out | Should -Match 'RESULT before-cleanup tables=4 queries=4 rows=2 uploaded=4'
+  }
+  It 'closes the run with the first actual cost reading, not settled, naming a meter the estimate missed' {
+    Get-StepExit $out 'stop-end' | Should -Be 0
+    $out | Should -Match 'RESULT stop-end valid=True status=torn-down files=5 readings=1 total=3.5 settled=False unexpected=Standard Static IP afterTeardown=True runStoreInScope=True lzInScope=True'
+  }
+  It 'keeps earlier readings and records why there is no figure when Cost Management refuses' {
+    Get-StepExit $out 'stop-update-forbidden' | Should -Be 0
+    $out | Should -Match 'RESULT update-forbidden readings=2 kept=3.5 why=True'
+  }
+  It 'copies nothing to a public repo' {
+    Get-StepExit $out 'copy-public' | Should -Be 1
+    $out | Should -Match 'RESULT copy-public copies=0'
+  }
+  It 'fails the gate when a line cannot be priced, without guessing a price' {
+    Get-StepExit $out 'start-unpriced' | Should -Be 1
+    $out | Should -Match 'RESULT start-unpriced gate=False unpriced=1 match=none noGuess=True localOnly=True'
+  }
+}
+
+Describe 'Same-tenant recovery (build/specs/recovery-spec.md)' {
+  BeforeAll { $script:out = Invoke-OfflineScenario 'Recovery' }
+
+  It 'reports a fresh landing zone as not met, item by item, with a recovery state line' {
+    Get-StepExit $out 'status-fresh' | Should -Be 1
+    $out | Should -Match 'RESULT status-fresh stage=recovery status=notmet met=4/8 ids=dr-config,dr-identity,dr-tested,dr-iac'
+  }
+  It 'writes the configuration snapshot as a C17 run and never copies the host pool registration token' {
+    Get-StepExit $out 'export' | Should -Be 0
+    $out | Should -Match 'RESULT export valid=True useCase=recovery kind=snapshot configFiles=12 tokenLeaked=False tokenPresent=True roleAssignments=3'
+  }
+  It 'reports drift since the previous snapshot by resource and property' {
+    $out | Should -Match 'RESULT drift changes=1 path=hostpools\[/subscriptions/.+/hostpools/vdpool-avdlz-dev\]\.properties\.maxSessionLimit before=8 after=10'
+  }
+  It 'counts a snapshot only once its copy has been read back' { $out | Should -Match 'RESULT status-copied met=5/8 ids=dr-identity,dr-tested,dr-iac' }
+  It 'catches a corrupted copy in the companion repo, and repairs nothing' {
+    Get-StepExit $out 'verify' | Should -Be 0
+    Get-StepExit $out 'verify-corrupted' | Should -Be 1
+    $out | Should -Match 'RESULT verify-corrupted mismatch=True'
+  }
+  It 'plans a recovery test with an estimate and writes nothing' {
+    Get-StepExit $out 'test-plan' | Should -Be 0
+    $out | Should -Match 'RESULT test-plan writes=0 status=ready estimate=True'
+  }
+  It 'restores into a new storage account, never over the source, and records the measured RPO' {
+    Get-StepExit $out 'test-go' | Should -Be 0
+    $out | Should -Match 'RESULT test-go status=passed outcome=passed valid=True recoveryType=AlternateLocation intoNew=True rpoMinutes=True created=2'
+  }
+  It 'counts a passed test toward the tier' { $out | Should -Match 'RESULT status-tested met=6/8 ids=dr-identity,dr-iac' }
+  It 'removes the test resources and records a clean teardown, leaving the source alone' {
+    Get-StepExit $out 'test-cleanup' | Should -Be 0
+    $out | Should -Match 'RESULT test-cleanup rgGone=True teardown=clean sourceKept=True'
+  }
+  It 'shows the restore job''s own error when a test fails' {
+    Get-StepExit $out 'test-go-failed' | Should -Be 1
+    $out | Should -Match 'RESULT test-go-failed errorShown=True'
+  }
+  It 'fails R1 on a snapshot-only backup and passes it with the vaulted tier and an image replica, warning about capacity' {
+    $out | Should -Match 'RESULT status-r1-snapshot ids=dr-profile-offsite,dr-identity,dr-tested,dr-iac,dr-capacity'
+    $out | Should -Match 'RESULT status-r1-vaulted ids=dr-identity,dr-tested,dr-iac,dr-capacity'
+  }
+  It 'is met for R0 with a pushed commit, a copied identity snapshot and a passed test' {
+    $out | Should -Match 'RESULT export-identity groups=2 members=1 commit=True'
+    Get-StepExit $out 'status-met' | Should -Be 0
+    $out | Should -Match 'RESULT status-met status=met met=8/8 ids=$'
+  }
 }

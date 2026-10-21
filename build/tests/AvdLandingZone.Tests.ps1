@@ -480,3 +480,207 @@ Describe 'Get-AvdUserConnectionOutcome (decision 0014)' {
     $o.Connected[0].connectionSetupSeconds | Should -Be 3.1
   }
 }
+
+Describe 'Get-AvdRunPosition' {
+  # Fixtures omit empty properties the way ARM does (lesson 0021).
+  BeforeAll {
+    $now = [datetime]'2026-10-20T17:30:00Z'
+    $all = @{ Network = $true; Management = $true; Storage = $true; ControlPlane = $true; Hosts = $true; Demo = $false }
+    $none = @{ Network = $false; Management = $false; Storage = $false; ControlPlane = $false; Hosts = $false; Demo = $false }
+    $dep = { param($name, $state, $time) [pscustomobject]@{ name = $name; properties = [pscustomobject]@{ provisioningState = $state; timestamp = $time } } }
+  }
+
+  It 'says start from the beginning when there is nothing' {
+    $p = Get-AvdRunPosition -Environment dev -RgExists $none -Now $now
+    $p.Status | Should -Be 'ready'
+    $p.NextStage | Should -Be 'predeploy'
+  }
+
+  It 'waits for a running deployment, even when an older one succeeded' {
+    $d = @((& $dep 'avdlz-dev-20261019-100000' 'Succeeded' '2026-10-19T10:40:00Z'), (& $dep 'avdlz-dev-20261020-171800' 'Running' '2026-10-20T17:18:00Z'))
+    $p = Get-AvdRunPosition -Environment dev -Deployment $d -RgExists $none -Now $now
+    $p.LastStatus | Should -Be 'running'
+    $p.NextStage | Should -Be 'deploy'
+    $p.DeploymentName | Should -Be 'avdlz-dev-20261020-171800'
+    $p.Basis | Should -Match '12 minutes ago'
+  }
+
+  It 'reports a failed deployment' {
+    $p = Get-AvdRunPosition -Environment dev -Deployment @(& $dep 'avdlz-dev-20261020-171800' 'Failed' '2026-10-20T17:25:00Z') -RgExists $all -Now $now
+    $p.LastStatus | Should -Be 'failed'
+    $p.NextStage | Should -Be 'deploy'
+  }
+
+  It 'goes to the post-deployment setup after a successful deployment' {
+    $p = Get-AvdRunPosition -Environment dev -Deployment @(& $dep 'avdlz-dev-20261020-171800' 'Succeeded' '2026-10-20T17:25:00Z') -RgExists $all -Now $now
+    $p.NextStage | Should -Be 'postdeploy'
+  }
+
+  It 'goes to the access check once the demo is deployed' {
+    $rg = $all.Clone(); $rg.Demo = $true
+    $p = Get-AvdRunPosition -Environment dev -Deployment @(& $dep 'avdlz-dev-20261020-171800' 'Succeeded' '2026-10-20T17:25:00Z') -RgExists $rg `
+      -DemoDeployment (& $dep 'avdlz-demo-avdlz-dev' 'Succeeded' '2026-10-20T17:29:00Z') -Now $now
+    $p.LastStage | Should -Be 'demo'
+    $p.NextStage | Should -Be 'verify'
+  }
+
+  It 'starts again after a cleanup removed the landing zone' {
+    $p = Get-AvdRunPosition -Environment dev -Deployment @(& $dep 'avdlz-dev-20261020-171800' 'Succeeded' '2026-10-20T17:25:00Z') -RgExists $none -Now $now
+    $p.LastStage | Should -Be 'cleanup'
+    $p.NextStage | Should -Be 'predeploy'
+  }
+
+  It 'is unknown, never a guess, with resource groups but no deployment record' {
+    $p = Get-AvdRunPosition -Environment dev -RgExists $all -Now $now
+    $p.Status | Should -Be 'unknown'
+    $p.NextStage | Should -BeNullOrEmpty
+  }
+
+  It 'ignores the demo record and other environments when picking the deployment' {
+    $d = @((& $dep 'avdlz-demo-avdlz-dev' 'Running' '2026-10-20T17:29:00Z'), (& $dep 'avdlz-prod-20261020-172000' 'Running' '2026-10-20T17:20:00Z'),
+      (& $dep 'avdlz-dev-20261020-171800' 'Succeeded' '2026-10-20T17:25:00Z'))
+    $p = Get-AvdRunPosition -Environment dev -Deployment $d -RgExists $all -Now $now
+    $p.DeploymentName | Should -Be 'avdlz-dev-20261020-171800'
+    $p.NextStage | Should -Be 'postdeploy'
+  }
+}
+
+Describe 'Run journal' {
+  BeforeAll {
+    $runId = 'run-20261020-1652-k3p9'
+  }
+  AfterEach {
+    Remove-Item Env:AVDLZ_RECORD, Env:AVDLZ_RUN_ID -ErrorAction SilentlyContinue
+  }
+
+  It 'is off unless AVDLZ_RECORD is set' {
+    (Get-AvdJournalSetting -HomePath '/home/op').Enabled | Should -BeFalse
+    (Get-AvdJournalSetting -Record off -RunId $runId -HomePath '/home/op').Reason | Should -Be 'off'
+  }
+
+  It 'refuses an unknown mode or a missing run ID instead of guessing' {
+    (Get-AvdJournalSetting -Record yes -RunId $runId -HomePath '/home/op').Reason | Should -Match 'on, azure or off'
+    $s = Get-AvdJournalSetting -Record on -RunId 'my run' -HomePath '/home/op'
+    $s.Enabled | Should -BeFalse
+    $s.Reason | Should -Match 'AVDLZ_RUN_ID'
+  }
+
+  It 'writes to clouddrive when it is mounted, so the journal survives a reset' {
+    $s = Get-AvdJournalSetting -Record on -RunId $runId -HomePath '/home/op' -CloudDriveExists $true
+    $s.Enabled | Should -BeTrue
+    $s.Durable | Should -BeTrue
+    $s.Path | Should -Be (Join-Path (Join-Path (Join-Path (Join-Path '/home/op' 'clouddrive') 'avdlz-runs') $runId) 'journal.jsonl')
+  }
+
+  It 'writes to the home folder in an ephemeral session' {
+    $s = Get-AvdJournalSetting -Record azure -RunId $runId -HomePath '/home/op'
+    $s.Durable | Should -BeFalse
+    $s.Folder | Should -Be (Join-Path (Join-Path '/home/op' 'avdlz-runs') $runId)
+  }
+
+  It 'never keeps a secret parameter' {
+    $p = Get-AvdJournalParam @{
+      NamePrefix = 'avdlz'; Fix = [switch]$true; AdminPassword = 'Placeholder-only-1!'; KeyVaultName = 'kv-x'
+      Secure = (ConvertTo-SecureString 'Placeholder-only-1!' -AsPlainText -Force); Regions = @('northcentralus', 'eastus2')
+    }
+    $p.NamePrefix | Should -Be 'avdlz'
+    $p.Fix | Should -BeTrue
+    $p.AdminPassword | Should -Be '<set>'
+    $p.KeyVaultName | Should -Be '<set>'
+    $p.Secure | Should -Be '<set>'
+    $p.Regions | Should -Be @('northcentralus', 'eastus2')
+    ($p | ConvertTo-Json -Compress) | Should -Not -Match 'Placeholder'
+  }
+
+  It 'builds a line with the version, event, run ID and UTC time first' {
+    $e = Get-AvdJournalEvent -Name check -RunId $runId -Field ([ordered]@{ id = 'x'; status = 'Pass' }) -Now ([datetime]'2026-10-20T17:30:00Z')
+    @($e.Keys)[0..3] | Should -Be @('v', 'event', 'runId', 'ts')
+    $e.ts | Should -Be '2026-10-20T17:30:00.000Z'
+    $e.status | Should -Be 'Pass'
+  }
+
+  It 'appends one JSON object per line when recording is on' {
+    $env:AVDLZ_RECORD = 'on'; $env:AVDLZ_RUN_ID = $runId
+    Write-AvdJournalEvent 'operator.note' ([ordered]@{ step = 'test'; text = 'set the share quota by hand' }) -HomePath $TestDrive
+    Write-AvdJournalEvent 'check' ([ordered]@{ step = 'test'; id = 'a'; status = 'Warn'; area = 'Run'; check = 'c' }) -HomePath $TestDrive
+    $lines = @(Get-Content (Join-Path (Join-Path (Join-Path $TestDrive 'avdlz-runs') $runId) 'journal.jsonl'))
+    $lines.Count | Should -Be 2
+    ($lines[0] | ConvertFrom-Json).text | Should -Be 'set the share quota by hand'
+    ($lines[1] | ConvertFrom-Json).event | Should -Be 'check'
+    # The family's run record contract (avd-second-brain C17), vendored in contracts/.
+    $schema = Join-Path $PSScriptRoot '../../contracts/schemas/run-journal.schema.json'
+    foreach ($l in $lines) { Test-Json -Json $l -SchemaFile $schema | Should -BeTrue }
+  }
+
+  It 'writes nothing when recording is off' {
+    $home_ = Join-Path $TestDrive 'off'
+    Write-AvdJournalEvent 'operator.note' @{ text = 'x' } -HomePath $home_
+    $home_ | Should -Not -Exist
+  }
+
+  It 'journals every check result when recording is on' {
+    $env:AVDLZ_RECORD = 'on'; $env:AVDLZ_RUN_ID = $runId
+    Mock Write-AvdJournalEvent -ModuleName AvdLandingZone
+    Add-AvdCheckResult 'Run' 'A check' 'Warn' -Id 'a-check' -Data @{ n = 1 } 6>$null
+    Should -Invoke Write-AvdJournalEvent -ModuleName AvdLandingZone -Times 1 -ParameterFilter { $Name -eq 'check' -and $Field.id -eq 'a-check' -and $Field.status -eq 'Warn' }
+    Clear-AvdCheckResult
+  }
+}
+
+Describe 'Get-AvdLocationPolicyVerdict (recovery spec section 4.1)' {
+  BeforeAll {
+    $def = '/providers/Microsoft.Authorization/policyDefinitions/'
+    function New-Assignment($Name, $Definition, $Allowed, $Mode) {
+      $p = [pscustomobject]@{ policyDefinitionId = "$def$Definition" }
+      if ($Allowed) { $p | Add-Member parameters ([pscustomobject]@{ listOfAllowedLocations = [pscustomobject]@{ value = @($Allowed) } }) }
+      if ($Mode) { $p | Add-Member enforcementMode $Mode }
+      [pscustomobject]@{ name = $Name; properties = $p }
+    }
+  }
+  It 'returns the allowed-locations assignments that leave the region out, own and foreign' {
+    $a = @(
+      New-Assignment 'avdlz-allowed-locations' 'e56962a6-4747-49cd-b67b-bf8b01975c4c' @('northcentralus')
+      New-Assignment 'corp-rg-locations' 'e765b5de-1225-4ba3-bd56-1ac6695af988' @('NorthCentralUS', 'SouthCentralUS')
+      New-Assignment 'corp-audit' 'e765b5de-1225-4ba3-bd56-1ac6695af988' @('northcentralus') 'DoNotEnforce'
+      New-Assignment 'other-policy' '0a914e76-4921-4c19-b460-a2d36003525a' @('northcentralus')
+      [pscustomobject]@{ name = 'no-properties' }   # ARM leaves out what an assignment doesn't have
+    )
+    $v = @(Get-AvdLocationPolicyVerdict -Assignment $a -Location 'southcentralus')
+    $v.Name | Should -Be @('avdlz-allowed-locations', 'corp-audit')
+    $v[0].Managed | Should -BeTrue
+    $v[0].Enforced | Should -BeTrue
+    $v[1].Managed | Should -BeFalse
+    $v[1].Enforced | Should -BeFalse
+  }
+  It 'returns nothing for no assignments, or an assignment without a list' {
+    @(Get-AvdLocationPolicyVerdict -Assignment @() -Location 'eastus2').Count | Should -Be 0
+    @(Get-AvdLocationPolicyVerdict -Assignment @(New-Assignment 'x' 'e56962a6-4747-49cd-b67b-bf8b01975c4c') -Location 'eastus2').Count | Should -Be 0
+  }
+}
+
+Describe 'Get-AvdProfileBackupVerdict' {
+  BeforeAll {
+    $now = [datetime]'2026-10-20T12:00:00Z'
+    $sa = [pscustomobject]@{ properties = [pscustomobject]@{ allowSharedKeyAccess = $false; publicNetworkAccess = 'Disabled' } }
+    function New-ProtectedItem($Props) { [pscustomobject]@{ name = 'AzureFileShare;profiles'; properties = [pscustomobject]$Props } }
+  }
+  It 'passes a protected, healthy item backed up within a day' {
+    $v = Get-AvdProfileBackupVerdict -StorageAccount $sa -ProtectedItem @(New-ProtectedItem @{ friendlyName = 'profiles'; protectionState = 'Protected'; healthStatus = 'Passed'; lastBackupStatus = 'Healthy'; lastBackupTime = $now.AddHours(-5) }) -Now $now
+    ($v | Where-Object Id -eq 'profile-backup-access').Status | Should -Be 'Pass'
+    ($v | Where-Object Id -eq 'profile-backup').Status | Should -Be 'Pass'
+  }
+  It 'warns on a failed, stale backup and names the key-based error when key access is off' {
+    $b = Get-AvdProfileBackupVerdict -StorageAccount $sa -ProtectedItem @(New-ProtectedItem @{ friendlyName = 'profiles'; protectionState = 'Protected'; lastBackupStatus = 'Unhealthy'; lastBackupTime = $now.AddHours(-50) }) -Now $now | Where-Object Id -eq 'profile-backup'
+    $b.Status | Should -Be 'Warn'
+    $b.Detail | Should -Be 'profiles last backup Unhealthy; profiles last backup 50 hours ago'
+    $b.Remediation | Should -Match 'UserErrorStorageKeyBasedAuthenticationNotPermitted'
+  }
+  It 'warns when nothing is protected, or nothing has run yet' {
+    (Get-AvdProfileBackupVerdict -StorageAccount $sa -ProtectedItem @() -Now $now | Where-Object Id -eq 'profile-backup').Status | Should -Be 'Warn'
+    (Get-AvdProfileBackupVerdict -ProtectedItem @(New-ProtectedItem @{ protectionState = 'IRPending' }) -Now $now).Detail | Should -Be 'AzureFileShare;profiles protection state IRPending; AzureFileShare;profiles has no backup yet'
+  }
+  It 'warns when Azure Backup has neither key access nor a private-only account' {
+    $open = [pscustomobject]@{ properties = [pscustomobject]@{ allowSharedKeyAccess = $false; publicNetworkAccess = 'Enabled' } }
+    (Get-AvdProfileBackupVerdict -StorageAccount $open -ProtectedItem @() -Now $now | Where-Object Id -eq 'profile-backup-access').Status | Should -Be 'Warn'
+  }
+}

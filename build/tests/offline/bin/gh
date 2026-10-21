@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Stand-in for the GitHub CLI in the run recorder scenarios: AVDLZ_FAKE_GH=private|public|fail.
+case "${AVDLZ_FAKE_GH:-fail}" in
+  private) echo true ;;
+  public) echo false ;;
+  *) echo 'HTTP 404: Not Found' >&2; exit 1 ;;
+esac

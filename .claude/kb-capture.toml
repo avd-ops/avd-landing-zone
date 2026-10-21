@@ -1,4 +1,4 @@
-# Knowledge capture for this repo (ai-brain decision 0011), read by scripts/kb/capture_check.py.
+# Knowledge capture for this repo (avd-second-brain decision 0013), read by scripts/kb/capture_check.py.
 # This repo has no knowledge base of its own: its lessons go to avd-second-brain's KB, and a PR
 # that changes code links the lesson there with a `KB: <link>` line in its body, or carries the
 # `no-kb` label and a `No KB entry: <reason>` line. AVD pilot through 2026-10-31, review 2026-11-01.
@@ -6,7 +6,7 @@
 capture_hook = "block"
 kb_repos = ["nickprignano/avd-second-brain"]
 
-# Auto-merge for low-risk PRs (ai-brain decision 0014), read by scripts/kb/auto_merge.py through the
+# Auto-merge for low-risk PRs (avd-second-brain decision 0015), read by scripts/kb/auto_merge.py through the
 # kb-auto-merge workflow. Off until the owner has turned on "Allow auto-merge" and the ruleset;
 # a separate PR turns it on. Only the knowledge base paths qualify, never code, infrastructure
 # or pipeline files.

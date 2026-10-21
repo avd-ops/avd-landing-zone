@@ -726,3 +726,149 @@ test('steps that use Microsoft Graph sign in once first, through the operator ap
   // Anything that is not a client ID is left out rather than passed to the script.
   assert.equal(signInLine(P.commands.demo({ ...cfg, graphClientId: "x'; Remove-Item ~ -Recurse" })), './scripts/ops/Connect-AvdLandingZone.ps1');
 });
+
+// Where did I leave off (build/specs/run-recorder-spec.md section 4).
+test('state: resume while the deployment runs -> check on it, never deploy again', () => {
+  const r = analyze('state-resume-running.txt');
+  assert.equal(r.stage, 'resume');
+  assert.equal(r.step, 'deploy');
+  assert.match(r.headline, /^Where you left off/);
+  assert.match(r.actions[0].command, /az deployment sub show -n \$name/);
+  assert.match(r.actions[0].command, /avdlz-dev-20261020-171200/);
+  assert.doesNotMatch(r.actions[0].command, /deploy\.sh/);
+  assert.match(r.actions[0].why, /Do not start it again/);
+});
+
+test('state: resume after a finished deployment -> post-deployment setup with -Fix', () => {
+  const r = analyze('state-resume-postdeploy.txt');
+  assert.equal(r.step, 'postdeploy');
+  assert.equal(last(r.actions[0].command), './scripts/ops/Test-AvdLandingZoneReadiness.ps1 -NamePrefix avdlz -Environment dev -Fix -AllowHostStart');
+  assert.match(r.actions[0].why, /no post-deployment run is recorded/);
+  assertSelfContained(r);
+});
+
+test('state: resume it cannot classify -> no command, ask for a report', () => {
+  const r = analyze('state-resume-unknown.txt');
+  assert.equal(r.status, 'unknown');
+  assert.equal(r.step, null);
+  assert.equal(r.actions[0].command, '');
+  assert.match(r.actions[0].why, /Report a problem/);
+});
+
+test('commands: where did I leave off is a self-contained block', () => {
+  const c = P.commands.runStatus({ ...P.DEFAULTS, namePrefix: 'avdlz', environment: 'dev' });
+  assert.match(c, /Set-Location ~\/avd-landing-zone/);
+  assert.equal(last(c), './scripts/ops/Get-AvdRunStatus.ps1 -NamePrefix avdlz -Environment dev');
+});
+
+// Same-tenant recovery (build/specs/recovery-spec.md): the status check and the recovery test.
+test('state: recovery not met -> snapshot with identity, then plan a test; nothing runs on its own', () => {
+  const r = analyze('state-recovery-notmet.txt');
+  assert.equal(r.stage, 'recovery');
+  assert.equal(r.status, 'notmet');
+  assert.match(r.headline, /^Recovery: Not met/);
+  const titles = r.actions.map((a) => a.title);
+  assert.deepEqual(titles, ['Take a configuration snapshot', 'Plan a recovery test', 'Deploy from a pushed commit']);
+  assert.equal(last(r.actions[0].command), './scripts/ops/Export-AvdConfiguration.ps1 -NamePrefix avdlz -Environment dev -IncludeIdentity');
+  assert.match(r.actions[0].command, /Connect-AvdLandingZone\.ps1/);
+  assert.equal(last(r.actions[1].command), './scripts/ops/Start-AvdRecoveryTest.ps1 -NamePrefix avdlz -Environment dev');
+  assert.doesNotMatch(r.actions[1].command, /-Go/);
+  assert.equal(r.actions[2].command, '');
+  assertSelfContained(r);
+});
+
+test('state: recovery met -> no command', () => {
+  const r = analyze('state-recovery-met.txt');
+  assert.equal(r.status, 'met');
+  assert.equal(r.actions.length, 1);
+  assert.match(r.actions[0].title, /R0 is met/);
+  assert.equal(r.actions[0].command, '');
+});
+
+test('state: recovery test planned -> the same command with -Go, only when the operator runs it', () => {
+  const r = analyze('state-recovery-test-plan.txt');
+  assert.equal(r.status, 'ready');
+  assert.equal(last(r.actions[0].command), './scripts/ops/Start-AvdRecoveryTest.ps1 -NamePrefix avdlz -Environment dev -Go');
+  assert.match(r.actions[0].why, /Nothing was created/);
+});
+
+test('state: recovery test passed -> remove the test copy by its run ID', () => {
+  const r = analyze('state-recovery-test-passed.txt');
+  assert.equal(r.status, 'passed');
+  assert.match(last(r.actions[0].command), /^\.\/scripts\/ops\/Start-AvdRecoveryTest\.ps1 -NamePrefix avdlz -Environment dev -Cleanup -RunId 'run-\d{8}-\d{4}-[a-z0-9]{4}'$/);
+});
+
+test('commands: recovery status passes the tier and region only when they are valid', () => {
+  const cfg = { ...P.DEFAULTS, namePrefix: 'avdlz', environment: 'prod' };
+  assert.equal(last(P.commands.recoveryStatus(cfg)), './scripts/ops/Get-AvdRecoveryStatus.ps1 -NamePrefix avdlz -Environment prod');
+  assert.equal(last(P.commands.recoveryStatus(cfg, { tier: 'R1', recoveryLocation: 'southcentralus' })), './scripts/ops/Get-AvdRecoveryStatus.ps1 -NamePrefix avdlz -Environment prod -RecoveryTier R1 -RecoveryLocation southcentralus');
+  assert.equal(last(P.commands.recoveryStatus(cfg, { tier: 'R9; rm', recoveryLocation: 'x y' })), './scripts/ops/Get-AvdRecoveryStatus.ps1 -NamePrefix avdlz -Environment prod');
+});
+
+// Blue/green host rotation (build/specs/image-pipeline-spec.md section 6.5): every run continues where the last
+// stopped; a rollback is offered until the old hosts are removed.
+test('state: rotation refused -> what to fix, nothing changed, no command', () => {
+  const r = analyze('state-rotation-refused.txt');
+  assert.equal(r.stage, 'rotation');
+  assert.equal(r.status, 'refused');
+  assert.match(r.headline, /^Host rotation: Refused/);
+  assert.match(r.actions[0].why, /already runs .* Nothing was changed/);
+  assert.equal(r.actions[0].command, '');
+});
+
+test('state: rotation -> its actions show on a slide that has a command slot', () => {
+  for (const f of ['state-rotation-refused.txt', 'state-rotation-waiting.txt', 'state-rotation-done.txt']) {
+    const r = analyze(f);
+    assert.equal(r.step, 'postdeploy', f);
+    assert.ok(P.STEPS.some((s) => s.id === r.step), f);
+  }
+});
+
+test('state: rotation with its own parameter file -> every command keeps it', () => {
+  const text = fixture('state-rotation-waiting.txt').replace('"environment":"dev",', '"environment":"dev","parameterFile":"parameters/dev-eu.bicepparam",');
+  const r = P.analyze(text, {}, {});
+  assert.equal(last(r.actions[0].command), "./scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -ParameterFile 'parameters/dev-eu.bicepparam'");
+  assert.match(last(r.actions[1].command), /-ParameterFile 'parameters\/dev-eu\.bicepparam' -Rollback$/);
+});
+
+test('state: rotation waiting for sessions -> run it again, or roll back', () => {
+  const r = analyze('state-rotation-waiting.txt');
+  assert.equal(r.status, 'waiting');
+  assert.equal(last(r.actions[0].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev');
+  assert.equal(last(r.actions[1].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -Rollback');
+  assertSelfContained(r);
+});
+
+test('state: rotation stopped by an Azure error -> what Azure said, run it again, or roll back', () => {
+  const text = fixture('state-rotation-waiting.txt').replace('"status":"waiting"', '"status":"failed"')
+    .replace('"failures":[]', '"failures":[{"id":"rotation-error","area":"Rotation","check":"Phase Wait","detail":"ARM PATCH failed: 429 TooManyRequests","remediation":"Fix what Azure reported and run this again; it continues from the same phase."}]');
+  const r = P.analyze(text, {}, {});
+  assert.equal(r.status, 'failed');
+  assert.match(r.actions[0].title, /stopped in phase Wait/);
+  assert.match(r.actions[0].why, /429 TooManyRequests .* continues from the same phase/);
+  assert.equal(last(r.actions[0].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev');
+  assert.match(last(r.actions[1].command), / -Rollback$/);
+});
+
+test('state: rollback waiting for the deployment -> the next command is the rollback again', () => {
+  const text = fixture('state-rotation-waiting.txt').replace('"phase":"Wait"', '"phase":"Deploy","rollbackPending":true');
+  const r = P.analyze(text, {}, {});
+  assert.equal(r.actions.length, 1);
+  assert.match(r.actions[0].title, /Roll back once the deployment ends/);
+  assert.equal(last(r.actions[0].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -Rollback');
+});
+
+test('state: rotation past the deadline -> sign-out only when asked, with -LogOffAtDeadline', () => {
+  const r = analyze('state-rotation-after-deadline.txt');
+  assert.equal(last(r.actions[0].command), './scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -LogOffAtDeadline');
+});
+
+test('state: rotation done -> delete the old devices by hand; roll back means rotating to the previous version', () => {
+  const r = analyze('state-rotation-done.txt');
+  assert.equal(r.status, 'done');
+  assert.match(r.actions[0].title, /device objects/);
+  assert.match(r.actions[0].why, /avdlzdsha-001/);
+  assert.equal(r.actions[0].command, '');
+  assert.match(r.actions[1].title, /rotation is complete/);
+  assert.match(last(r.actions[1].command), / -Rollback$/);
+});
