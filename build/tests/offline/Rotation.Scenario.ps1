@@ -151,7 +151,12 @@ Invoke-ScenarioStep 'rb-running' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p
 Show-Rotation 'rb-running'
 Set-RotationRun 'Succeeded'
 Add-Generation 'Available'
-Invoke-ScenarioStep 'rb-drain' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
+# -StopBefore pauses at each cutover point: before the old hosts drain (nothing on the pool changes), then,
+# with no one left on them, before they are removed.
+Invoke-ScenarioStep 'rb-paused' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -StopBefore Drain }
+Show-Rotation 'rb-paused'
+$global:St.rotation.hosts['avdlzdsh-001'].sessions = 0
+Invoke-ScenarioStep 'rb-drain' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -StopBefore Remove }
 Show-Rotation 'rb-drain'
 # A preview changes nothing.
 $global:Calls.Clear()

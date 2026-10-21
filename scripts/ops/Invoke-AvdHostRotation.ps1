@@ -25,6 +25,10 @@
   -Rollback before Remove swaps the generations back: the new hosts drain and are removed. After Remove,
   -Rollback rotates to the version the pool ran before (avdlz-image-previous).
 
+  -StopBefore pauses at a cutover point: Drain (the new hosts are ready, the old ones still take every
+  session; cut over later, in a maintenance window) or Remove (the old hosts are drained and empty,
+  kept so a rollback still has them). A run without it continues from there; -Rollback undoes it.
+
   Not built yet: removing the old hosts' Entra ID and Intune device objects. They are listed, by name,
   to delete by hand; the in-host check that records their IDs is image pipeline step 4.
 
@@ -35,6 +39,9 @@
 
 .EXAMPLE
   ./scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -Rollback
+
+.EXAMPLE
+  ./scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix avdlz -Environment dev -ImageId <gallery image version ID> -StopBefore Drain
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -47,6 +54,8 @@ param(
   [ValidateRange(1, 720)][int] $DeadlineHours = 72,
   [switch] $LogOffAtDeadline,
   [switch] $Rollback,
+  # Pause before the old hosts drain, or before they are removed; run again without it to continue.
+  [ValidateSet('Drain', 'Remove')][string] $StopBefore,
   [string] $SubscriptionId
 )
 
@@ -288,6 +297,13 @@ for ($i = 0; $i -lt 20; $i++) {
   $step = Get-AvdRotationStep -State $state -SessionHosts $hosts -ExpectedCount $expected -Now $now -LogOffAtDeadline:$LogOffAtDeadline -DeploymentState $deployState
   $context.phase = "$($state.phase)"
   Write-Host "  [$($state.phase)] $($step.Detail)" -ForegroundColor DarkGray
+  if (($StopBefore -eq 'Drain' -and $step.Action -eq 'drain' -and $state.phase -eq 'Deploy') -or
+    ($StopBefore -eq 'Remove' -and $step.Action -eq 'remove' -and $state.phase -eq 'Wait')) {
+    $context.stopBefore = $StopBefore
+    Add-AvdCheckResult 'Rotation' "Paused before $StopBefore" 'Warn' -Id 'rotation-paused' -Detail $step.Detail `
+      -Remediation "Run this again without -StopBefore to continue from phase $($state.phase), or with -Rollback to undo the rotation."
+    Complete-Rotation 'waiting' 0
+  }
   switch ($step.Action) {
     'deploy' {
       if ($deployed) {
