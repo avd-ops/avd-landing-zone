@@ -36,7 +36,7 @@
   $('issues-link').textContent = repoSlug;
 
   // Saved settings are checked like typed ones: an old or edited value that no longer fits is dropped.
-  var cfg = Object.assign({}, P.DEFAULTS, P.validSettings(load('config', {})).settings, { repoUrl: repoUrl, ref: site.ref, sizing: load('sizing', null), power: load('power', null), hoursWorkedPerWeek: load('hoursWorked', 50), launch: P.launchTarget(load('launch', null)), record: load('record', null) });
+  var cfg = Object.assign({}, P.DEFAULTS, P.validSettings(load('config', {})).settings, { repoUrl: repoUrl, ref: site.ref, sizing: P.validSizing(load('sizing', null)), power: P.validPower(load('power', null)), hoursWorkedPerWeek: load('hoursWorked', 50), launch: P.launchTarget(load('launch', null)), record: load('record', null) });
   var step = load('step', null);
   // Furthest step reached, by id: later steps stay hidden until the deployment gets there. (Saved as an
   // index before the Cost step existed; those indexes are read against the old step list.)
@@ -55,9 +55,11 @@
     FIELDS.forEach(function (k) { if (checked.settings[k]) cfg[k] = checked.settings[k]; });
     showRejected(checked.rejected);
     // A pasted preflight says which sizing it validated; the next commands keep it.
-    if (patch && patch.sizing && patch.sizing.hosts) { cfg.sizing = patch.sizing; save('sizing', cfg.sizing); }
+    var sizing = patch && P.validSizing(patch.sizing);
+    if (sizing) { cfg.sizing = sizing; save('sizing', cfg.sizing); }
     // ... and which power settings it priced.
-    if (patch && patch.power && patch.power.autoShutdownTime) { cfg.power = { startVmOnConnect: patch.power.startVmOnConnect !== false, autoShutdownTime: patch.power.autoShutdownTime }; save('power', cfg.power); }
+    var power = patch && P.validPower(patch.power);
+    if (power) { cfg.power = power; save('power', cfg.power); }
     // ... and, after the post-deployment setup or the demo, the desktop to launch (decision 0014).
     var launch = patch && P.launchTarget(patch.launch);
     if (launch) { cfg.launch = launch; save('launch', launch); }

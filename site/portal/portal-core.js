@@ -97,6 +97,54 @@
     }
     return out;
   }
+  // A pasted state line is untrusted input (decision 0007), and its context and check data go into commands
+  // that run as subscription Owner. Only these fields of a context reach the config: the settings above, and
+  // sizing, power and launch, each checked field by field. Anything else a context carries (a repo URL, a ref,
+  // a run to record) is dropped, so a crafted paste can't point the next block at other code.
+  var VM_SIZE = /^Standard_[A-Za-z0-9_-]{2,40}$/;
+  function wholeIn(v, min, max) { var n = Number(v); return typeof v !== 'boolean' && v !== '' && v !== null && isFinite(n) && Math.floor(n) === n && n >= min && n <= max ? n : null; }
+  function validSizing(s) {
+    if (!s || typeof s !== 'object') return null;
+    var o = { hosts: wholeIn(s.hosts, 1, MAX_HOSTS), vmSize: VM_SIZE.test(String(s.vmSize || '')) ? String(s.vmSize) : null,
+      maxSessions: wholeIn(s.maxSessions, 1, 999), profileQuotaGiB: wholeIn(s.profileQuotaGiB, 1, 102400) };
+    if (o.hosts === null || o.vmSize === null || o.maxSessions === null || o.profileQuotaGiB === null) return null;
+    var h = Number(s.activeHoursPerWeek);
+    if (s.activeHoursPerWeek !== undefined && s.activeHoursPerWeek !== null && isFinite(h) && h >= 1 && h <= 168) o.activeHoursPerWeek = h;
+    return o;
+  }
+  function validPower(p) {
+    if (!p || typeof p !== 'object' || !/^(([01][0-9]|2[0-3]):[0-5][0-9]|none)$/.test(String(p.autoShutdownTime || ''))) return null;
+    return { startVmOnConnect: p.startVmOnConnect !== false && p.startVmOnConnect !== 'false', autoShutdownTime: String(p.autoShutdownTime) };
+  }
+  function contextSettings(context) {
+    var patch = {}, rejected = [];
+    SETTING_NAMES.forEach(function (k) { if (context && Object.prototype.hasOwnProperty.call(context, k)) patch[k] = context[k]; });
+    var checked = validSettings(patch);
+    if (context && context.sizing !== undefined && context.sizing !== null) { var sz = validSizing(context.sizing); if (sz) checked.settings.sizing = sz; else checked.rejected.push('sizing'); }
+    if (context && context.power !== undefined && context.power !== null) { var pw = validPower(context.power); if (pw) checked.settings.power = pw; else checked.rejected.push('power'); }
+    var launch = context && launchTarget(context.launch);
+    if (launch) checked.settings.launch = launch;
+    return checked;
+  }
+  // Values from a state line's other fields that go into a command, checked where they are read.
+  var PASTED = {
+    deploymentName: /^[A-Za-z0-9._()-]{1,64}$/,
+    runId: /^[A-Za-z0-9._-]{1,80}$/,
+    quotaName: /^[A-Za-z0-9_.-]{1,80}$/
+  };
+  function pasted(kind, v) { return typeof v === 'string' && (kind === 'location' ? SETTINGS.location : kind === 'user' ? SETTINGS.testUserUpn : PASTED[kind]).test(v) ? v : null; }
+  function pastedList(kind, list) { return (Array.isArray(list) ? list : []).filter(function (v) { return pasted(kind, v) !== null; }); }
+  // Quota items from a preflight: a region, a quota name and whole numbers, or the item is left out.
+  function pastedQuota(d) {
+    if (!d || !pasted('location', d.location) || !pasted('quotaName', d.quotaName)) return null;
+    var o = { location: d.location, quotaName: d.quotaName }, ok = true;
+    ['limit', 'used', 'needed'].forEach(function (k) { var n = wholeIn(d[k] === undefined || d[k] === null ? 0 : d[k], 0, 1000000); if (n === null) ok = false; o[k] = n; });
+    return ok ? o : null;
+  }
+  // Another landing zone the post-deployment preflight found: only its name prefix and environment.
+  function pastedLandingZone(f) {
+    return f && SETTINGS.namePrefix.test(String(f.namePrefix || '')) && SETTINGS.environment.test(String(f.environment || '')) ? { namePrefix: f.namePrefix, environment: f.environment } : null;
+  }
   function repoDir(cfg) { return (cfg.repoUrl || DEFAULTS.repoUrl).replace(/\/+$/, '').split('/').pop(); }
 
   // ---------------------------------------------------------------- sizing (decision 0010)
@@ -240,7 +288,9 @@
   // Every command is a self-contained Cloud Shell (PowerShell) block: sessions are ephemeral,
   // so each starts by cloning or updating the repo and moving into it (build/lessons/0015).
   function preamble(cfg) {
-    var dir = '~/' + repoDir(cfg), url = cfg.repoUrl.replace(/\/+$/, '') + '.git';
+    // The page checks the repo URL it puts in the config; a URL that isn't a plain GitHub repo falls back to this repo.
+    var repo = isRepoUrl(cfg.repoUrl) ? cfg.repoUrl : DEFAULTS.repoUrl;
+    var dir = '~/' + repoDir({ repoUrl: repo }), url = repo.replace(/\/+$/, '') + '.git';
     var lines = ['if (-not (Test-Path ' + dir + ')) { git clone ' + url + ' ' + dir + ' }'];
     // A published copy pins its repo and ref: an existing clone is pointed at that repo and checked out at that ref.
     if (isRef(cfg.ref)) lines.push('Set-Location ' + dir + '; git remote set-url origin ' + url + '; git fetch -q --tags origin; git checkout -q ' + psQuote(cfg.ref));
@@ -648,20 +698,20 @@
         note('Run the preflight again with -Fix', [others.length > 0 && hasFixable(others) ? 'It creates the missing groups and service principal and registers providers and features, waiting until they finish.' : '',
           kvFix ? 'It recovers the deleted Key Vault (' + kv[0].data.vaults[0] + ') into its resource group, so the deployment reuses it and keeps the name prefix.' : ''].filter(Boolean).join(' '), cmd.predeploy(cfg, true));
       if (hp.length) {
-        var regions = (hp[0].data && hp[0].data.regions) || [];
-        var pick = (ctx.rankedRegions || []).filter(function (r) { return regions.indexOf(r) >= 0; })[0] || regions[0];
+        var regions = pastedList('location', hp[0].data && hp[0].data.regions);
+        var pick = pastedList('location', ctx.rankedRegions).filter(function (r) { return regions.indexOf(r) >= 0; })[0] || regions[0];
         if (pick) {
           regionChange = true;
           note('Choose a region that offers AVD host pools', cfg.location + ' does not offer AVD host pools. ' + (ctx.rankedRegions ? 'The closest one that does, by your latency test, is ' + pick + '.' : 'For example ' + pick + '; run the latency test in step 1 to pick the closest.'), cmd.predeploy(merge(cfg, { location: pick }), false));
         }
       }
       if (lzr.length) {
-        var where = (lzr[0].data && lzr[0].data.deployedIn || [])[0];
+        var where = pastedList('location', lzr[0].data && lzr[0].data.deployedIn)[0];
         if (where) regionChange = true;
         note('Use the region the landing zone is already in', 'Resource groups cannot move region. Check against ' + where + ', or remove the existing landing zone first.', where ? cmd.predeploy(merge(cfg, { location: where }), false) : '');
       }
       if (quota.length)
-        note('Request more vCPU quota', quota.map(function (q) { return q.check + ': ' + q.detail; }).join('; ') + '. Small increases are usually approved within minutes; if it goes to review, follow it in Portal > Quotas > My requests. Then run the preflight again.', cmd.quota(quota.map(function (q) { return q.data || {}; }).filter(function (d) { return d.quotaName; })));
+        note('Request more vCPU quota', quota.map(function (q) { return q.check + ': ' + q.detail; }).join('; ') + '. Small increases are usually approved within minutes; if it goes to review, follow it in Portal > Quotas > My requests. Then run the preflight again.', cmd.quota(quota.map(function (q) { return pastedQuota(q.data); }).filter(Boolean)));
       if (kv.length && !kvFix)
         note('Resolve the soft-deleted Key Vault', 'A deleted, purge-protected vault (' + ((kv[0].data && kv[0].data.vaults) || []).join(', ') + ') still holds the vault name for 90 days. ' + [kv[0].detail, kv[0].remediation].filter(Boolean).join(' ') + ' (namePrefix is in ' + cfg.parameterFile + '.)', '');
       if (others.length && !fixFirst)
@@ -682,7 +732,7 @@
         return { step: 'deploy', actions: a };
       }
       if (state.status === 'started') {
-        note('Check on the deployment', 'The output ends while the deployment was running. It keeps running in Azure even if Cloud Shell disconnected. Run this and paste the result; when it shows Succeeded, the post-deployment setup is next. Do not start the deployment again while it runs.', cmd.deployStatus(cfg, state.context && state.context.deploymentName));
+        note('Check on the deployment', 'The output ends while the deployment was running. It keeps running in Azure even if Cloud Shell disconnected. Run this and paste the result; when it shows Succeeded, the post-deployment setup is next. Do not start the deployment again while it runs.', cmd.deployStatus(cfg, pasted('deploymentName', state.context && state.context.deploymentName)));
         return { step: 'deploy', actions: a };
       }
       var known = armErrors(ctx.text), codes = armCodes(ctx.text);
@@ -690,7 +740,7 @@
         known.forEach(function (e) { note(e.code + ': ' + e.what, e.fix, e.action === 'redeploy' ? cmd.deploy(cfg) : cmd.predeploy(cfg, e.action === 'predeploy-fix')); });
       }
       else {
-        note('Find out what failed', 'The deployment failed' + (codes.length ? ' (' + codes.join(', ') + ')' : '') + '. This lists the failed resources and their error codes; paste the result here.', cmd.deployStatus(cfg, state.context && state.context.deploymentName));
+        note('Find out what failed', 'The deployment failed' + (codes.length ? ' (' + codes.join(', ') + ')' : '') + '. This lists the failed resources and their error codes; paste the result here.', cmd.deployStatus(cfg, pasted('deploymentName', state.context && state.context.deploymentName)));
       }
       return { step: 'deploy', actions: a };
     }
@@ -698,7 +748,7 @@
     if (S === 'postdeploy') {
       var missing = byId(failures, 'lz-missing');
       if (missing.length) {
-        var found = (missing[0].data && missing[0].data.found) || [];
+        var found = (Array.isArray(missing[0].data && missing[0].data.found) ? missing[0].data.found : []).map(pastedLandingZone).filter(Boolean);
         if (found.length) note('Check the landing zone that exists', 'No landing zone named ' + cfg.namePrefix + '-' + cfg.environment + ' in this subscription, but there is ' + found.map(function (f) { return f.namePrefix + '-' + f.environment; }).join(', ') + '.', cmd.postdeploy(merge(cfg, found[0]), false));
         else note('Deploy the landing zone first', 'Nothing is deployed under this name in this subscription. Start with the pre-deployment preflight (or switch subscription with Set-AzContext).', cmd.predeploy(cfg, false));
         return { step: found.length ? 'postdeploy' : 'predeploy', actions: a };
@@ -752,7 +802,7 @@
 
     if (S === 'verify') {
       // Test-AvdUserConnection.ps1 (decision 0014). It fails closed: only "verified" is a pass.
-      var vc = state.context || {}, conns = vc.connections || [], again = { user: vc.user, demo: vc.demo };
+      var vc = state.context || {}, conns = vc.connections || [], again = { user: pasted('user', vc.user), demo: vc.demo === true };
       var connected = conns.filter(function (c) { return c && c.connectedAt; })[0];
       var who = vc.user || 'you';
       if (state.status === 'verified') {
@@ -809,7 +859,7 @@
       // Get-AvdRunStatus.ps1 (run recorder spec section 4): Azure says where the run stands; the journal only adds detail.
       var rc = state.context || {}, basis = rc.basis ? ' ' + rc.basis : '';
       if (rc.lastStage === 'deploy' && rc.lastStatus === 'running') {
-        note('Wait for the deployment', 'Azure shows the deployment still running.' + basis + ' Do not start it again. Check on it with this, and paste the result when it shows Succeeded or Failed.', cmd.deployStatus(cfg, rc.deploymentName));
+        note('Wait for the deployment', 'Azure shows the deployment still running.' + basis + ' Do not start it again. Check on it with this, and paste the result when it shows Succeeded or Failed.', cmd.deployStatus(cfg, pasted('deploymentName', rc.deploymentName)));
         return { step: 'deploy', actions: a };
       }
       if (state.status !== 'ready' || !rc.nextStage) {
@@ -817,7 +867,7 @@
         return { step: null, actions: a };
       }
       if (rc.lastStage === 'deploy' && rc.lastStatus === 'failed') {
-        note('Find out what failed', 'The last deployment failed.' + basis + ' This lists the failed resources and their error codes; paste the result here.', cmd.deployStatus(cfg, rc.deploymentName));
+        note('Find out what failed', 'The last deployment failed.' + basis + ' This lists the failed resources and their error codes; paste the result here.', cmd.deployStatus(cfg, pasted('deploymentName', rc.deploymentName)));
         return { step: 'deploy', actions: a };
       }
       var NEXT = { predeploy: 'Run the pre-deployment preflight', deploy: 'Deploy the landing zone', postdeploy: 'Run the post-deployment setup', signin: 'Deploy the demo and sign in', verify: 'Check access' };
@@ -872,9 +922,9 @@
       if (rv.test) {
         if (rv.mode === 'plan' && state.status === 'ready') note('Run the recovery test when you are ready', 'The plan above restores the newest recovery point into a new storage account and prints its cost. Nothing was created. Add -Go to the same command to run it, and remove it after with -Cleanup.', cmd.recoveryTest(cfg) + ' -Go');
         else if (rv.mode === 'plan') note('Not ready for a recovery test', ((failures[0] || {}).detail || '') + ' Nothing was created.', '');
-        else if (state.status === 'passed') note('Remove the test copy', 'The restore passed; the measured RPO and restore time are in the run record. Remove the test copy now so it stops billing.', cmd.recoveryTest(cfg) + ' -Cleanup -RunId ' + psQuote(rv.runId || ''));
+        else if (state.status === 'passed') note('Remove the test copy', 'The restore passed; the measured RPO and restore time are in the run record. Remove the test copy now so it stops billing.', cmd.recoveryTest(cfg) + ' -Cleanup -RunId ' + psQuote(pasted('runId', rv.runId) || ''));
         else if (state.status === 'done') note('Check the recovery status again', 'The test copy is removed. The status check now counts the passed test.', cmd.recoveryStatus(cfg, opts));
-        else note('Remove the test, then look at the error', ((failures[0] || {}).detail || 'The test did not pass.') + ' Remove what it created first, so nothing keeps billing.', rv.runId ? cmd.recoveryTest(cfg) + ' -Cleanup -RunId ' + psQuote(rv.runId) : '');
+        else note('Remove the test, then look at the error', ((failures[0] || {}).detail || 'The test did not pass.') + ' Remove what it created first, so nothing keeps billing.', pasted('runId', rv.runId) ? cmd.recoveryTest(cfg) + ' -Cleanup -RunId ' + psQuote(pasted('runId', rv.runId)) : '');
         return { step: 'recovery', actions: a };
       }
       if (state.status === 'met') {
@@ -925,7 +975,7 @@
 
     // The context goes into the next commands, so its settings are checked like typed ones (red team PH-4);
     // the commit it carries is compared with this portal's, not merged.
-    var checked = validSettings(state && state.context);
+    var checked = contextSettings(state && state.context);
     var stateCommit = state && state.context && isCommit(state.context.commit) ? String(state.context.commit).toLowerCase() : null;
     delete checked.settings.commit;
     if (state && state.context) cfg = merge(cfg, checked.settings);
@@ -1102,7 +1152,7 @@
     return a;
   }
 
-  return { STEPS: STEPS, newRunId: newRunId, recording: recording, recordActions: recordActions, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, isCommit: isCommit, siteConfig: siteConfig, SETTINGS: SETTINGS, SETTING_NAMES: SETTING_NAMES, validSettings: validSettings, versionNote: versionNote, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_HOSTS: MAX_HOSTS, computePool: computePool, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
+  return { STEPS: STEPS, newRunId: newRunId, recording: recording, recordActions: recordActions, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, isCommit: isCommit, siteConfig: siteConfig, SETTINGS: SETTINGS, SETTING_NAMES: SETTING_NAMES, validSettings: validSettings, contextSettings: contextSettings, validSizing: validSizing, validPower: validPower, versionNote: versionNote, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_HOSTS: MAX_HOSTS, computePool: computePool, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
     PLATFORMS: PLATFORMS, RUNIN_DEFAULT: RUNIN_DEFAULT, PLACES: PLACES, validRunIn: validRunIn, isDefaultRunIn: isDefaultRunIn, scriptsIn: scriptsIn, support: support, forRunIn: forRunIn,
     REACHABILITY_HOSTS: REACHABILITY_HOSTS, rateLatency: rateLatency, classifyReachability: classifyReachability, launchTarget: launchTarget, launchUrl: launchUrl };
 });
