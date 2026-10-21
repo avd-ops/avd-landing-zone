@@ -181,7 +181,8 @@ function Set-GalleryInUse {
   # Image retention never deletes a version a pool uses (spec section 4.2). Best effort: the gallery may
   # be in a subscription this identity can only read.
   if (-not $Version -or -not $PSCmdlet.ShouldProcess((Get-AvdImageLabel $Version), 'Tag in use')) { return }
-  $tag = @{ "avdlz-in-use-$Environment-$($lz.NamePrefix)" = 'true' }
+  # One marker per pool: a shared gallery can serve same-named landing zones in other subscriptions.
+  $tag = @{ "avdlz-in-use-$Environment-$($lz.NamePrefix)-$($ctx.Subscription.Id)" = 'true' }
   try { Invoke-AvdArm -Method PATCH -Path "$Version/providers/Microsoft.Resources/tags/default?api-version=$apiTags" -Body @{ operation = $(if ($Clear) { 'Delete' } else { 'Merge' }); properties = @{ tags = $tag } } | Out-Null }
   catch { Add-AvdCheckResult 'Rotation' "In-use tag on $(Get-AvdImageLabel $Version)" 'Warn' -Id 'rotation-in-use-tag' -Detail "$_" -Remediation "Set or clear the tag $($tag.Keys) on the version by hand, so image retention keeps or frees it." }
 }
@@ -195,6 +196,12 @@ $context.from = ''; $context.to = ''
 # report what Azure said). The state on the pool is untouched, so running this again continues.
 try {
   # ---------------------------------------------------------------- start, or roll back
+  # Auto shutdown's lock (decision 0011) wins over a rotation in progress too: no host reopens or deploys.
+  if ($state -and $tags['avdlz-power-lock']) {
+    Add-AvdCheckResult 'Rotation' 'Host pool not locked by auto shutdown' 'Fail' -Id 'rotation-locked' -Detail "Locked: $($tags['avdlz-power-lock']). The rotation stays at phase $($state.phase)." -Remediation 'Run Resume first (Invoke-AvdPowerAction.ps1 -Action Resume), then this again; it continues.'
+    $context.from = "$($state.from)"; $context.to = "$($state.to)"; $context.phase = "$($state.phase)"
+    Complete-Rotation 'refused' 1
+  }
   if ($Rollback -and $state) {
     Write-AvdSection 'Rollback'
     # A deployment still running would go on creating the hosts the rollback removes.
@@ -258,6 +265,14 @@ try {
     $step = Get-AvdRotationStep -State $state -SessionHosts $hosts -ExpectedCount $expected -Now $now -LogOffAtDeadline:$LogOffAtDeadline -DeploymentState $deployState
     $context.phase = "$($state.phase)"
     Write-Host "  [$($state.phase)] $($step.Detail)" -ForegroundColor DarkGray
+    # A Resume after a budget lock reopens every host: the retiring generation drains again, without a
+    # new message, deadline or notice.
+    if ($state.phase -in 'Wait', 'Remove') {
+      foreach ($h in @($hosts | Where-Object { $_.Generation -eq "$($state.from)" -and $_.AllowNewSession })) {
+        Write-Host "  Draining $($h.VmName) again (it was reopened)" -ForegroundColor DarkYellow
+        $null = Set-HostDrain $h $true
+      }
+    }
     switch ($step.Action) {
       'deploy' {
         if ($deployed) {
@@ -337,7 +352,8 @@ try {
         foreach ($h in @($hosts | Where-Object { $_.Generation -eq "$($state.from)" -and $_.Sessions })) {
           if ($PSCmdlet.ShouldProcess($h.VmName, 'Final notice')) { Send-HostMessage $h 'Signing out in 15 minutes' 'This desktop is being replaced. Save your work now: you will be signed out in 15 minutes, and can sign in again straight away.' }
         }
-        $state | Add-Member -NotePropertyName notice -NotePropertyValue ($now.ToString('yyyy-MM-ddTHH:mmZ')) -Force
+        # When the last notice went out, to the second: sign-out waits the full notice from then.
+        $state | Add-Member -NotePropertyName notice -NotePropertyValue ([datetime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')) -Force
         Save-State $state
         Add-AvdCheckResult 'Rotation' 'Final notice sent' 'Warn' -Id 'rotation-waiting' -Detail $step.Detail -Remediation 'Run this again with -LogOffAtDeadline after 15 minutes.'
         Complete-Rotation 'waiting' 0

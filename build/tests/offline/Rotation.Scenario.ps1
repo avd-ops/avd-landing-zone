@@ -86,10 +86,21 @@ Show-Rotation 'hosts-wait'
 Add-Generation 'Available'
 Invoke-ScenarioStep 'drain' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
 Show-Rotation 'drain'
+Write-Host "RESULT gallery-key $($global:St.rotation.galleryKey)"
 # After the deadline: nobody is signed out without -LogOffAtDeadline; with it, a notice, then sign-out.
 Set-RotationTime 'deadline'
 Invoke-ScenarioStep 'deadline' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
 Show-Rotation 'deadline'
+# A budget lock between runs: the rotation waits for Resume. Resume reopens every host; the next run drains
+# the retiring ones again.
+$global:St.rotation.tags['avdlz-power-lock'] = 'budget 2026-10-21T03:00:00Z'
+Invoke-ScenarioStep 'locked' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -Rollback }
+Show-Rotation 'locked'
+$global:St.rotation.tags.Remove('avdlz-power-lock')
+foreach ($n in 'avdlzdsh-001', 'avdlzdsh-002') { $global:St.rotation.hosts[$n].allowNew = $true }
+$global:St.rotation.excluded = @()
+Invoke-ScenarioStep 'resumed' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p }
+Show-Rotation 'resumed'
 Invoke-ScenarioStep 'notice' { & ./scripts/ops/Invoke-AvdHostRotation.ps1 @p -LogOffAtDeadline }
 Show-Rotation 'notice'
 Set-RotationTime 'notice'

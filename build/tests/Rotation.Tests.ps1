@@ -47,6 +47,14 @@ Describe 'The rotation tag' {
     $o = ConvertFrom-AvdRotationTag $tag
     $o.phase | Should -Be 'Wait'; $o.to | Should -Be 'b'; $o.rollback | Should -BeFalse
   }
+  It 'fits the longest state: the deployment name only while deploying, then both timestamps' {
+    $by = '0' * 40; $name = 'd' * 64
+    $deploy = ConvertTo-AvdRotationTag @{ phase = 'Deploy'; from = 'a'; to = 'b'; version = '2026.1101.1'; deploy = $name; rollback = $false; by = $by }
+    $deploy | Should -Match $name
+    $wait = ConvertTo-AvdRotationTag @{ phase = 'Wait'; from = 'a'; to = 'b'; version = '2026.1101.1'; deploy = $name; deadline = '2026-10-23T12:00Z'; notice = '2026-10-23T12:00:59Z'; rollback = $true; by = $by }
+    $wait | Should -Not -Match '"deploy"'
+    $wait.Length | Should -BeLessOrEqual 256
+  }
   It 'leaves out empty values, so the original generation (none) is simply absent' {
     $tag = ConvertTo-AvdRotationTag @{ phase = 'Deploy'; from = ''; to = 'a'; version = '2026.1101.1' }
     $tag | Should -Not -Match '"from"'
@@ -144,6 +152,10 @@ Describe 'Each phase''s next step' {
     $noticed = & $s 'Wait' @{ deadline = '2026-10-20T11:00Z'; notice = '2026-10-20T11:50Z' }
     (Get-AvdRotationStep -State $noticed -SessionHosts $h -Now $now -LogOffAtDeadline).Action | Should -Be 'wait-sessions'
     (Get-AvdRotationStep -State $noticed -SessionHosts $h -Now $now.AddMinutes(10) -LogOffAtDeadline).Action | Should -Be 'logoff'
+    # The notice is recorded to the second, after the last message went out: the full 15 minutes count from then.
+    $late = & $s 'Wait' @{ deadline = '2026-10-20T11:00Z'; notice = '2026-10-20T12:00:59Z' }
+    (Get-AvdRotationStep -State $late -SessionHosts $h -Now ([datetime]'2026-10-20T12:15:30Z').ToUniversalTime() -LogOffAtDeadline).Action | Should -Be 'wait-sessions'
+    (Get-AvdRotationStep -State $late -SessionHosts $h -Now ([datetime]'2026-10-20T12:16:00Z').ToUniversalTime() -LogOffAtDeadline).Action | Should -Be 'logoff'
   }
   It 'treats the original generation (none) as its own generation' {
     $h = @((New-SessionHost 'avdlzdsh-001' '' -Sessions 0 -Allow $false), (New-SessionHost 'avdlzdsha-001' 'a'))

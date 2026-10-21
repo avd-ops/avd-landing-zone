@@ -102,7 +102,7 @@ The two build subnets go into the **build environment's** spoke (`AVD_IMAGE_BUIL
   - **Replica count (red-team M6):** one per 20 hosts created at once, at least 1. It's computed from the largest pool's `sessionHostCount` in that region, because rotation creates a whole pool's new generation at once (§6.5).
 - **Subscriptions:** when environments sit in different subscriptions, the images deployment grants Reader on the gallery to each environment's deploy identity. The preflight's `-SessionHostImageId` check (§6.1) verifies, from that environment's identity, that it can read the version and that the version is replicated to that environment's region.
 - **Retention (red-team H5):** the last three validated versions plus anything newer. An `endOfLifeDate` six months out is set at build. The build identity can't see any landing zone, so use is recorded on the version itself:
-  - the rotation script, running with the landing zone's rights, sets `avdlz-in-use-<env>-<pool>=true` on a version when its Deploy phase succeeds, and clears that tag on the version it removes;
+  - the rotation script, running with the landing zone's rights, sets `avdlz-in-use-<env>-<pool>-<subscription ID>=true` on a version when its Deploy phase succeeds, and clears that tag on the version it removes;
   - `image-build.yml` never deletes a version with any `avdlz-in-use-*` tag, and always keeps the newest validated version **not** in use, as the rollback target.
 
 ## 5. Build

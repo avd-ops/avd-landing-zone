@@ -64,6 +64,7 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction)
     }
     if ($Method -eq 'PATCH' -and $Path -match '/versions/([^/]+)/providers/Microsoft.Resources/tags/default\?') {
       $ro.galleryTags += "$(($Payload | ConvertFrom-Json).operation) $($Matches[1])"
+      $ro.galleryKey = @(($Payload | ConvertFrom-Json).properties.tags.PSObject.Properties.Name)[0]
       return & $ok @{}
     }
     if ($Method -eq 'GET' -and $Path -match "^$hpRe/sessionHosts\?") {

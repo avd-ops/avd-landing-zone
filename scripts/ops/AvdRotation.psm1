@@ -66,6 +66,8 @@ function ConvertTo-AvdRotationTag {
   $o = [ordered]@{}
   foreach ($k in 'phase', 'from', 'to', 'version', 'deadline', 'notice', 'deploy', 'rollback', 'by') {
     $v = if ($State -is [System.Collections.IDictionary]) { $State[$k] } else { $State.$k }
+    # The deployment's name is only needed while deploying; dropping it later keeps room for the notice.
+    if ($k -eq 'deploy' -and "$(if ($State -is [System.Collections.IDictionary]) { $State['phase'] } else { $State.phase })" -ne 'Deploy') { continue }
     if ($null -ne $v -and "$v" -ne '') { $o[$k] = if ($v -is [bool]) { $v } else { "$v" } }
   }
   if ($o.by -and $o.by.Length -gt 40) { $o.by = $o.by.Substring(0, 40) }
