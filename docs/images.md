@@ -79,9 +79,9 @@ The last line prints the build identity's client ID, needed in step 4. Use the s
 
 ### 4. The GitHub Environment `images`
 
-In the repository: **Settings → Environments → New environment → `images`**. Add these variables (not secrets; the identity uses OIDC, so nothing secret is stored):
+In the repository: **Settings → Environments → New environment → `images`**. Add these as environment **secrets**. None of them grants access (the identity uses OIDC), but the repo is public and an Actions log shows a step's inputs unmasked unless they are secrets:
 
-| Variable | Value |
+| Secret | Value |
 |---|---|
 | `AZURE_CLIENT_ID` | The client ID from step 3 |
 | `AZURE_TENANT_ID` | Your tenant ID |

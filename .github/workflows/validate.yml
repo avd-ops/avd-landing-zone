@@ -292,9 +292,9 @@ jobs:
       contents: read
       id-token: write
     env:
-      AVD_USERS_GROUP_ID: ${{ vars.AVD_USERS_GROUP_ID }}
-      AVD_ADMINS_GROUP_ID: ${{ vars.AVD_ADMINS_GROUP_ID }}
-      AVD_SERVICE_PRINCIPAL_ID: ${{ vars.AVD_SERVICE_PRINCIPAL_ID }}
+      AVD_USERS_GROUP_ID: ${{ secrets.AVD_USERS_GROUP_ID }}
+      AVD_ADMINS_GROUP_ID: ${{ secrets.AVD_ADMINS_GROUP_ID }}
+      AVD_SERVICE_PRINCIPAL_ID: ${{ secrets.AVD_SERVICE_PRINCIPAL_ID }}
       AVD_LOCAL_ADMIN_PASSWORD: ${{ secrets.AVD_LOCAL_ADMIN_PASSWORD || 'WhatIf-placeholder-only-1!' }}
       AVD_LOCATION: ${{ vars.AZURE_LOCATION }}
     steps:

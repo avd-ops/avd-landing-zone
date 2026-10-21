@@ -77,12 +77,14 @@ Create GitHub Environments `dev` and `prod`, and add **required reviewers** to `
 | Secret | `AZURE_SUBSCRIPTION_ID` | landing zone subscription |
 | Secret | `AVD_LOCAL_ADMIN_PASSWORD` | Optional break-glass password; if unset, `deploy.sh` generates a random one |
 | Variable | `AZURE_LOCATION` | The region the landing zone is deployed to, e.g. `northcentralus`. It overrides the parameter file's default through `AVD_LOCATION` |
-| Variable | `AVD_USERS_GROUP_ID` | group object ID |
-| Variable | `AVD_ADMINS_GROUP_ID` | group object ID |
-| Variable | `AVD_SERVICE_PRINCIPAL_ID` | `az ad sp show --id 9cdead84-a844-4324-93f2-b2e6bb768d07 --query id -o tsv` |
-| Variable | `AVD_ALERT_EMAIL` | optional |
+| Secret | `AVD_USERS_GROUP_ID` | group object ID |
+| Secret | `AVD_ADMINS_GROUP_ID` | group object ID |
+| Secret | `AVD_SERVICE_PRINCIPAL_ID` | `az ad sp show --id 9cdead84-a844-4324-93f2-b2e6bb768d07 --query id -o tsv` |
+| Secret | `AVD_ALERT_EMAIL` | optional |
 | Variable | `AVD_MONTHLY_BUDGET` | optional |
 | Variable (repo) | `AZURE_WHATIF_ENABLED` | `true` to enable the PR what-if |
+
+IDs and email addresses are secrets, not variables, even though none of them grants access: the repo is public, and an Actions log shows every step's inputs and environment, masked only when the value is a secret.
 
 ## Running the checks locally
 
