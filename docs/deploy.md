@@ -69,7 +69,7 @@ To size the host pool, use the portal's **Size the host pool** step, then its **
 
 ### From a migration factory manifest
 
-When the design comes from an assessment ([avd-readiness-stratusphere](https://github.com/nickprignano/avd-readiness-stratusphere)), it arrives as an approved target-state manifest (`avd-target-state/v1`, contract C14 in [avd-second-brain](https://github.com/nickprignano/avd-second-brain/blob/main/docs/contracts.md)) with its approval file next to it. The reader turns one host pool of it into the two commands above, with the sizing and power settings as flags, and changes nothing in Azure:
+When the design comes from an assessment, it arrives as an approved target-state manifest (`avd-target-state/v1`, contract C14 in [avd-second-brain](https://github.com/nickprignano/avd-second-brain/blob/main/docs/contracts.md)) with its approval file next to it. The reader turns one host pool of it into the two commands above, with the sizing and power settings as flags, and changes nothing in Azure:
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/nickprignano/avd-landing-zone.git ~/avd-landing-zone }
