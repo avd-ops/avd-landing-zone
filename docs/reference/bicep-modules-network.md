@@ -22,6 +22,8 @@
 | `deployImageBuildSubnets` | bool | `false` | Add the image build subnets (snet-image-build, snet-image-aci) for the golden image pipeline. Only the build environment needs them. |
 | `imageBuildSubnetPrefix` | string | `'(address in the source)'` |  |
 | `imageBuildAciSubnetPrefix` | string | `'(address in the source)'` | Image build container subnet, delegated to Azure Container Instances (a /27). |
+| `deployJumpboxSubnet` | bool | `false` | Add the operator jumpbox subnet (snet-jumpbox, decision 0018). |
+| `jumpboxSubnetPrefix` | string | `'(address in the source)'` |  |
 
 ## Outputs
 
@@ -32,3 +34,4 @@
 | `privateEndpointSubnetResourceId` | string |  |
 | `imageBuildSubnetResourceId` | string |  |
 | `imageBuildAciSubnetResourceId` | string |  |
+| `jumpboxSubnetResourceId` | string |  |

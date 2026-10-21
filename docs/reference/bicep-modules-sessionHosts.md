@@ -25,6 +25,8 @@
 | `usersGroupObjectId` | string |  |  |
 | `adminsGroupObjectId` | string |  |  |
 | `avdServicePrincipalObjectId` | string |  |  |
+| `autoShutdownTime` | string | `''` | Daily shutdown time (HHmm, in autoShutdownTimeZone) for these hosts; empty = none. The demo sets it: the landing zone auto shutdown covers only its own host pool (avd-second-brain decision 0017). |
+| `autoShutdownTimeZone` | string | `'UTC'` |  |
 
 ## Outputs
 

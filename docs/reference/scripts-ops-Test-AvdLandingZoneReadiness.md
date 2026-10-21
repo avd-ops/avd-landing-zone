@@ -28,7 +28,8 @@ Preflight for the AVD landing zone, in two stages: -PreDeployment   before deplo
 | `-SkipNtfs` | switch | no |  |  |
 | `-WellArchitected` | switch | no |  | Review the deployed landing zone against the Well-Architected Framework (warnings only). |
 | `-SkipPSRule` | switch | no |  | With -WellArchitected: skip PSRule for Azure on the live resources (it installs a module and takes a minute or two). |
-| `-SubscriptionId` | string | no |  | ---- Both ---- |
+| `-RecoveryLocation` | string | no | `$env:AVD_RECOVERY_LOCATION` | ---- Both ---- Recovery region to check (build/specs/recovery-spec.md). Empty: AVD_RECOVERY_LOCATION, which deploy.sh and the parameter files read. |
+| `-SubscriptionId` | string | no |  |  |
 | `-Fix` | switch | no |  | Remediate instead of only reporting. |
 | `-Force` | switch | no |  | Skip the per-policy confirmation for Conditional Access changes when fixing. |
 | `-SkipTenant` | switch | no |  |  |

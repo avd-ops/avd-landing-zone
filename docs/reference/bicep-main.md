@@ -34,6 +34,9 @@ Entra ID-only, Intune-managed, private-by-default Azure Virtual Desktop landing 
 | `sessionHostNamePrefix` | string | `take('${toLower(replace(namePrefix, '-', ''))}${take(environmentName, 1)}sh', 11)` | Session host name prefix (max 11 chars; a 3-digit index is appended to stay within the 15-char Windows limit). |
 | `availabilityZones` | int[] | `(see the file)` | Availability zones to spread session hosts across. Empty array = regional (no zones). |
 | `sessionHostImage` | object | `(see the file)` | Marketplace image for session hosts. Replace with an Azure Compute Gallery image when you have an image pipeline. |
+| `sessionHostImageId` | string | `''` | Azure Compute Gallery image version resource ID for session hosts, from the image pipeline (build/specs/image-pipeline-spec.md section 6.1). A version, never a definition or latest, so nothing changes software silently. Empty: the marketplace image above. |
+| `sessionHostGeneration` | string | `''` | Host generation for blue/green rotation: empty keeps the original host names; a or b gives take(sessionHostNamePrefix, 10) + the generation, so the two generations never collide. Only the rotation script changes it. |
+| `hostPoolStateTags` | object | `{}` |  |
 | `maxSessionLimit` | int | `8` | Maximum sessions per host (breadth-first). Size to your workload. |
 | `encryptionAtHost` | bool | `true` | Enable encryption at host. Requires the Microsoft.Compute/EncryptionAtHost feature on the subscription (deploy.sh registers it). |
 | `localAdminUsername` | string | `'avdbreakglass'` | Break-glass local administrator name. Day-to-day admin access is via Entra ID (VM Administrator Login). |
@@ -45,6 +48,7 @@ Entra ID-only, Intune-managed, private-by-default Azure Virtual Desktop landing 
 | `fslogixProfileSizeMiB` | int | `30720` | Maximum size of each FSLogix profile container in MiB. |
 | `enableProfileBackup` | bool | `true` | Back up the profile share with Azure Backup. |
 | `profileBackupRetentionDays` | int | `30` | Daily backup retention for the profile share, in days. |
+| `profileBackupTier` | string | `'Snapshot'` | Profile backup tier (build/specs/recovery-spec.md). Snapshot: snapshots kept in the share, lost with it. Vaulted: copies kept in the Recovery Services vault, the offsite copy; Azure Backup then needs storage account key access, so the profile storage account allows it (SMB stays Kerberos-only). |
 | `startVmOnConnect` | bool | `true` | Start a deallocated session host when a user connects (Start VM on Connect). Off: users can only connect while the scaling plan keeps hosts running, and hosts run longer (cost). |
 | `scalingTimeZone` | string | `'UTC'` | Time zone for the autoscale schedule (Windows time zone ID). |
 | `logRetentionDays` | int | `90` | Log Analytics retention in days. |
@@ -59,10 +63,17 @@ Entra ID-only, Intune-managed, private-by-default Azure Virtual Desktop landing 
 | `autoShutdownBudgetAction` | string | `'Lock'` | What a budget alert does: Lock keeps every host off until someone runs Resume; Stop deallocates idle hosts; None = no budget trigger. Needs the budget (monthlyBudgetAmount, budgetStartDate, alertEmailAddresses). |
 | `autoShutdownBudgetPercent` | int | `100` | Percentage of the monthly budget (actual cost) that triggers autoShutdownBudgetAction. |
 | `autoShutdownRunbookUri` | string | `'https://raw.githubusercontent.com/nickprignano/avd-landing-zone/master/scripts/automation/Invoke-AvdPowerAction.ps1'` | Where Automation downloads the runbook from. deploy.sh pins it to the commit being deployed (AVD_RUNBOOK_URI). |
+| `deployJumpbox` | bool | `false` | Add an operator jumpbox: a small Linux VM in the spoke with the Cloud Shell toolchain, reached in the browser through Azure Bastion Developer (no charge, no public IP). Off by default. Bastion Developer exists only in some regions (Get-AvdBastionDeveloperRegion). |
+| `jumpboxSubnetPrefix` | string | `'(address in the source)'` | Jumpbox subnet (inside the spoke). |
+| `jumpboxVmSize` | string | `'Standard_B2als_v2'` | Jumpbox VM size: the smallest burstable size with room for PowerShell and the Az modules (2 vCPUs, 4 GiB). |
+| `jumpboxAutoShutdownTime` | string | `'2000'` | Daily stop of the jumpbox (HHmm, in autoShutdownTimeZone). It always has one unless jumpboxKeepRunningUntil is set (avd-second-brain decision 0017). |
+| `jumpboxKeepRunningUntil` | string | `''` |  |
+| `jumpboxAdminPassword` | string | `newGuid()` |  |
 | `enableDefenderForCloud` | bool | `true` | Enable Microsoft Defender for Cloud plans (Servers P2, Storage, Key Vault) on the subscription. |
 | `deploySubscriptionSettings` | bool | `true` | Deploy the subscription-wide pieces: the policy guardrails (when enablePolicyGuardrails) and the activity log export. One landing zone per subscription owns them; a second one beside it (parameters/test.bicepparam) sets this to false. |
 | `enablePolicyGuardrails` | bool | `true` |  |
-| `allowedLocations` | string[] | `(see the file)` | Allowed regions for resources and resource groups when policy guardrails are on. |
+| `recoveryLocation` | string | `''` | Recovery region (build/specs/recovery-spec.md): a second region the guardrails also allow, for restores and recovery tests. Empty: none, and the guardrails allow only location. |
+| `allowedLocations` | string[] | `union([location], empty(recoveryLocation) ? [] : [recoveryLocation])` | Allowed regions for resources and resource groups when policy guardrails are on. The default is location plus recoveryLocation when set. |
 
 ## Outputs
 
@@ -76,3 +87,4 @@ Entra ID-only, Intune-managed, private-by-default Azure Virtual Desktop landing 
 | `keyVaultName` | string |  |
 | `logAnalyticsWorkspaceResourceId` | string |  |
 | `sessionHostNames` | string[] |  |
+| `jumpboxName` | string |  |
