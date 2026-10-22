@@ -444,6 +444,40 @@ Describe 'Resuming after Cloud Shell drops' {
   }
 }
 
+Describe 'Deadline teardown (decision 0021)' {
+  BeforeAll {
+    $script:Batch = @{ batchId = 'b20261021-0100' }
+    $script:Down = { param([string] $Teardown, $Record = $null) @{ id = 'G2'; hours = 2; deadlineHours = 3; record = $Record; members = @(@{ role = 'lead'; teardown = $Teardown }, @{ role = 'shares'; teardown = '' }) } }
+    $script:Common = @{ Batch = $Batch; Now = $Now; SubscriptionId = $Sub; StorageAccount = 'avdlzruns0123456789ab'; ResultsBlob = 'queue/2026-10/b20261021-0100/results-G2.json' }
+  }
+  It 'fires after the deadline, the teardown budget and a grace period, so a live runner always finishes first' {
+    $d = Get-AvdBatchDeadline -Group (& $Down 'x -DiscardLastCopy') @Common
+    $d.fireAt | Should -Be '2026-10-21T05:30:00Z' -Because '3 h deadline + 60 min teardown + 30 min grace'
+    $d.scheduleName | Should -Be 'deadline-b20261021-0100-G2'
+    Get-AvdBatchTeardownBudget -Group @{ hours = 4 } | Should -Be 120
+  }
+  It 'deletes only when the approved teardown discards the last copy, and otherwise only deallocates' {
+    (Get-AvdBatchDeadline -Group (& $Down 'pwsh -File ./scripts/ops/Remove-AvdDemo.ps1 -IncludeLandingZone -Force -DiscardLastCopy') @Common).action | Should -Be 'Delete'
+    (Get-AvdBatchDeadline -Group (& $Down 'pwsh -File ./scripts/ops/Remove-AvdDemo.ps1 -Force') @Common).action | Should -Be 'Deallocate'
+    (Get-AvdBatchDeadline -Group (& $Down 'echo -DiscardLastCopyLater') @Common).action | Should -Be 'Deallocate'
+  }
+  It 'scopes it to the group''s landing zone by name, the defaults or the recorded group''s own' {
+    $d = Get-AvdBatchDeadline -Group (& $Down 'x') @Common
+    $d.resourceGroupPrefix | Should -Be 'rg-avdlz-dev-'
+    $d.parameters.ResourceGroupPrefix | Should -Be 'rg-avdlz-dev-'
+    $d.parameters.ResultsBlob | Should -Be 'queue/2026-10/b20261021-0100/results-G2.json'
+    (Get-AvdBatchDeadline -Group (& $Down 'x' @{ namePrefix = 'Lab-1'; environment = 'test' }) @Common).resourceGroupPrefix | Should -Be 'rg-lab1-test-'
+  }
+  It 'treats an unfinished group as gone once its last step is older than its deadline and teardown budget' {
+    $g = @{ hours = 2; deadlineHours = 3 }
+    $r = { param($ago) @{ steps = @(@{ step = 'start'; startedAt = $Now.AddHours(-10).ToString('o') }, @{ step = 'test'; startedAt = $Now.AddMinutes(-$ago).ToString('o') }) } }
+    Test-AvdBatchGroupMayBeRunning -Group $g -Results (& $r 30) -Now $Now | Should -BeTrue
+    Test-AvdBatchGroupMayBeRunning -Group $g -Results (& $r 239) -Now $Now | Should -BeTrue
+    Test-AvdBatchGroupMayBeRunning -Group $g -Results (& $r 241) -Now $Now | Should -BeFalse
+    Test-AvdBatchGroupMayBeRunning -Group $g -Results $null -Now $Now | Should -BeFalse
+  }
+}
+
 Describe 'Health before spend' {
   BeforeAll {
     $script:Healthy = @{ signedIn = $true; subscriptionName = 'Sandbox'; namePrefix = 'avdlz'; environment = 'dev'

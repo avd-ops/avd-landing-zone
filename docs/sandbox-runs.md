@@ -14,7 +14,7 @@ Two levels:
 | `New-AvdSandboxBatch.ps1` | Builds a batch from the ready queue items: pins each source to a commit, groups by deployment key, prices the groups, applies the batch, run and monthly caps, and writes `batch.json` and `batch.md` (with the Cloud Shell blocks to approve and run it). |
 | `Approve-AvdSandboxBatch.ps1` | A person types the go phrase, `go batch <id> $<total>`. It must name the batch and its exact total, and the approval is bound to the batch's hash: any later change voids it. |
 | `Test-AvdSandboxHealth.ps1` | Is the sandbox ready to spend? Read-only checks with the fix for each failure: your permissions, Entra devices and resource groups an earlier run left, the run store, the caps. A new group runs it first. |
-| `Invoke-AvdSandboxBatch.ps1` | Runs one group of an approved batch. `-Resume` continues a group Cloud Shell dropped; `-TeardownOnly` is the safety net. |
+| `Invoke-AvdSandboxBatch.ps1` | Runs one group of an approved batch, teardown included: it arms the group's deadline teardown first, tears down on any error, and closes an earlier group whose runner is gone. `-Resume` continues a group Cloud Shell dropped. |
 | `Get-AvdSandboxBatchStatus.ps1` | Where every batch and group stands, which spend runs are still open, and the block to run next. Read-only. |
 
 They share `AvdSpend.psm1` (estimates, the gate, teardown evidence, records) and `AvdSandboxBatch.psm1` (items, groups, the batch hash, approvals, resume), both pure functions tested offline (`build/tests/SandboxRuns.Tests.ps1`, the `SandboxBatch` offline scenario).
@@ -25,7 +25,7 @@ They share `AvdSpend.psm1` (estimates, the gate, teardown evidence, records) and
 # Cloud Shell (PowerShell), in the sandbox subscription
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git $HOME/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git pull -q --ff-only
-./scripts/ops/Initialize-AvdRunStore.ps1 -WhatIf          # where records and logs are kept; drop -WhatIf to create it
+./scripts/ops/Initialize-AvdRunStore.ps1 -WhatIf          # where records and logs are kept, and the deadline teardown; drop -WhatIf to create it
 ./scripts/ops/Set-AvdSpendBudget.ps1 -Amount 150 -Email you@contoso.com -WhatIf
 ```
 
@@ -133,6 +133,18 @@ It checks that you're signed in; that you may deploy and assign roles on the sub
 
 It reads and never writes: it grants nothing and deletes nothing, leftover devices included. API errors are printed as they came back, never read as "nothing there". Each failure prints what fixes it. `-SkipHealth` on `Invoke-AvdSandboxBatch.ps1` skips it, for example when your account can't read devices and you've checked them another way.
 
+### Teardown doesn't wait for you
+
+Teardown is part of every group's block, and doesn't depend on Cloud Shell staying open ([decision 0021](../build/decisions/0021-deadline-teardown.md)):
+
+- **On an error or Ctrl+C,** the runner tears the group down and closes its spend run before it ends.
+- **If the shell dies** (the idle timeout, a closed browser, you going offline), the group's **deadline teardown** does it. Before a group claims anything, the runner arms a one-time schedule on the run store's Automation account (`aa-avdlz-runs`, set up by `Initialize-AvdRunStore.ps1`). It fires after the group's deadline, its teardown budget and 30 minutes more, so a live runner always finishes first. If the group hasn't closed clean by then, it deletes the group's landing zone resource groups (`rg-<prefix>-<env>-*`) and records what it did in `deadline-<group>.json` beside the results. When the approved teardown doesn't pass `-DiscardLastCopy`, it only deallocates their VMs, so nothing that might be the last copy is deleted. A group that closes clean takes its schedule down.
+- **The next group's block** closes an earlier group whose runner is gone: it runs that group's teardown and spend close, with teardown evidence, before deciding anything else. A group stopped part way less than its deadline and teardown budget ago may still be running in another shell, so the block stops and names the time its deadline teardown fires.
+
+It costs nothing while idle; each firing uses a few of the 500 free Automation job minutes a month. A group refuses to start, claiming nothing, when the deadline teardown isn't set up or can't be armed: run `Initialize-AvdRunStore.ps1` again to add it. `-NoDeadlineTeardown` runs without one and says so; records kept with `-Local` need it.
+
+The deadline teardown removes Azure resources only and doesn't export the AVD logs first: the workspace stays recoverable in its 14-day soft delete. Leftover Entra devices show up in the next health check.
+
 ### When Cloud Shell drops
 
 Cloud Shell ends a session after about 20 minutes without input, and a group can take hours. The group's results are written to the records before and after every step, so in a new session:
@@ -143,7 +155,7 @@ Set-Location ~/avd-landing-zone; git pull -q --ff-only
 ./scripts/ops/Get-AvdSandboxBatchStatus.ps1
 ```
 
-It prints the block to continue. `-Resume` skips the steps that finished and runs the interrupted one again. `-TeardownOnly` keeps, tears down and closes instead. A group never starts a second time on the same approval: running it again needs a new batch and a new go. Keep the session alive during long steps (type in it now and then), or run from the [operator jumpbox](operations.md#operator-jumpbox).
+It prints the block to continue. `-Resume` skips the steps that finished and runs the interrupted one again; once the deadline teardown has run, it closes the group instead. `-TeardownOnly` keeps, tears down and closes instead. You rarely need either: the next group's block does it, and the deadline teardown covers the time in between. A group never starts a second time on the same approval: running it again needs a new batch and a new go. Keep the session alive during long steps (type in it now and then), or run from the [operator jumpbox](operations.md#operator-jumpbox).
 
 ### Recorded groups and kept output
 

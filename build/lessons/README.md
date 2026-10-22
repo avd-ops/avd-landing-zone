@@ -41,6 +41,7 @@ Add a lesson whenever a real run fails for a reason the tests didn't catch. The 
 | 0033 | [An unattended teardown must delete device objects with the app's own Graph token](0033-app-identity-graph-cleanup.md) | Ops scripts | #91 | Unit test: Test-AvdAppIdentity |
 | 0034 | [A read of a resource in a missing resource group fails with ResourceGroupNotFound, not ResourceNotFound](0034-vm-show-missing-group.md) | deploy.sh | #117 | Offline scenario: Deploy (jumpbox-new, jumpbox-rg-only) |
 | 0035 | [The run recorder prices the parameter file's default size unless sizing reaches the plan through -Sizing](0035-recorder-prices-deploy-size.md) | Run recorder | #114 | Offline scenario: RunRecorder `start-sized` |
+| 0036 | [A teardown that waits for a second block, run by hand, isn't part of the batch](0036-teardown-needs-no-second-block.md) | Sandbox runs | decision 0021 | Offline scenario: SandboxDeadline; Pester: deadline teardown |
 
 ## Template
 

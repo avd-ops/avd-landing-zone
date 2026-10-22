@@ -58,9 +58,19 @@ foreach ($f in $batches) {
       "stopped part way: last step $($last.step)$(if ($last.item) { " (#$($last.item))" }) $(if ($null -eq $last.exitCode) { 'was interrupted' } else { "exited $($last.exitCode)" })"
     }
     Write-Host ('  {0}  {1,-28} {2,10}  {3}' -f $g.id, (($g.items | ForEach-Object { "#$_" }) -join ' '), (Format-AvdBatchMoney $g.estimate), $line)
+    # The deadline teardown (decision 0021): armed, or what it did when it fired.
+    $fired = & $read (Join-Path $dir "deadline-$($g.id).json")
+    if ($fired) {
+      Write-Host ('        deadline teardown ran at {0}: {1}{2}' -f (Format-AvdBatchTime $fired.firedAt), $fired.outcome, $(if (@($fired.remaining).Count) { ", left: $(@($fired.remaining) -join ', ')" } else { '' })) -ForegroundColor $(if ($fired.outcome -in 'not-needed', 'torn-down') { 'DarkGray' } else { 'Yellow' })
+    }
+    elseif ($r -and $r.Contains('deadline') -and $r.deadline -and $r.deadline.armed -and -not $r.finishedAt) {
+      Write-Host ('        deadline teardown armed for {0} ({1} {2}*)' -f (Format-AvdBatchTime $r.deadline.fireAt), $r.deadline.action, $r.deadline.resourceGroupPrefix) -ForegroundColor DarkGray
+    }
     # A group that stopped part way may still be billing: always say how to finish or clean it up.
     if ($r -and -not $r.finishedAt -and @(@($r.steps) | Where-Object { $_ }).Count) {
-      $todo.Add("./scripts/ops/Invoke-AvdSandboxBatch.ps1 -BatchId $($batch.batchId) -Group $($g.id) -Resume   # or -TeardownOnly to stop and clean up")
+      $how = if ($fired -and $fired.outcome -ne 'not-needed') { '-TeardownOnly   # the deadline teardown ran: this closes the spend run with evidence' }
+      else { '-Resume   # or -TeardownOnly to stop and clean up; the next group''s block also tears it down once its runner is past its deadline' }
+      $todo.Add("./scripts/ops/Invoke-AvdSandboxBatch.ps1 -BatchId $($batch.batchId) -Group $($g.id) $how")
       $blocked = $true
     }
     elseif ($blocked -or -not $check.valid) { continue }

@@ -16,6 +16,7 @@ Storage account for recorded runs, with Entra-only access and tiering that never
 | `teardownLogs` | string | `'Keep'` | What teardown does with a run folder by default: Keep (default), Ask or Delete (only after a verified copy). |
 | `privateRepo` | string | `''` |  |
 | `exportActivityLog` | bool | `true` | Send the subscription Activity Log to the run store, so it outlives the 90 days Azure keeps it. |
+| `deadlineRunbookUri` | string | `''` |  |
 | `tags` | object | `{}` | Extra tags merged onto the resource group and the storage account. |
 
 ## Outputs
@@ -26,3 +27,4 @@ Storage account for recorded runs, with Entra-only access and tiering that never
 | `storageAccountName` | string |  |
 | `storageAccountId` | string |  |
 | `blobEndpoint` | string |  |
+| `deadlineAutomationAccount` | string |  |

@@ -205,6 +205,26 @@ function Test-AvdPrivateRepoName {
   [bool]($Name -match '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})/[A-Za-z0-9._-]{1,100}$')
 }
 
+function Get-AvdPinnedRunbookUri {
+  <#
+    A runbook's raw GitHub URL at this checkout's commit, the way deploy.sh pins the auto-shutdown
+    runbook: never master (avd-ops decision 0008). $null when the commit isn't on a GitHub remote.
+  #>
+  [CmdletBinding()]
+  [OutputType([string])]
+  param([string] $Origin, [string] $Sha, [bool] $OnRemote, [Parameter(Mandatory)][string] $Script)
+  if (-not $OnRemote -or "$Sha" -notmatch '^[0-9a-f]{40}$' -or "$Origin" -notmatch 'github\.com[:/]([^/]+)/([^/]+?)(\.git)?/?$') { return $null }
+  "https://raw.githubusercontent.com/$($Matches[1])/$($Matches[2])/$Sha/$Script"
+}
+
+function Test-AvdPinnedRunbookUri {
+  # A runbook URL Automation may load: raw GitHub at a commit SHA or a v* tag.
+  [CmdletBinding()]
+  [OutputType([bool])]
+  param([string] $Uri, [Parameter(Mandatory)][string] $Script)
+  [bool]($Uri -match ('^https://raw\.githubusercontent\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/([0-9a-f]{7,40}|v[0-9][A-Za-z0-9.-]*)/' + [regex]::Escape($Script) + '$'))
+}
+
 function Get-AvdCostQueryBody {
   <#
     Cost Management query for a run (POST <scope>/providers/Microsoft.CostManagement/query): actual cost
@@ -297,4 +317,4 @@ function Get-AvdRunManifest {
 
 Export-ModuleMember -Function Get-AvdRunId, Get-AvdRunStoreName, Get-AvdRunRecord, Get-AvdRunCostExpected, Add-AvdRunCostReading,
 Get-AvdRunFileRoute, Test-AvdCopyReceipt, Get-AvdTeardownLogPlan, Test-AvdPrivateRepoName, Get-AvdCostQueryBody, Get-AvdCostQueryReading,
-Get-AvdRunLogQuery, Get-AvdGitBlobSha, Get-AvdRunManifest
+Get-AvdRunLogQuery, Get-AvdGitBlobSha, Get-AvdRunManifest, Get-AvdPinnedRunbookUri, Test-AvdPinnedRunbookUri

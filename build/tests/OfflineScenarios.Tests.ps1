@@ -981,7 +981,7 @@ Describe 'Sandbox batches from Cloud Shell (decision 0020)' {
     $out | Should -Match 'Not starting: group G2 stopped the batch\..*-ContinueAfterStop'
   }
   It 'prints blocks that run the same from Cloud Shell''s PowerShell or Bash prompt' {
-    $out | Should -Match "pwsh -NoLogo -Command 'if \(-not \(Test-Path ~/avd-landing-zone\)\).*\`$HOME/avd-landing-zone.*Invoke-AvdSandboxBatch\.ps1 -BatchId b20261021-0100 -Group G1 -MonthlyCap 150 -RunCap 25 -Local'"
+    $out | Should -Match "pwsh -NoLogo -Command 'if \(-not \(Test-Path ~/avd-landing-zone\)\).*\`$HOME/avd-landing-zone.*Invoke-AvdSandboxBatch\.ps1 -BatchId b20261021-0100 -Group G1 -MonthlyCap 150 -RunCap 25 -Local -NoDeadlineTeardown'"
     $out | Should -Match "pwsh -NoLogo -Command 'Set-Location ~/avd-landing-zone; \./scripts/ops/Invoke-AvdSandboxBatch\.ps1 -BatchId b20261021-0100 -Group G3 -Resume'"
   }
   It 'stops the batch when the close finds a leftover, and closes clean after cleanup' {
@@ -1045,5 +1045,54 @@ Describe 'Sandbox batches from Cloud Shell (decision 0020)' {
   It 'refuses to keep private output on Cloud Shell''s disk alone' {
     Get-StepExit $out 'keep-local' | Should -Be 2
     $out | Should -Match 'RESULT keep-local deploys=0'
+  }
+}
+
+Describe 'Offline: teardown that does not depend on the shell (decision 0021)' {
+  BeforeAll { $script:out = Invoke-OfflineScenario 'SandboxDeadline' }
+
+  It 'keeps records in the run store' {
+    $out | Should -Match 'RESULT build groups=3 inStore=True'
+  }
+  It 'refuses before the claim, spending nothing, when the deadline teardown is missing or cannot be armed' {
+    Get-StepExit $out 'no-runbook' | Should -Be 2
+    $out | Should -Match 'RESULT no-runbook claimed=False deploys=0'
+    $out | Should -Match 'Run Initialize-AvdRunStore\.ps1 again to add it'
+    Get-StepExit $out 'arm-fails' | Should -Be 2
+    $out | Should -Match 'RESULT arm-fails claimed=False deploys=0 schedules= jobSchedules=0'
+    $out | Should -Match 'could not be armed: PUT .*/schedules/deadline-b20261021-0100-G1.* failed \(400\): .*at least 5 minutes'
+  }
+  It 'arms the deadline after the deadline and teardown budget, deleting only when the approved teardown discards the last copy' {
+    $out | Should -Match 'Deadline teardown armed: at .* it deletes rg-avdlz-dev-\*, unless this group has closed clean\.'
+  }
+  It 'tears the group down and closes it when the runner stops on an error, then disarms the deadline' {
+    Get-StepExit $out 'crash' | Should -Be 2
+    $out | Should -Match 'The runner stopped on an error: .*ServerBusy'
+    $out | Should -Match 'RESULT crash outcome=stop-batch steps=start:0,deploy:0,test:0,teardown:0,close:0 teardowns=1 action=Delete prefix=rg-avdlz-dev- armed=False schedules= jobSchedules=0'
+  }
+  It 'does nothing at the deadline for a group that closed clean' {
+    Get-StepExit $out 'runbook-closed' | Should -Be 0
+    $out | Should -Match 'RESULT runbook-closed outcome=not-needed'
+  }
+  It 'deletes a dead group''s landing zone at the deadline, and records what it did' {
+    Get-StepExit $out 'runbook-whatif' | Should -Be 0
+    $out | Should -Match 'RESULT runbook-whatif rgLeft=True recorded=False'
+    Get-StepExit $out 'runbook-dead' | Should -Be 0
+    $out | Should -Match 'RESULT runbook-dead outcome=torn-down found=rg-avdlz-dev-hosts deleted=rg-avdlz-dev-hosts rgLeft=False'
+    $out | Should -Match 'deadline teardown ran at .*: torn-down'
+  }
+  It 'only deallocates when the approved teardown keeps the last copy' {
+    Get-StepExit $out 'runbook-deallocate' | Should -Be 0
+    $out | Should -Match 'RESULT runbook-deallocate outcome=deallocated deallocated=avdlzdsh-001 rgLeft=True'
+  }
+  It 'closes a group whose runner is gone as part of the next block, before deciding anything else' {
+    Get-StepExit $out 'g3' | Should -Be 2
+    $out | Should -Match 'Group G2 stopped part way and its runner is gone: tearing it down'
+    $out | Should -Match 'RESULT g3 g2outcome=stop-batch g2closed=True g3claimed=False'
+    $out | Should -Match 'Not starting: group G1 stopped the batch'
+  }
+  It 'runs, closes clean and disarms its deadline' {
+    Get-StepExit $out 'g3-continue' | Should -Be 0
+    $out | Should -Match 'RESULT g3-continue outcome=passed armed=False disarmed=True schedules= jobSchedules=0'
   }
 }

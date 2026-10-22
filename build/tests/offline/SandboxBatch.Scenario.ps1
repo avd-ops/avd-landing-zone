@@ -42,7 +42,8 @@ $item = {
 $now = [datetime]::new(2026, 10, 21, 1, 0, 0, [DateTimeKind]::Utc)
 $batchId = 'b20261021-0100'
 $common = @{ RecordsPath = $records; Local = $true }
-$batchArgs = @{ BatchId = $batchId; MonthlyCap = 150; RunCap = 25; WorkRoot = (Join-Path $work 'src'); CloneBase = (Join-Path $work 'remote') } + $common
+# -Local records can't arm a deadline teardown (the SandboxDeadline scenario covers it).
+$batchArgs = @{ BatchId = $batchId; MonthlyCap = 150; RunCap = 25; WorkRoot = (Join-Path $work 'src'); CloneBase = (Join-Path $work 'remote'); NoDeadlineTeardown = $true } + $common
 $results = { param($g) Get-Content (Join-Path $records "queue/2026-10/$batchId/results-$g.json") -Raw | ConvertFrom-Json }
 $count = { param($line) @(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -eq $line }).Count }
 

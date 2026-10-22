@@ -154,6 +154,25 @@ Describe 'The private companion repo name' {
   }
 }
 
+Describe 'Pinned runbook URLs (decision 0021)' {
+  It 'pins a runbook to this checkout''s commit, never master, and only when GitHub has the commit' {
+    $sha = 'a' * 40
+    Get-AvdPinnedRunbookUri -Origin 'https://github.com/contoso/avd-landing-zone.git' -Sha $sha -OnRemote $true -Script 'scripts/automation/Invoke-AvdSandboxDeadline.ps1' |
+      Should -Be "https://raw.githubusercontent.com/contoso/avd-landing-zone/$sha/scripts/automation/Invoke-AvdSandboxDeadline.ps1"
+    Get-AvdPinnedRunbookUri -Origin 'git@github.com:contoso/avd-landing-zone.git' -Sha $sha -OnRemote $true -Script 'x.ps1' | Should -Be "https://raw.githubusercontent.com/contoso/avd-landing-zone/$sha/x.ps1"
+    Get-AvdPinnedRunbookUri -Origin 'https://github.com/contoso/avd-landing-zone' -Sha $sha -OnRemote $false -Script 'x.ps1' | Should -BeNullOrEmpty
+    Get-AvdPinnedRunbookUri -Origin 'https://example.com/contoso/avd-landing-zone' -Sha $sha -OnRemote $true -Script 'x.ps1' | Should -BeNullOrEmpty
+    Get-AvdPinnedRunbookUri -Origin 'https://github.com/contoso/avd-landing-zone' -Sha 'master' -OnRemote $true -Script 'x.ps1' | Should -BeNullOrEmpty
+  }
+  It 'accepts a commit or a v* tag, and refuses a branch' {
+    $s = 'scripts/automation/Invoke-AvdSandboxDeadline.ps1'
+    Test-AvdPinnedRunbookUri -Uri "https://raw.githubusercontent.com/contoso/avd-landing-zone/0123abc/$s" -Script $s | Should -BeTrue
+    Test-AvdPinnedRunbookUri -Uri "https://raw.githubusercontent.com/contoso/avd-landing-zone/v0.1.0/$s" -Script $s | Should -BeTrue
+    Test-AvdPinnedRunbookUri -Uri "https://raw.githubusercontent.com/contoso/avd-landing-zone/master/$s" -Script $s | Should -BeFalse
+    Test-AvdPinnedRunbookUri -Uri "https://raw.githubusercontent.com/contoso/avd-landing-zone/0123abc/scripts/automation/Other.ps1" -Script $s | Should -BeFalse
+  }
+}
+
 Describe 'Closing a run' {
   It 'asks Cost Management for the run''s resource groups, by meter, over whole days' {
     $b = Get-AvdCostQueryBody -From ([datetime]'2026-10-20T16:52:00Z') -To ([datetime]'2026-10-21T08:00:00Z') -ResourceGroup 'avdlz-runs-rg', 'rg-AVDLZ-dev-hosts'

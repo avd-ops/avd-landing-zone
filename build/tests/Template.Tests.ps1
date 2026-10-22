@@ -563,3 +563,29 @@ Describe 'Operator jumpbox through Bastion Developer (decision 0019)' {
     $init | Should -Match '^#cloud-config'
   }
 }
+
+Describe 'Deadline teardown for sandbox batches (decision 0021)' {
+  BeforeAll {
+    $raw = & $script:bicep build bicep/recorder/main.bicep --stdout 2>&1
+    if ($LASTEXITCODE -ne 0) { throw "bicep build failed: $raw" }
+    $script:t = ($raw -join "`n") | ConvertFrom-Json -Depth 100 -AsHashtable
+    $script:role = @($t.resources.Values + @($t.resources) | Where-Object { $_ -is [System.Collections.IDictionary] -and $_['type'] -eq 'Microsoft.Authorization/roleDefinitions' })[0]
+  }
+  It 'is on unless the operator leaves it out, and needs a pinned runbook' {
+    $t.parameters.deadlineRunbookUri.defaultValue | Should -Be ''
+    "$($role['condition'])" | Should -Be "[variables('hasDeadline')]"
+    $t.variables.hasDeadline | Should -Match 'deadlineRunbookUri'
+  }
+  It 'lets its identity read and delete resource groups and deallocate VMs, and nothing else' {
+    $p = $role['properties']['permissions'][0]
+    @($p['actions'] | Sort-Object) | Should -Be @(
+      'Microsoft.Compute/virtualMachines/deallocate/action', 'Microsoft.Compute/virtualMachines/read',
+      'Microsoft.Resources/subscriptions/resourceGroups/delete', 'Microsoft.Resources/subscriptions/resourceGroups/read')
+    @($p['dataActions']) | Where-Object { $_ } | Should -BeNullOrEmpty
+  }
+  It 'reaches only the records container of the run store' {
+    $src = Get-Content bicep/recorder/deadline.bicep -Raw
+    $src | Should -Match "scope: records"
+    ([regex]::Matches($src, "Microsoft.Authorization/roleAssignments")).Count | Should -Be 1
+  }
+}

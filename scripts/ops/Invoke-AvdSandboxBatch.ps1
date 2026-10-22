@@ -9,16 +9,26 @@
 .DESCRIPTION
   Run from Azure Cloud Shell (PowerShell). Refuses to start without an approval that still matches
   the batch, and runs each group once on that approval. Every path that deployed anything goes
-  through keep, teardown and the spend close.
+  through keep, teardown and the spend close, a script error or Ctrl+C included.
+
+  Teardown doesn't depend on this shell staying alive (decision 0021). Before a group claims
+  anything it arms its deadline teardown: a one-time schedule on the run store's Automation
+  account (Initialize-AvdRunStore.ps1 sets it up) that fires after the group's deadline and
+  teardown budget. If the group hasn't closed clean by then, the runbook deletes its landing zone
+  resource groups (or, when the approved teardown doesn't pass -DiscardLastCopy, deallocates their
+  VMs). A group that closes clean disarms it. -NoDeadlineTeardown runs without one, and says so.
 
   Cloud Shell ends a session after about 20 minutes without input, and a group can take hours.
   Results are written to your records before and after every step, so:
     -Resume        continues where it stopped: finished steps are replayed from the results, and
                    the interrupted step runs again (item steps must be safe to run twice)
-    -TeardownOnly  the safety net: keep, tear down and close, unless the group already closed clean
-  A group doesn't start while an earlier group of the batch stopped part way, or stopped the batch
-  (until you pass -ContinueAfterStop), or while Test-AvdSandboxHealth.ps1 finds a problem (a
-  missing permission, a leftover from an earlier run, a cap not set; -SkipHealth skips it).
+    -TeardownOnly  keep, tear down and close, unless the group already closed clean
+  You rarely need either: the next group's block tears down an earlier group whose runner is gone
+  (past its deadline and teardown budget) before it starts, and the deadline teardown covers the
+  time in between. A group doesn't start while an earlier group of the batch may still be running,
+  or stopped the batch (until you pass -ContinueAfterStop), or while Test-AvdSandboxHealth.ps1
+  finds a problem (a missing permission, a leftover from an earlier run, a cap not set;
+  -SkipHealth skips it).
   Get-AvdSandboxBatchStatus.ps1 shows where each group stands and prints the block to continue.
 
   Exit codes: 0 the group closed clean and every test passed; 3 closed clean with a failed test or
@@ -55,6 +65,9 @@ param(
   [switch] $ContinueAfterStop,
   # Skip the read-only health check (Test-AvdSandboxHealth.ps1) a new group starts with.
   [switch] $SkipHealth,
+  # Run without the deadline teardown (decision 0021): a group whose shell dies keeps billing until
+  # someone tears it down. Needed with -Local, or a run store set up with -NoDeadlineTeardown.
+  [switch] $NoDeadlineTeardown,
   # Recorded groups: the private companion repo the run recorder copies the run to after the close.
   # Empty: the run stays in the run store only, and can be copied later.
   [string] $PrivateRepo = $env:AVD_PRIVATE_REPO
@@ -98,11 +111,29 @@ $mode = if ($Resume) { 'resume' } elseif ($TeardownOnly) { 'teardown-only' } els
 if ($mode -eq 'start') {
   # Health before spending: groups run in order, and a stop means stop.
   $readResults = { param($id) $f = Join-Path $outDir "results-$id.json"; if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f -Raw | ConvertFrom-Json -Depth 10 -AsHashtable } }
-  foreach ($e in @($batch.groups | Where-Object { $_.id -ne $Group } | Select-Object -First ([array]::IndexOf(@($batch.groups.id), $Group)))) {
+  $earlier = @($batch.groups | Where-Object { $_.id -ne $Group } | Select-Object -First ([array]::IndexOf(@($batch.groups.id), $Group)))
+  # First the meter: an earlier group that may still be billing is finished or torn down before anything else is decided.
+  foreach ($e in $earlier) {
     $er = & $readResults $e.id
     if ($er -and @(@($er.steps) | Where-Object { $_ }).Count -and -not $er.finishedAt) {
-      Write-Host "Not starting: group $($e.id) stopped part way and may still be billing. Finish it first with -Group $($e.id) -Resume, or clean it up with -Group $($e.id) -TeardownOnly." -ForegroundColor Red; exit 2
+      if (Test-AvdBatchGroupMayBeRunning -Group $e -Results $er -Now (Get-Date)) {
+        $when = if ($er.Contains('deadline') -and $er.deadline -and $er.deadline.armed) { " If its shell is gone, its deadline teardown runs at $(Format-AvdBatchTime $er.deadline.fireAt)." } else { '' }
+        Write-Host "Not starting: group $($e.id) stopped part way and may still be running in another shell.$when Finish it with -Group $($e.id) -Resume, or stop it with -Group $($e.id) -TeardownOnly." -ForegroundColor Red; exit 2
+      }
+      # Its runner is gone (past its deadline and teardown budget): tear it down now, as part of this block.
+      Write-Host "Group $($e.id) stopped part way and its runner is gone: tearing it down and closing its spend run before $Group ..." -ForegroundColor Yellow
+      $forward = @{}; foreach ($k in $PSBoundParameters.Keys) { if ($k -notin 'BatchId', 'BatchPath', 'Group', 'Resume', 'TeardownOnly', 'ContinueAfterStop', 'SkipHealth') { $forward[$k] = $PSBoundParameters[$k] } }
+      $global:LASTEXITCODE = 0
+      & $PSCommandPath -BatchPath $BatchPath -Group $e.id -TeardownOnly @forward
+      $er = & $readResults $e.id
+      if (-not $er -or -not $er.finishedAt -or -not @($er.steps | Where-Object { $_ -and $_.step -eq 'close' -and $_.exitCode -eq 0 }).Count) {
+        Write-Host "Not starting: group $($e.id) could not be closed clean (above). Clean up what it left, then run this block again." -ForegroundColor Red; exit 2
+      }
+      Write-Host "Group $($e.id) is closed: nothing of it is left billing." -ForegroundColor DarkGray
     }
+  }
+  foreach ($e in $earlier) {
+    $er = & $readResults $e.id
     if ($er -and $er.outcome -eq 'stop-batch' -and -not $ContinueAfterStop) {
       Write-Host "Not starting: group $($e.id) stopped the batch. Deal with the reason in its output (Get-AvdSandboxBatchStatus.ps1 shows it), then run this group with -ContinueAfterStop." -ForegroundColor Red; exit 2
     }
@@ -117,6 +148,48 @@ if ($mode -eq 'start' -and -not $SkipHealth) {
   & (Join-Path $PSScriptRoot 'Test-AvdSandboxHealth.ps1') @lzName -MonthlyCap $MonthlyCap -RunCap $RunCap -Estimate ([double]$g.estimate) -NeedsRunStore:(-not $store.local) -SubscriptionId $subId | Out-Host
   if ($LASTEXITCODE) { Write-Host "Not starting: the sandbox isn't healthy (above). Fix what failed and run the same block again; nothing was claimed, deployed or spent." -ForegroundColor Red; exit 2 }
 }
+# The deadline teardown's record, written by the runbook when it fired (pulled with the records).
+$deadlinePath = Join-Path $outDir "deadline-$Group.json"
+$fired = if (Test-Path -LiteralPath $deadlinePath) { Get-Content -LiteralPath $deadlinePath -Raw | ConvertFrom-Json -Depth 10 -AsHashtable } else { $null }
+if ($Resume -and $fired -and $fired.outcome -ne 'not-needed') {
+  # The landing zone is gone (or its VMs are off): nothing to resume. Finish the teardown and close instead.
+  Write-Host "The deadline teardown already ran for $Group at $(Format-AvdBatchTime $fired.firedAt) ($($fired.outcome)): finishing with teardown and close instead of resuming." -ForegroundColor Yellow
+  $Resume = $false; $TeardownOnly = $true; $mode = 'teardown-only'
+}
+$aa = "/subscriptions/$subId/resourceGroups/avdlz-runs-rg/providers/Microsoft.Automation/automationAccounts/aa-avdlz-runs"
+$apiAa = '2023-11-01'
+$deadline = [ordered]@{ armed = $false }
+if ($mode -eq 'start') {
+  if ($NoDeadlineTeardown) {
+    $deadline.reason = 'Run with -NoDeadlineTeardown.'
+    Write-Host 'No deadline teardown (-NoDeadlineTeardown): if this shell dies, the group keeps billing until someone tears it down.' -ForegroundColor Yellow
+  }
+  elseif ($store.local) {
+    Write-Host 'Not starting: the deadline teardown reads the group''s results from the run store, and this run is -Local. Set up the run store with Initialize-AvdRunStore.ps1, or pass -NoDeadlineTeardown to run without one. Nothing was claimed, deployed or spent.' -ForegroundColor Red; exit 2
+  }
+  else {
+    # Armed before the claim: a failure here claims, deploys and spends nothing, so the same block runs again once it's fixed.
+    $book = Invoke-AvdSpendArm -Path "$aa/runbooks/Invoke-AvdSandboxDeadline?api-version=$apiAa" -AllowNotFound
+    if (-not $book -or $book.properties.state -ne 'Published') {
+      Write-Host "Not starting: no deadline teardown in this subscription (aa-avdlz-runs in avdlz-runs-rg, runbook Invoke-AvdSandboxDeadline$(if ($book) { " is $($book.properties.state)" })). Run Initialize-AvdRunStore.ps1 again to add it (no cost while idle), or pass -NoDeadlineTeardown. Nothing was claimed, deployed or spent." -ForegroundColor Red; exit 2
+    }
+    $plan = Get-AvdBatchDeadline -Batch $batch -Group $g -Now (Get-Date) -SubscriptionId $subId -StorageAccount $runStore -ResultsBlob $resultsName
+    $schedule = "$aa/schedules/$($plan.scheduleName)?api-version=$apiAa"
+    $jobSchedule = [guid]::NewGuid().ToString()
+    try {
+      # A schedule left by an earlier attempt goes first, with its link to the runbook.
+      $null = Invoke-AvdSpendArm -Method DELETE -Path $schedule -AllowNotFound
+      $null = Invoke-AvdSpendArm -Method PUT -Path $schedule -Body @{ name = $plan.scheduleName; properties = @{ description = "Deadline teardown of batch $($batch.batchId) $Group"; startTime = $plan.fireAt; frequency = 'OneTime'; timeZone = 'UTC' } }
+      $null = Invoke-AvdSpendArm -Method PUT -Path "$aa/jobSchedules/$($jobSchedule)?api-version=$apiAa" -Body @{ properties = @{ schedule = @{ name = $plan.scheduleName }; runbook = @{ name = 'Invoke-AvdSandboxDeadline' }; parameters = $plan.parameters } }
+    }
+    catch {
+      Write-Host "Not starting: the deadline teardown could not be armed: $($_.Exception.Message) Nothing was claimed, deployed or spent." -ForegroundColor Red; exit 2
+    }
+    $deadline = [ordered]@{ armed = $true; fireAt = $plan.fireAt; action = $plan.action; resourceGroupPrefix = $plan.resourceGroupPrefix; schedule = $plan.scheduleName; jobSchedule = $jobSchedule }
+    $what = if ($plan.action -eq 'Delete') { "deletes $($plan.resourceGroupPrefix)*" } else { "deallocates the VMs in $($plan.resourceGroupPrefix)* (the approved teardown keeps the last copy)" }
+    Write-Host "Deadline teardown armed: at $(Format-AvdBatchTime $plan.fireAt) it $what, unless this group has closed clean." -ForegroundColor DarkGray
+  }
+}
 if ($TeardownOnly) {
   if (-not $prior -or -not @($prior.steps | Where-Object { $_ -and $_.step -eq 'start' -and $_.exitCode -eq 0 }).Count) { Write-Host "Group $Group never opened a spend run; nothing to tear down."; exit 0 }
   if (@($prior.steps | Where-Object { $_ -and $_.step -eq 'close' -and $_.exitCode -eq 0 }).Count) { Write-Host "Group $Group already closed clean; nothing to tear down."; exit 0 }
@@ -130,6 +203,7 @@ $results = if ($prior -and $mode -ne 'start') { $prior } else {
   [ordered]@{
     schema = 'sandbox-batch-results/v1'; batchId = $batch.batchId; group = $Group; approvedBy = $approval.approvedBy
     startedAt = (Get-Date).ToUniversalTime().ToString('o'); finishedAt = $null; spendRunId = $null; runId = $null; outcome = 'running'; steps = @(); keeps = @()
+    deadline = $deadline
   }
 }
 $started = ([datetime]$results.startedAt).ToUniversalTime()
@@ -262,7 +336,7 @@ function Invoke-Spend([string] $Script, [hashtable] $More = @{}) {
 $elapsed = { ((Get-Date).ToUniversalTime() - $started).TotalHours }
 # Deploy and tests get what is left before the deadline (at least 10 minutes); teardown always gets its own budget.
 $left = { [math]::Max(10, ($g.deadlineHours - (& $elapsed)) * 60) }
-$teardownMinutes = [math]::Max(60, $g.hours * 30)
+$teardownMinutes = Get-AvdBatchTeardownBudget -Group $g
 
 # ---- Start ----
 $lead = @($g.members | Where-Object { $_.role -eq 'lead' })[0]
@@ -283,53 +357,87 @@ $recorded = $recorded -and [bool]$results.runId -and (Test-StepPassed 'record-op
 # Put back afterwards, so landing zone scripts run later in this shell don't write to a closed run.
 $envBefore = @{ AVDLZ_RECORD = $env:AVDLZ_RECORD; AVDLZ_RUN_ID = $env:AVDLZ_RUN_ID }
 if ($recorded) { $env:AVDLZ_RECORD = 'azure'; $env:AVDLZ_RUN_ID = $results.runId }
-if ($TeardownOnly) { $next = [ordered]@{ action = 'teardown-only'; reason = 'Safety net: tearing down after an interrupted run.'; stopBatchAfter = $true } }
-else {
-  $code = Invoke-Step 'start' 0 {
-    $null = Get-Checkout $lead
-    Invoke-Spend 'Start-AvdSpendRun.ps1' (@{ Kind = $g.kind; Purpose = "batch $($batch.batchId) $Group"; Hours = [math]::Max(0.5, $g.hours)
-      ManualAmount = $g.estimate; ManualNote = "Approved batch estimate ($($g.rate)/h x $($g.hours) h + fixed), items $(($g.items | ForEach-Object { "#$_" }) -join ' ')" } + $caps)
-  }
-  $next = Get-AvdBatchNextStep -Step start -ExitCode $code
-}
 $stopAfter = $false; $testsFailed = $false; $deployFailed = $false
 $keepFailed = $false; $exportFailed = $false
-if ($next.action -eq 'teardown-only') {
-  # Everything from here is safe to run again, so nothing is replayed.
-  $replay = $false
-  if ($keepers.Count) { $keepFailed = [bool](Invoke-Step 'keep' 0 { Save-Keep }) }
+function Invoke-TeardownPath([string] $Reason) {
+  # Keep, export, tear down and close. Everything here is safe to run again, so nothing is replayed.
+  $script:replay = $false
+  if ($keepers.Count) { $script:keepFailed = [bool](Invoke-Step 'keep' 0 { Save-Keep }) }
   if ($recorded -and -not (Test-StepPassed 'record-export')) { $null = Invoke-Step 'record-export' 0 { Invoke-Recorder export } }
   $null = Invoke-Step 'teardown' $lead.number { Invoke-Bash (Get-Checkout $lead) $lead.teardown $teardownMinutes }
   $code = Invoke-Step 'close' 0 { Invoke-Spend 'Stop-AvdSpendRun.ps1' }
   if ($recorded) { Close-Record $code }
-  $next = [ordered]@{ action = 'stop-batch'; reason = 'Interrupted run, torn down.'; stopBatchAfter = $true }
+  [ordered]@{ action = 'stop-batch'; reason = $Reason; stopBatchAfter = $true }
 }
-elseif ($next.action -eq 'deploy') {
-  $code = Invoke-Step 'deploy' $lead.number { Invoke-Bash (Get-Checkout $lead) $lead.deploy (& $left) }
-  $next = Get-AvdBatchNextStep -Step deploy -ExitCode $code -ElapsedHours (& $elapsed) -DeadlineHours $g.deadlineHours
-  $deployFailed = [bool]$code
-  if ($next.stopBatchAfter) { $stopAfter = $true }
-  if ($next.action -eq 'run-tests') {
-    $members = @($g.members)
-    for ($k = 0; $k -lt $members.Count; $k++) {
-      $m = $members[$k]
-      $code = Invoke-Step 'test' $m.number { Invoke-Bash (Get-Checkout $m) $m.test (& $left) }
-      if ($code) { $testsFailed = $true }
-      $next = Get-AvdBatchNextStep -Step test -ExitCode $code -ElapsedHours (& $elapsed) -DeadlineHours $g.deadlineHours -MoreTests ($k -lt $members.Count - 1)
-      if ($next.stopBatchAfter) { $stopAfter = $true }
-      if ($next.action -ne 'next-test') { break }
+# Whatever stops this script from here (a script error, Ctrl+C), a group that opened a spend run
+# and hasn't closed it is torn down before the script ends. A shell that dies outright runs no
+# finally block: the deadline teardown is for that.
+$settled = $false
+try {
+  if ($TeardownOnly) { $next = [ordered]@{ action = 'teardown-only'; reason = 'Tearing down after an interrupted run.'; stopBatchAfter = $true } }
+  else {
+    $code = Invoke-Step 'start' 0 {
+      $null = Get-Checkout $lead
+      Invoke-Spend 'Start-AvdSpendRun.ps1' (@{ Kind = $g.kind; Purpose = "batch $($batch.batchId) $Group"; Hours = [math]::Max(0.5, $g.hours)
+        ManualAmount = $g.estimate; ManualNote = "Approved batch estimate ($($g.rate)/h x $($g.hours) h + fixed), items $(($g.items | ForEach-Object { "#$_" }) -join ' ')" } + $caps)
     }
+    $next = Get-AvdBatchNextStep -Step start -ExitCode $code
   }
-  Write-Host "    $($next.reason)" -ForegroundColor DarkGray
-  if ($keepers.Count) { $keepFailed = [bool](Invoke-Step 'keep' 0 { Save-Keep }) }
-  # Teardown deletes the landing zone's Log Analytics workspace, the only copy of its AVD logs:
-  # export them first. Like a failed keep, a failed export never holds up teardown (the meter
-  # rule), but after a good deploy it stops the batch so the operator sees it first.
-  if ($recorded -and (Invoke-Step 'record-export' 0 { Invoke-Recorder export }) -and -not $deployFailed) { $exportFailed = $true }
-  $code = Invoke-Step 'teardown' $lead.number { Invoke-Bash (Get-Checkout $lead) $lead.teardown $teardownMinutes }
-  $code = Invoke-Step 'close' 0 { Invoke-Spend 'Stop-AvdSpendRun.ps1' }
-  if ($recorded) { Close-Record $code }
-  $next = Get-AvdBatchNextStep -Step close -ExitCode $code
+  if ($next.action -eq 'teardown-only') { $next = Invoke-TeardownPath 'Interrupted run, torn down.' }
+  elseif ($next.action -eq 'deploy') {
+    $code = Invoke-Step 'deploy' $lead.number { Invoke-Bash (Get-Checkout $lead) $lead.deploy (& $left) }
+    $next = Get-AvdBatchNextStep -Step deploy -ExitCode $code -ElapsedHours (& $elapsed) -DeadlineHours $g.deadlineHours
+    $deployFailed = [bool]$code
+    if ($next.stopBatchAfter) { $stopAfter = $true }
+    if ($next.action -eq 'run-tests') {
+      $members = @($g.members)
+      for ($k = 0; $k -lt $members.Count; $k++) {
+        $m = $members[$k]
+        $code = Invoke-Step 'test' $m.number { Invoke-Bash (Get-Checkout $m) $m.test (& $left) }
+        if ($code) { $testsFailed = $true }
+        $next = Get-AvdBatchNextStep -Step test -ExitCode $code -ElapsedHours (& $elapsed) -DeadlineHours $g.deadlineHours -MoreTests ($k -lt $members.Count - 1)
+        if ($next.stopBatchAfter) { $stopAfter = $true }
+        if ($next.action -ne 'next-test') { break }
+      }
+    }
+    Write-Host "    $($next.reason)" -ForegroundColor DarkGray
+    if ($keepers.Count) { $keepFailed = [bool](Invoke-Step 'keep' 0 { Save-Keep }) }
+    # Teardown deletes the landing zone's Log Analytics workspace, the only copy of its AVD logs:
+    # export them first. Like a failed keep, a failed export never holds up teardown (the meter
+    # rule), but after a good deploy it stops the batch so the operator sees it first.
+    if ($recorded -and (Invoke-Step 'record-export' 0 { Invoke-Recorder export }) -and -not $deployFailed) { $exportFailed = $true }
+    $code = Invoke-Step 'teardown' $lead.number { Invoke-Bash (Get-Checkout $lead) $lead.teardown $teardownMinutes }
+    $code = Invoke-Step 'close' 0 { Invoke-Spend 'Stop-AvdSpendRun.ps1' }
+    if ($recorded) { Close-Record $code }
+    $next = Get-AvdBatchNextStep -Step close -ExitCode $code
+  }
+  $settled = $true
+}
+catch {
+  Write-Host "The runner stopped on an error: $($_.Exception.Message) ($($_.InvocationInfo.PositionMessage -replace '\s+', ' '))" -ForegroundColor Red
+}
+finally {
+  if (-not $settled) {
+    if ((Test-StepPassed 'start') -and -not (Test-StepPassed 'close')) {
+      Write-Host 'Tearing down now, so nothing is left billing ...' -ForegroundColor Yellow
+      try { $next = Invoke-TeardownPath 'The runner stopped on an error; torn down.' }
+      catch { Write-Host "The teardown stopped too: $($_.Exception.Message)$(if ($results.deadline.armed) { " The deadline teardown still runs at $(Format-AvdBatchTime $results.deadline.fireAt)." })" -ForegroundColor Red }
+    }
+    if (-not $next -or $next.action -ne 'stop-batch') { $next = [ordered]@{ action = 'stop-batch'; reason = 'The runner stopped on an error.'; stopBatchAfter = $true } }
+    # Written here too: after Ctrl+C nothing below this block runs.
+    $results.outcome = 'stop-batch'; $results.finishedAt = (Get-Date).ToUniversalTime().ToString('o')
+    try { & $save } catch { Write-Host "    Saving the results failed: $($_.Exception.Message)" -ForegroundColor Red }
+  }
+}
+# Closed clean: the deadline teardown has nothing to do, so take its schedule down (it would only find the group closed).
+if ($results.Contains('deadline') -and $results.deadline -and $results.deadline.armed -and (Test-StepPassed 'close')) {
+  try {
+    $null = Invoke-AvdSpendArm -Method DELETE -Path "$aa/jobSchedules/$($results.deadline.jobSchedule)?api-version=$apiAa" -AllowNotFound
+    $null = Invoke-AvdSpendArm -Method DELETE -Path "$aa/schedules/$($results.deadline.schedule)?api-version=$apiAa" -AllowNotFound
+    $results.deadline.armed = $false; $results.deadline.disarmedAt = (Get-Date).ToUniversalTime().ToString('o')
+    Write-Host '    Deadline teardown disarmed.' -ForegroundColor DarkGray
+  }
+  catch { Write-Host "    The deadline teardown's schedule could not be removed ($($_.Exception.Message)); when it fires it finds the group closed and does nothing." -ForegroundColor DarkGray }
 }
 $spendRun = @(Get-AvdSpendRun -RecordsPath $RecordsPath -Sandbox $g.sandbox | Where-Object { $_.purpose -eq "batch $($batch.batchId) $Group" }) | Select-Object -Last 1
 if ($spendRun) { $results.spendRunId = $spendRun.runId }

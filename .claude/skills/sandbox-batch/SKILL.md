@@ -35,5 +35,7 @@ A group that refuses to start because the sandbox isn't healthy claimed and spen
 
 Ask for the output of `./scripts/ops/Get-AvdSandboxBatchStatus.ps1`. It prints the next block: `-Resume` for a group Cloud Shell dropped, `-TeardownOnly` to stop and clean up, `-ContinueAfterStop` only after the reason an earlier group stopped the batch is dealt with. A spend run still open may be billing: say so first.
 
+Teardown is part of the batch (decision 0021): never hand the owner a separate teardown block as the plan. Each group arms its deadline teardown before it starts, tears down on any error it sees, and the next group's block closes an earlier group whose runner is gone. A group that refuses because the deadline teardown is missing needs `Initialize-AvdRunStore.ps1` run once more, not `-NoDeadlineTeardown`.
+
 ## 5. After
 A finding from a real run (a step that failed for a reason tests didn't catch, an estimate far off) goes through the retro skill: a lesson and a guard.

@@ -56,5 +56,5 @@ The vault name is deterministic (prefix + environment + subscription + region ha
 Deleting VMs doesn't remove their Entra ID and Intune device objects. Clean them up, or rebuilt hosts with the same names will be confusing to manage.
 
 ### Cloud Shell drops a long run
-Cloud Shell ends a session after about 20 minutes without input, and its home folder is lost with an ephemeral session. A sandbox batch group writes its results before and after every step to the run store's `records` container, so a new session continues it: `Get-AvdSandboxBatchStatus.ps1` prints the block, with `-Resume` (finished steps are skipped, the interrupted one runs again) or `-TeardownOnly`. See [Sandbox runs](sandbox-runs.md#when-cloud-shell-drops).
+Cloud Shell ends a session after about 20 minutes without input, and its home folder is lost with an ephemeral session. A sandbox batch group writes its results before and after every step to the run store's `records` container, so a new session continues it: `Get-AvdSandboxBatchStatus.ps1` prints the block, with `-Resume` (finished steps are skipped, the interrupted one runs again) or `-TeardownOnly`. If nobody comes back, the group's deadline teardown removes it, and the next group's block closes it. See [Sandbox runs](sandbox-runs.md#teardown-doesnt-wait-for-you).
 
