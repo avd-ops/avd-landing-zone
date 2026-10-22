@@ -1,7 +1,7 @@
 # 0034. A read of a resource in a missing resource group fails with ResourceGroupNotFound, not ResourceNotFound
 
 - **Area:** deploy.sh
-- **Found in / fixed by:** the first real jumpbox run (sandbox batch, 2026-10-22) / PR #<this PR>
+- **Found in / fixed by:** the first real jumpbox run (sandbox batch, 2026-10-22) / PR #117
 
 ## What happened
 The first real `deploy.sh --jumpbox` on a fresh subscription stopped before deploying anything:
