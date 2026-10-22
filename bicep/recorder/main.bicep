@@ -52,6 +52,9 @@ param privateRepo string = ''
 @description('Send the subscription Activity Log to the run store, so it outlives the 90 days Azure keeps it.')
 param exportActivityLog bool = true
 
+@description('Deadline teardown for sandbox batches (decision 0021): the runbook\'s raw URL at a commit SHA or a v* tag. Empty = no deadline teardown.')
+param deadlineRunbookUri string = ''
+
 @description('Extra tags merged onto the resource group and the storage account.')
 param tags object = {}
 
@@ -79,6 +82,55 @@ module store 'store.bicep' = {
   }
 }
 
+// Deadline teardown (decision 0021): an Automation account that tears down a batch group whose
+// runner is gone. Its identity may read resource groups, delete them and deallocate VMs, nothing
+// else, at subscription scope (a landing zone's groups don't exist until it deploys); the runbook
+// only acts on rg-<prefix>-<env>-* and never on this resource group.
+var hasDeadline = !empty(deadlineRunbookUri)
+
+module deadline 'deadline.bicep' = if (hasDeadline) {
+  name: 'avdlz-runs-deadline'
+  scope: rg
+  params: {
+    location: location
+    tags: storeTags
+    storageAccountName: store.outputs.storageAccountName
+    runbookUri: deadlineRunbookUri
+  }
+}
+
+resource deadlineRole 'Microsoft.Authorization/roleDefinitions@2022-04-01' = if (hasDeadline) {
+  name: guid(subscription().id, 'avdlz-sandbox-deadline')
+  properties: {
+    roleName: 'AVD sandbox deadline teardown (${take(uniqueString(subscription().id), 8)})'
+    description: 'Reads and deletes resource groups and deallocates VMs: the deadline teardown of sandbox batch groups (avd-landing-zone decision 0021).'
+    type: 'CustomRole'
+    permissions: [
+      {
+        actions: [
+          'Microsoft.Resources/subscriptions/resourceGroups/read'
+          'Microsoft.Resources/subscriptions/resourceGroups/delete'
+          'Microsoft.Compute/virtualMachines/read'
+          'Microsoft.Compute/virtualMachines/deallocate/action'
+        ]
+        notActions: []
+      }
+    ]
+    assignableScopes: [
+      subscription().id
+    ]
+  }
+}
+
+resource deadlineAccess 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (hasDeadline) {
+  name: guid(subscription().id, 'avdlz-sandbox-deadline', 'assignment')
+  properties: {
+    roleDefinitionId: deadlineRole.id
+    principalId: deadline!.outputs.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
 // Activity Log categories that matter for a run: writes, deletes and their failures.
 resource activityLog 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (exportActivityLog) {
   name: 'avdlz-runs-activity'
@@ -97,3 +149,4 @@ output resourceGroupName string = rg.name
 output storageAccountName string = store.outputs.storageAccountName
 output storageAccountId string = store.outputs.storageAccountId
 output blobEndpoint string = store.outputs.blobEndpoint
+output deadlineAutomationAccount string = hasDeadline ? deadline!.outputs.automationAccountName : ''

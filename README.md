@@ -145,6 +145,7 @@ Each links its reference page, generated from the script's help or the template'
 | Script | What it does |
 |---|---|
 | [`scripts/automation/Invoke-AvdPowerAction.ps1`](docs/reference/scripts-automation-Invoke-AvdPowerAction.md) | Stops, locks or resumes the landing zone's session hosts (auto shutdown, decision 0011). |
+| [`scripts/automation/Invoke-AvdSandboxDeadline.ps1`](docs/reference/scripts-automation-Invoke-AvdSandboxDeadline.md) | The deadline teardown for a sandbox batch group (decision 0021): runs once, at the group's deadline, whether or not anyone is there. |
 | [`scripts/image/custom/Invoke-CustomImageStep.ps1`](docs/reference/scripts-image-custom-Invoke-CustomImageStep.md) | Golden image: the adopter's own step, run after WDOT and before cleanup (build/specs/image-pipeline-spec.md section 5.3). |
 | [`scripts/image/Disable-AutomaticUpdates.ps1`](docs/reference/scripts-image-Disable-AutomaticUpdates.md) | Golden image: Windows and Microsoft 365 Apps don't update themselves on hosts (build/specs/image-pipeline-spec.md section 5.6). |
 | [`scripts/image/Disable-StorageSense.ps1`](docs/reference/scripts-image-Disable-StorageSense.md) | Golden image: turns Storage Sense off (build/specs/image-pipeline-spec.md section 5.3). |

@@ -13,4 +13,6 @@ Sets up the run store once per subscription: durable storage for recorded runs (
 | `-PrivateRepo` | string | no | `$env:AVD_PRIVATE_REPO` |  |
 | `-AcceptDefenderCharge` | switch | no |  |  |
 | `-NoActivityLogExport` | switch | no |  |  |
+| `-NoDeadlineTeardown` | switch | no |  | Leave out the deadline teardown for sandbox batches (decision 0021). Batches then need -NoDeadlineTeardown too. |
+| `-DeadlineRunbookUri` | string | no | `$env:AVD_DEADLINE_RUNBOOK_URI` | The deadline runbook's raw URL at a commit or v* tag. Default: this checkout's commit, when GitHub has it. |
 | `-SubscriptionId` | string | no |  |  |

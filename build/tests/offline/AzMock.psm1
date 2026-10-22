@@ -61,6 +61,31 @@ function Invoke-AzRestMethod { param($Path,$Method,$Payload,$ErrorAction,$Uri)
     if ($Path -match '^https://graph\.microsoft\.com/v1\.0/devices\?.*startswith\(displayName,''([^'']+)''\)') {
       if ($sp.graphStatus) { return [pscustomobject]@{ StatusCode=$sp.graphStatus; Content='{"error":{"code":"Authorization_RequestDenied","message":"Insufficient privileges to complete the operation."}}' } }
       $p = $Matches[1]; return & $ok @{ value=@($sp.devices | Where-Object { $_ -and $_.displayName -like "$p*" }) } }
+    # Deadline teardown (decision 0021). $sp.automation: the run store's Automation account, @{ runbook = 'Published' or $null;
+    # schedules; jobSchedules; failPut }. The runbook's own calls: resource groups listed and deleted, and VMs, from the
+    # same inventory file (a delete takes the group and everything in it out of the inventory).
+    $aa = $sp.automation
+    if ($aa -and $Path -match '/resourceGroups/avdlz-runs-rg/providers/Microsoft.Automation/automationAccounts/aa-avdlz-runs/(runbooks|schedules|jobSchedules)/([^/?]+)\?') {
+      $kind = $Matches[1]; $name = $Matches[2]
+      if ($kind -eq 'runbooks') { if ($aa.runbook) { return & $ok @{ name = $name; properties = @{ state = $aa.runbook } } } else { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"NotFound","message":"The Runbook was not found."}}' } } }
+      $bag = $aa[$kind]
+      if ($Method -eq 'DELETE') { if ($bag.ContainsKey($name)) { $bag.Remove($name); return & $ok @{} } else { return [pscustomobject]@{ StatusCode=404; Content='' } } }
+      if ($Method -eq 'PUT') {
+        if ($aa.failPut) { return [pscustomobject]@{ StatusCode=400; Content='{"error":{"code":"BadRequest","message":"The start time of the schedule must be at least 5 minutes after the time you create the schedule."}}' } }
+        if ($kind -eq 'jobSchedules' -and -not $aa.schedules.ContainsKey(($Payload | ConvertFrom-Json).properties.schedule.name)) { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"NotFound","message":"The schedule was not found."}}' } }
+        $bag[$name] = ($Payload | ConvertFrom-Json); return [pscustomobject]@{ StatusCode=201; Content=$Payload }
+      }
+    }
+    $rows = { @(if ($sp.inventoryFile -and (Test-Path $sp.inventoryFile)) { Get-Content $sp.inventoryFile -Raw | ConvertFrom-Json | ForEach-Object { $_ } }) }
+    if ($Method -eq 'GET' -and $Path -match '^/subscriptions/[^/]+/resourcegroups\?') {
+      return & $ok @{ value=@(& $rows | Where-Object { $_.type -eq 'microsoft.resources/subscriptions/resourcegroups' } | ForEach-Object { @{ name = $_.name; id = "$S/resourceGroups/$($_.name)" } }) } }
+    if ($Method -eq 'DELETE' -and $Path -match '^/subscriptions/[^/]+/resourceGroups/([^/?]+)\?') {
+      $rg = $Matches[1]; $left = @(& $rows | Where-Object { $_.resourceGroup -ne $rg -and $_.name -ne $rg })
+      ConvertTo-Json @($left) | Set-Content $sp.inventoryFile
+      return [pscustomobject]@{ StatusCode=202; Content='' } }
+    if ($Method -eq 'GET' -and $Path -match '^/subscriptions/[^/]+/resourceGroups/([^/]+)/providers/Microsoft.Compute/virtualMachines\?') {
+      $rg = $Matches[1]; return & $ok @{ value=@(& $rows | Where-Object { $_.type -eq 'microsoft.compute/virtualmachines' -and $_.resourceGroup -eq $rg } | ForEach-Object { @{ name = $_.name; id = "$S/resourceGroups/$rg/providers/Microsoft.Compute/virtualMachines/$($_.name)" } }) } }
+    if ($Method -eq 'POST' -and $Path -match '/providers/Microsoft.Compute/virtualMachines/([^/]+)/deallocate\?') { return [pscustomobject]@{ StatusCode=202; Content='' } }
     if ($Path -match '/resourceGroups/avdlz-runs-rg/providers/Microsoft.Storage/storageAccounts/([^/?]+)\?' -and $Method -eq 'GET' -and $sp.ContainsKey('runStore')) {
       if ($sp.runStore) { return & $ok @{ name=$Matches[1] } } else { return [pscustomobject]@{ StatusCode=404; Content='{"error":{"code":"ResourceGroupNotFound"}}' } } }
   }
@@ -527,9 +552,44 @@ function Set-AzStorageBlobContent { param($File,$Container,$Blob,$Context,[switc
   if ($null -eq $global:St.blobs) { $global:St.blobs = @{} }
   $global:St.blobs["$Container/$Blob"] = Get-Content -LiteralPath $File -Raw
   [pscustomobject]@{ Name=$Blob } }
+# The records container through the Azure.Storage.Blobs client, as Sync-AvdRunRecordStore uses it (list, download,
+# upload with If-Match / If-None-Match). The SDK types it builds are stood in when Az.Storage isn't loaded.
+if (-not ('Azure.ETag' -as [type])) {
+  Add-Type -TypeDefinition @'
+namespace Azure { public class ETag { public string V; public ETag(string v) { V = v; } public static ETag All { get { return new ETag("*"); } } public override string ToString() { return V; } } }
+namespace Azure.Storage.Blobs.Models {
+  public class BlobRequestConditions { public Azure.ETag IfMatch; public Azure.ETag IfNoneMatch; }
+  public class BlobUploadOptions { public BlobRequestConditions Conditions; }
+}
+public class OfflineRequestFailedException : System.Exception { public int Status; public OfflineRequestFailedException(int s, string m) : base(m) { Status = s; } }
+'@
+}
+function Get-AzStorageContainer { param($Name,$Context,$ErrorAction)
+  if ($Name -ne 'records' -or $null -eq $global:St.records) { return $null }
+  $container = [pscustomobject]@{}
+  $container | Add-Member ScriptMethod GetBlobClient {
+    param($blobName)
+    $c = [pscustomobject]@{ Name = $blobName }
+    $c | Add-Member ScriptMethod DownloadTo { param($dest) $b = $global:St.records[$this.Name]; [IO.File]::WriteAllText($dest, $b.content); [pscustomobject]@{ Headers = [pscustomobject]@{ ETag = $b.etag } } }
+    $c | Add-Member ScriptMethod Upload {
+      param($stream, $options)
+      $have = $global:St.records[$this.Name]; $cond = $options.Conditions
+      # $global:St.recordsBreakFile: while that file exists, the next upload fails once (the store busy), then it is removed.
+      if ($global:St.recordsBreakFile -and (Test-Path -LiteralPath $global:St.recordsBreakFile)) { Remove-Item -LiteralPath $global:St.recordsBreakFile; throw [OfflineRequestFailedException]::new(503, 'ServerBusy: the store is busy.') }
+      if (($cond.IfMatch -and (-not $have -or $have.etag -ne "$($cond.IfMatch)")) -or ($cond.IfNoneMatch -and $have)) { throw [OfflineRequestFailedException]::new(412, 'ConditionNotMet') }
+      $text = (New-Object IO.StreamReader($stream)).ReadToEnd()
+      $global:St.recordsEtag++; $global:St.records[$this.Name] = @{ etag = "r$($global:St.recordsEtag)"; content = $text }
+      Log "BLOB SYNC records/$($this.Name)"
+      [pscustomobject]@{ Value = [pscustomobject]@{ ETag = "r$($global:St.recordsEtag)" } }
+    }
+    $c
+  }
+  [pscustomobject]@{ Name = 'records'; BlobContainerClient = $container }
+}
 function New-AzStorageContext { param($StorageAccountName,[switch]$UseConnectedAccount) [pscustomobject]@{ StorageAccountName=$StorageAccountName } }
 function Get-AzStorageBlob { param($Container,$Context,$ErrorAction)
   if ($Container -eq '$web') { return @($global:St.webBlobs.Keys | ForEach-Object { [pscustomobject]@{ Name=$_ } }) }
+  if ($Container -eq 'records' -and $null -ne $global:St.records) { return @($global:St.records.Keys | ForEach-Object { [pscustomobject]@{ Name=$_; BlobProperties=[pscustomobject]@{ ETag=$global:St.records[$_].etag } } }) }
   if ($global:St.images.logUnreadable) { throw 'This request is not authorized to perform this operation using this permission. (403)' }
   [pscustomobject]@{ Name='0b1c/customization.log'; LastModified=(Get-Date) } }
 # The portal's static website ($web container; Publish-AvdPortal.ps1 -Hosting Storage).
@@ -653,6 +713,22 @@ function Invoke-RestMethod { param($Uri,$Method,$Headers,$Body,$ContentType,$Err
       $e.ErrorDetails = [System.Management.Automation.ErrorDetails]::new($r.Content); throw $e
     }
     if ($r.Content) { return ($r.Content | ConvertFrom-Json) } else { return }
+  }
+  # ---- The run store's records container over Blob REST, as the deadline runbook reads and writes it. Same
+  # blobs as the record sync below ($global:St.records: name -> @{ etag; content }).
+  if ($Uri -match '^https://avdlzruns[0-9a-f]{12}\.blob\.core\.windows\.net/records/(.+)$') {
+    $name = $Matches[1]
+    if ($Headers.Authorization -notin 'Bearer mi-token', 'Bearer cs-token' -or -not $Headers['x-ms-version']) { throw "no bearer token or x-ms-version for $Uri" }
+    if ($null -eq $global:St.records) { $global:St.records = @{} }
+    $have = $global:St.records[$name]
+    if ($Method -eq 'Put') {
+      Log "BLOB PUT records/$name"
+      if ($have -and $Headers['If-None-Match'] -eq '*') { throw 'Response status code does not indicate success: 409 (The specified blob already exists.).' }
+      $text = if ($Body -is [byte[]]) { [System.Text.Encoding]::UTF8.GetString($Body) } else { "$Body" }
+      $global:St.recordsEtag++; $global:St.records[$name] = @{ etag = "r$($global:St.recordsEtag)"; content = $text }; return
+    }
+    if (-not $have) { throw 'Response status code does not indicate success: 404 (The specified blob does not exist.).' }
+    return $have.content
   }
   # ---- Log Analytics query API (Invoke-AvdLogQuery, Test-AvdUserConnection.ps1). Each call takes the
   # next response from $global:St.logPolls (the last one repeats): rows of user-connection.kql, or

@@ -171,10 +171,13 @@ else {
   $caps = "-MonthlyCap $MonthlyCap -RunCap $RunCap"
   foreach ($g in $batch.groups) {
     $md += "**$($g.id)**", '', '```shell'
-    $md += & $block "./scripts/ops/Invoke-AvdSandboxBatch.ps1 -BatchId $($batch.batchId) -Group $($g.id) $caps$localFlag"
+    # -Local records can't arm the deadline teardown (it reads results from the run store): say so in the block.
+    $md += & $block "./scripts/ops/Invoke-AvdSandboxBatch.ps1 -BatchId $($batch.batchId) -Group $($g.id) $caps$(if ($Local) { ' -Local -NoDeadlineTeardown' })"
     $md += '```', ''
   }
-  $md += 'If Cloud Shell drops or times out partway, run the same block with `-Resume` added: finished steps are skipped and the interrupted one runs again. To clean up instead, add `-TeardownOnly`. `./scripts/ops/Get-AvdSandboxBatchStatus.ps1` shows where each group stands.', ''
+  if ($Local) { $md += 'These records are on this disk only (`-Local`), so no deadline teardown can be armed: if Cloud Shell dies during a group, it keeps billing until the next block (or `-TeardownOnly`) tears it down.', '' }
+  else { $md += 'Teardown is part of each block. A group arms its deadline teardown before it starts: if Cloud Shell dies, the run store''s Automation account tears the group down at its deadline, and the next block closes it (decision 0021).', '' }
+  $md += 'If Cloud Shell drops or times out partway and you are still there, run the same block with `-Resume` added: finished steps are skipped and the interrupted one runs again. `./scripts/ops/Get-AvdSandboxBatchStatus.ps1` shows where each group stands.', ''
 }
 if ($plan.leftOut.Count) {
   $md += '### Left out of this batch', ''

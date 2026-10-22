@@ -24,3 +24,4 @@ Short records of choices that shape this repo, so they are not reopened without 
 | 0018 | [Check session hosts against a reviewed security baseline profile, as warnings](0018-host-security-baseline.md) | Proposed |
 | 0019 | [An opt-in operator jumpbox, reached through Azure Bastion Developer](0019-jumpbox-bastion-developer.md) | Proposed |
 | 0020 | [Sandbox runs (spend gate, batches, records) ship with the landing zone and run from Cloud Shell](0020-sandbox-runs-in-the-package.md) | Proposed |
+| 0021 | [Teardown is part of the batch: a guaranteed path in the runner, and a deadline teardown in Azure that needs no shell](0021-deadline-teardown.md) | Proposed |

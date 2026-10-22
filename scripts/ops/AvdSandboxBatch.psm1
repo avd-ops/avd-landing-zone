@@ -504,6 +504,85 @@ function Test-AvdBatchGroupStart {
 }
 
 # =====================================================================
+# Deadline teardown (decision 0021)
+# =====================================================================
+function Get-AvdBatchTeardownBudget {
+  <# How long a group's teardown may take, in minutes: its own budget, never cut by the deadline. #>
+  param([Parameter(Mandatory)] $Group)
+  [math]::Max(60, [double]$Group.hours * 30)
+}
+
+function Get-AvdBatchLandingZoneName {
+  <#
+    The landing zone a group deploys, by its naming convention: a recorded group's own -NamePrefix
+    and -Environment, any other the defaults (as Test-AvdSandboxHealth.ps1 checks). Its resource
+    groups are rg-<base>-*, with base as bicep/main.bicep builds it.
+  #>
+  param([Parameter(Mandatory)] $Group)
+  $r = if ($Group -is [System.Collections.IDictionary]) { $(if ($Group.Contains('record')) { $Group.record } else { $null }) } else { $Group.record }
+  $prefix = if ($r -and $r.namePrefix) { "$($r.namePrefix)" } else { 'avdlz' }
+  $envName = if ($r -and $r.environment) { "$($r.environment)" } else { 'dev' }
+  $base = "$($prefix.ToLowerInvariant().Replace('-', ''))-$envName"
+  [ordered]@{ namePrefix = $prefix; environment = $envName; baseName = $base; resourceGroupPrefix = "rg-$base-" }
+}
+
+function Get-AvdBatchDeadline {
+  <#
+    The deadline teardown for a group: a one-time Automation schedule in the run store that fires
+    after the runner's own deadline and teardown budget have passed, so it only acts when the
+    runner is gone (Cloud Shell closed, the session dropped, the script crashed). It deletes the
+    group's landing zone resource groups when the approved teardown discards the last copy
+    (-DiscardLastCopy, part of the approved text); otherwise it only deallocates their VMs, which
+    stops the compute meter and keeps every disk, share and log.
+  #>
+  param(
+    [Parameter(Mandatory)] $Batch,
+    [Parameter(Mandatory)] $Group,
+    [Parameter(Mandatory)][datetime] $Now,
+    [Parameter(Mandatory)][string] $SubscriptionId,
+    [Parameter(Mandatory)][string] $StorageAccount,
+    [Parameter(Mandatory)][string] $ResultsBlob,
+    [int] $GraceMinutes = 30
+  )
+  $lead = @($Group.members | Where-Object { $_.role -eq 'lead' }) | Select-Object -First 1
+  $discards = [bool]($lead -and "$($lead.teardown)" -match '(?i)(^|\s)-DiscardLastCopy\b')
+  $lz = Get-AvdBatchLandingZoneName -Group $Group
+  # The runbook accepts only this shape; arming a value it would reject leaves nothing to fire.
+  if ($lz.resourceGroupPrefix -cnotmatch '^rg-[a-z0-9]{2,8}-(dev|test|prod)-$') {
+    throw "The deadline teardown can't cover $($lz.resourceGroupPrefix)*: the runbook takes rg-<2 to 8 lowercase letters or digits>-<dev|test|prod>-."
+  }
+  $minutes = [double]$Group.deadlineHours * 60 + (Get-AvdBatchTeardownBudget -Group $Group) + $GraceMinutes
+  $fireAt = $Now.ToUniversalTime().AddMinutes([math]::Ceiling($minutes))
+  $action = if ($discards) { 'Delete' } else { 'Deallocate' }
+  [ordered]@{
+    scheduleName        = "deadline-$($Batch.batchId)-$($Group.id)"
+    fireAt              = $fireAt.ToString('yyyy-MM-ddTHH:mm:00Z')
+    action              = $action
+    resourceGroupPrefix = $lz.resourceGroupPrefix
+    parameters          = [ordered]@{
+      SubscriptionId = $SubscriptionId; StorageAccount = $StorageAccount; ResultsBlob = $ResultsBlob
+      BatchId = "$($Batch.batchId)"; Group = "$($Group.id)"; ResourceGroupPrefix = $lz.resourceGroupPrefix; Action = $action
+    }
+  }
+}
+
+function Test-AvdBatchGroupMayBeRunning {
+  <#
+    Whether an unfinished group may still be running in another shell: its last step started
+    less than the group's deadline plus its teardown budget ago. Past that, its runner is gone
+    (every step it runs is killed by then), and the next group tears it down instead of waiting.
+  #>
+  param([Parameter(Mandatory)] $Group, $Results, [Parameter(Mandatory)][datetime] $Now)
+  if (-not $Results) { return $false }
+  $steps = @(@($Results.steps) | Where-Object { $_ })
+  if (-not $steps.Count) { return $false }
+  $parse = { param($v) if ($v -is [datetime]) { $v.ToUniversalTime() } else { [datetime]::Parse("$v", [cultureinfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind).ToUniversalTime() } }
+  $last = @($steps | ForEach-Object { & $parse $_.startedAt } | Sort-Object)[-1]
+  $window = [double]$Group.deadlineHours * 60 + (Get-AvdBatchTeardownBudget -Group $Group)
+  $Now.ToUniversalTime() -lt $last.AddMinutes($window)
+}
+
+# =====================================================================
 # Health before spend
 # =====================================================================
 function Get-AvdHostDevicePrefix {
@@ -602,4 +681,5 @@ function Format-AvdBatchMoney {
 }
 
 Export-ModuleMember -Function ConvertFrom-AvdBatchItemFile, Get-AvdBatchStepState, Test-AvdBatchGroupStart, ConvertFrom-AvdBatchIssueBody, ConvertFrom-AvdBatchRecordField, Get-AvdBatchItem, Get-AvdBatchGroup, Get-AvdBatchPlan, Get-AvdBatchHash, Get-AvdBatch, Get-AvdBatchApproval, Test-AvdBatchApproval, Get-AvdBatchNextStep, Get-AvdBatchRunId, Get-AvdBatchRecorderCall, Format-AvdBatchMoney, Format-AvdBatchTime,
-  Get-AvdHostDevicePrefix, Get-AvdStaleHostDevice, Test-AvdArmAction, Get-AvdSandboxHealthResult
+  Get-AvdHostDevicePrefix, Get-AvdStaleHostDevice, Test-AvdArmAction, Get-AvdSandboxHealthResult,
+  Get-AvdBatchTeardownBudget, Get-AvdBatchLandingZoneName, Get-AvdBatchDeadline, Test-AvdBatchGroupMayBeRunning

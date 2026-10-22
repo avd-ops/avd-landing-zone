@@ -11,6 +11,13 @@
   container, a lifecycle rule that moves old runs to cooler tiers and never deletes, and the
   Activity Log export to the store. You get Storage Blob Data Contributor on that account only.
 
+  It also sets up the deadline teardown for sandbox batches (decision 0021): an Automation account
+  (aa-avdlz-runs) with the runbook scripts/automation/Invoke-AvdSandboxDeadline.ps1 pinned to this
+  checkout's commit, whose identity may read and delete resource groups and deallocate VMs (a
+  custom role on the subscription) and use the records container. A batch group arms it before it
+  starts, so a group whose Cloud Shell died is still torn down. It costs nothing while idle; jobs
+  use the 500 free Automation minutes a month. -NoDeadlineTeardown leaves it out.
+
   The run store is outside every landing zone, so cleanup never removes it. Running this again
   updates it in place.
 
@@ -35,6 +42,10 @@ param(
   [string] $PrivateRepo = $env:AVD_PRIVATE_REPO,
   [switch] $AcceptDefenderCharge,
   [switch] $NoActivityLogExport,
+  # Leave out the deadline teardown for sandbox batches (decision 0021). Batches then need -NoDeadlineTeardown too.
+  [switch] $NoDeadlineTeardown,
+  # The deadline runbook's raw URL at a commit or v* tag. Default: this checkout's commit, when GitHub has it.
+  [string] $DeadlineRunbookUri = $env:AVD_DEADLINE_RUNBOOK_URI,
   [string] $SubscriptionId
 )
 
@@ -97,6 +108,42 @@ else {
   }
 }
 
+# The deadline teardown's runbook, pinned to a commit Automation can download (never master).
+$deadlineScript = 'scripts/automation/Invoke-AvdSandboxDeadline.ps1'
+$deadlineUri = ''
+if ($NoDeadlineTeardown) {
+  Add-AvdCheckResult 'Run store' 'Deadline teardown for sandbox batches' 'Skip' -Id 'runstore-deadline' -Detail 'Left out (-NoDeadlineTeardown): a batch group whose Cloud Shell dies keeps billing until someone tears it down.'
+}
+else {
+  if (-not $DeadlineRunbookUri) {
+    $root = Join-Path $PSScriptRoot '../..'
+    $sha = "$(git -C $root rev-parse HEAD 2>$null)".Trim()
+    $origin = "$(git -C $root remote get-url origin 2>$null)".Trim()
+    $onRemote = [bool]$sha -and [bool]"$(git -C $root branch -r --contains $sha 2>$null)".Trim()
+    $DeadlineRunbookUri = Get-AvdPinnedRunbookUri -Origin $origin -Sha $sha -OnRemote $onRemote -Script $deadlineScript
+  }
+  if ($DeadlineRunbookUri -and -not (Test-AvdPinnedRunbookUri -Uri $DeadlineRunbookUri -Script $deadlineScript)) {
+    Add-AvdCheckResult 'Run store' 'Deadline teardown runbook' 'Fail' -Id 'runstore-deadline' -Detail "Not a raw GitHub URL at a commit or v* tag: $DeadlineRunbookUri" `
+      -Remediation "Set AVD_DEADLINE_RUNBOOK_URI to https://raw.githubusercontent.com/<owner>/<repo>/<commit>/$deadlineScript, or leave it empty to pin this checkout."
+  }
+  elseif (-not $DeadlineRunbookUri) {
+    Add-AvdCheckResult 'Run store' 'Deadline teardown runbook' 'Fail' -Id 'runstore-deadline' -Detail "This checkout's commit is not on a GitHub remote, so Automation can't download the runbook at it." `
+      -Remediation 'Run from a pushed commit or a release tag (git pull), or set AVD_DEADLINE_RUNBOOK_URI to the runbook''s raw URL at a commit.'
+  }
+  else {
+    $deadlineUri = $DeadlineRunbookUri
+    Add-AvdCheckResult 'Run store' 'Deadline teardown for sandbox batches' 'Pass' -Id 'runstore-deadline' -Detail "Runbook: $deadlineUri" -Data @{ runbookUri = $deadlineUri }
+    # Pay-as-you-go subscriptions get two Automation accounts per region (the landing zone's auto shutdown is one).
+    Write-Host '  Counting Automation accounts in the region...' -ForegroundColor DarkGray
+    $accounts = @(Invoke-AvdArm -Path "/subscriptions/$subId/providers/Microsoft.Automation/automationAccounts?api-version=2023-11-01" -AllowNotFound | ForEach-Object { $_.value } | Where-Object { $_ })
+    $others = @($accounts | Where-Object { $_.name -ne 'aa-avdlz-runs' -and $Location -and ($_.location -replace ' ', '') -eq ($Location -replace ' ', '').ToLower() })
+    if ($others.Count -ge 2) {
+      Add-AvdCheckResult 'Run store' "Automation accounts in $Location" 'Warn' -Id 'runstore-automation-quota' -Detail "$($others.Count) already exist there; pay-as-you-go subscriptions allow two per region, so this one or a landing zone's auto shutdown may be refused." `
+        -Remediation 'Put the run store in another region (-Location), or ask for a quota increase.' -Data @{ others = $others.Count }
+    }
+  }
+}
+
 # Assign before piping: Get-AvdCheckResult emits one array (lesson 0009).
 $all = Get-AvdCheckResult
 $failed = @($all | Where-Object Status -eq 'Fail').Count
@@ -110,6 +157,7 @@ if (-not $failed) {
     teardownLogs        = $TeardownLogs
     privateRepo         = $(if ($PrivateRepo) { $PrivateRepo } else { '' })
     exportActivityLog   = -not $NoActivityLogExport
+    deadlineRunbookUri  = $deadlineUri
   }
   if ($PSCmdlet.ShouldProcess("avdlz-runs-rg / $name in $Location", 'Deploy the run store')) {
     Write-Host '  Deploying the run store (about a minute)...' -ForegroundColor DarkGray
@@ -121,7 +169,7 @@ if (-not $failed) {
     }
     else {
       Add-AvdCheckResult 'Run store' "Run store avdlz-runs-rg / $name" 'Fixed' -Id 'runstore-deploy' `
-        -Detail "Teardown keeps run logs: $TeardownLogs. Activity Log export: $(if ($NoActivityLogExport) { 'off' } else { 'on' })." `
+        -Detail "Teardown keeps run logs: $TeardownLogs. Activity Log export: $(if ($NoActivityLogExport) { 'off' } else { 'on' }). Deadline teardown: $(if ($deadlineUri) { 'aa-avdlz-runs' } else { 'off' })." `
         -Data @{ storageAccountName = $name; teardownLogs = $TeardownLogs }
     }
   }
