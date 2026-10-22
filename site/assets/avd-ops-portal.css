@@ -1,4 +1,4 @@
-/* avd-ops portal components v2.5.0 (https://avd-ops.dev/, avd-ops/avd-ops site/assets/avd-ops-portal.css). MIT.
+/* avd-ops portal components v2.7.0 (https://avd-ops.dev/, avd-ops/avd-ops site/assets/avd-ops-portal.css). MIT.
    Personal project, not for production, as is; not affiliated with the author's employer, Liquidware or Microsoft.
    The pieces a guided, step-by-step portal page shares: the progress rail, one stage panel in view, the
    "run in Cloud Shell, then paste the output" timeline, terminal blocks, the paste box, form fields, switches,
@@ -21,7 +21,7 @@ body.portal{font:16px/1.55 var(--body);-webkit-font-smoothing:antialiased}
 .portal code{background:var(--sunken);border:1px solid var(--line);border-radius:4px;padding:0 4px}
 .portal .muted{color:var(--muted)}
 .portal .hidden{display:none!important}
-.portal .lede{color:var(--muted);margin:0;max-width:62ch;font-size:1rem}
+.portal .lede{color:var(--muted);margin:0;font-size:1rem}
 
 /* Notice: the portal's research-only line before the first stage, and the footer. */
 .portal footer.disclaimer{margin:28px 0 0;padding:var(--space-4) 0 calc(24px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);font-size:.85rem;color:var(--muted)}
@@ -93,7 +93,7 @@ body.portal{font:16px/1.55 var(--body);-webkit-font-smoothing:antialiased}
 .portal .stage{padding:24px 26px}
 .portal .stage>h2{display:flex;align-items:baseline;flex-wrap:wrap;gap:2px 10px}
 .portal .stage>h2>.muted{font:400 .95rem var(--body)}
-.portal .stage>.intro{max-width:76ch;margin-bottom:18px;color:var(--muted)}
+.portal .stage>.intro{margin-bottom:18px;color:var(--muted)}
 @media (max-width:560px){.portal :is(.stage,.panel){padding:var(--space-4)}.portal h2{font-size:1.25rem}}
 
 /* Command stage: "Run in Cloud Shell" then "Paste the output", numbered stops on one line. A stop takes
@@ -193,10 +193,10 @@ body.portal{font:16px/1.55 var(--body);-webkit-font-smoothing:antialiased}
 /* The step: a large title, one line that says what to do, the one action, then detail behind details.more. */
 .portal .wz-stage{padding-block:clamp(24px,5vh,56px) 40px}
 .portal .wz-stage h2{font:700 clamp(1.8rem,1.3rem + 2vw,2.6rem)/1.08 var(--display);letter-spacing:-.02em;margin:0 0 10px}
-.portal .wz-stage .purpose{font-size:1rem;color:var(--muted);margin:0 0 24px;max-width:56ch}
+.portal .wz-stage .purpose{font-size:1rem;color:var(--muted);margin:0 0 24px}
 .portal .wz-stage .act{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-3) 18px;margin:0 0 var(--space-4)}
 .portal .wz-stage .quiet{color:var(--muted);font-size:.86rem}
-.portal details.more{border-top:1px solid var(--line);padding-top:var(--space-3);margin-top:var(--space-5);max-width:46rem}
+.portal details.more{border-top:1px solid var(--line);padding-top:var(--space-3);margin-top:var(--space-5)}
 .portal details.more>summary{cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:var(--space-2);min-height:32px;color:var(--muted);font-size:.88rem;font-weight:600}
 .portal details.more>summary::-webkit-details-marker{display:none}
 .portal details.more>summary::before{content:"+";font:600 1rem/1 var(--mono);color:var(--accent);width:1ch}

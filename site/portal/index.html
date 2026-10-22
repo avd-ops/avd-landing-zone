@@ -88,7 +88,6 @@
   .track::-webkit-scrollbar { display: none; }
   .track > .slide { position: relative; flex: 0 0 100%; min-width: 0; scroll-snap-align: start; margin-bottom: 0; background: none; border: 0; border-radius: 0; box-shadow: none; padding-inline: 2px;
     min-height: calc(100dvh - var(--bar) - 1px - 69px); }
-  .slide > .purpose, .slide > .status, .slide > .row, .slide .pool, .slide > .table-wrap, .slide > ul.notes, .slide > .slot { max-width: 46rem; }
   @media (prefers-reduced-motion: reduce) { .track { scroll-behavior: auto; transition: none; } }
   .track > .slide.hidden { display: none !important; }
   .slide > h2 { display: block; }
@@ -134,7 +133,7 @@
   /* Actions: each command is a terminal block with its own Copy button. */
   .action { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 16px; }
   .action:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
-  .action .why { color: var(--muted); margin: 2px 0 10px; max-width: 76ch; }
+  .action .why { color: var(--muted); margin: 2px 0 10px; }
   .term { border: 1px solid var(--term-border); border-radius: var(--radius-sm); background: var(--term-bg); overflow: hidden; }
   .term-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px 6px 12px; background: var(--term-head); border-bottom: 1px solid var(--term-border); }
   .term-label { font: 600 .78rem/1 var(--mono); color: var(--term-muted); }
