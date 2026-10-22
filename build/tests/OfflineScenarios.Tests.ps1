@@ -302,6 +302,7 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     Get-Result 'pool-rotation-deploy-env' | Should -Match 'image=\S+/versions/2026\.1101\.1 gen=b tags=.*"avdlz-rotation":"\{\\"phase\\":\\"Deploy\\"\}"'
   }
   It 'adds, keeps and never re-sends the operator jumpbox (decision 0019)' {
+    # A first deployment has no jumpbox group, so az vm show says ResourceGroupNotFound (lesson 0034).
     Get-StepExit $out 'jumpbox-new' | Should -Be 0
     Get-Result 'jumpbox-new-jumpbox' | Should -Be 'jumpbox-env deploy=true exists= until= os='
     Get-StepExit $out 'jumpbox-keep-alone' | Should -Be 1
@@ -326,6 +327,9 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     Get-StepExit $out 'jumpbox-os-change' | Should -Be 1
     Get-Result 'jumpbox-os-change-jumpbox' | Should -Be ''
     $out | Should -Match "The jumpbox runs Linux; --jumpbox-os can't change it"
+    # Its group without its VM: ResourceNotFound, also no jumpbox.
+    Get-StepExit $out 'jumpbox-rg-only' | Should -Be 0
+    Get-Result 'jumpbox-rg-only-jumpbox' | Should -Be 'jumpbox-env deploy=true exists= until= os='
     Get-StepExit $out 'jumpbox-os-env' | Should -Be 0
     Get-Result 'jumpbox-os-env-jumpbox' | Should -Be 'jumpbox-env deploy=true exists= until= os=Windows'
     Get-StepExit $out 'jumpbox-unreadable' | Should -Be 1

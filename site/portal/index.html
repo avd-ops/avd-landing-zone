@@ -9,11 +9,13 @@
 <meta name="description" content="Guides an AVD landing zone deployment step by step: pick a region by latency, paste Cloud Shell output, get the next command.">
 <link rel="icon" href="../assets/brand/favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="../assets/avd-ops.css">
+<link rel="stylesheet" href="../assets/avd-ops-portal.css">
 <link rel="stylesheet" href="../assets/avd-ops-shell.css">
 <script src="../assets/theme.js"></script>
 <style>
-  /* Layout: a slim avd-ops bar, a phase-grouped progress rail, then one step card in view. Inside a command
-     step, "Run in Cloud Shell" and "Paste the output" are two numbered stops on a short timeline. Tokens,
+  /* Layout: the avd-ops wizard (design system 2.5.0, "One screen at a time"): a slim head, a progress bar grouped
+     by phase, one step that fills the screen, and Back and Next along the bottom. Inside a command step, "Run in
+     Cloud Shell" and "Paste the output" are two numbered stops on a short timeline. Tokens,
      fonts and the logo slot come from the avd-ops design system, vendored in ../assets/ (avd-ops
      docs/design-system.md), so the page still makes no requests to other sites but the latency test and the
      reachability probe. This block holds only the portal's own components. */
@@ -34,26 +36,10 @@
   .status { font-size: .93rem; }
   .hidden { display: none !important; }
 
-  /* The page's title row under the avd-ops shell bar: the portal's name, then its own tools. */
-  header.top { display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; padding-block: 28px 18px; border-bottom: 1px solid var(--line); }
-  .title { min-width: 0; margin-right: auto; }
-  .title h1 { font-size: 1.25rem; }
-  .toplinks { display: flex; align-items: center; gap: 4px 14px; flex-wrap: wrap; font-size: .95rem; }
-  .toplinks > a:not(.toolbtn) { color: var(--muted); text-decoration: none; }
-  .toplinks > a:not(.toolbtn):hover { color: var(--accent); }
-  .toplinks > a.toolbtn { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; text-decoration: none; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 5px 11px; background: var(--surface); color: var(--fg); }
-  .toplinks > a.toolbtn:hover { border-color: var(--accent); color: var(--accent); }
-  .toplinks > a.toolbtn[aria-expanded="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
-  .toplinks > a.toolbtn svg { width: 16px; height: 16px; }
-  @media (pointer: coarse) { .toplinks > a { display: inline-flex; align-items: center; min-height: var(--tap); } }
-  /* The shell bar lines up with the portal's column. */
-  header.bar .bar-in { max-width: 980px; }
+  /* The shell bar keeps the page width, as on avd-ops.dev, so the step list lines up with the docs side list. */
   .shell main { padding-block: 0; }
-  @media (max-width: 560px) { .toplinks { width: 100%; } .toplinks > a.about { display: none; } .toplinks > a.toolbtn { flex: 1 1 0; justify-content: center; white-space: normal; text-align: center; } }
   .credit { margin: 0; padding: 0 0 calc(24px + env(safe-area-inset-bottom, 0px)); font: 600 .8rem var(--mono); letter-spacing: .04em; color: var(--fg); }
   .credit a { color: inherit; }
-  .intro { padding-block: 20px 20px; }
-  .lede { color: var(--muted); margin: 0; max-width: 62ch; font-size: 1rem; }
   .disclaimer { font-size: .85rem; color: var(--muted); }
   footer.disclaimer { margin: 28px 0 0; padding: 16px 0 10px; border-top: 1px solid var(--line); }
 
@@ -61,7 +47,6 @@
   section, details.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; box-shadow: var(--shadow); }
   details.panel > summary { cursor: pointer; font: 600 1rem var(--display); }
   details.panel[open] > summary { margin-bottom: 12px; }
-  #settings-panel, #resume-panel { border-color: var(--accent); margin-top: 16px; }
   #record-panel { border-left: 4px solid var(--accent); }
   #record-panel .run-id { font: 600 .95rem var(--mono); }
   .record-row { display: flex; gap: 8px 16px; align-items: center; flex-wrap: wrap; }
@@ -98,50 +83,32 @@
   #geos label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
   #geos input { accent-color: var(--accent); margin: 0; }
 
-  /* Progress rail: three phases (Plan, Deploy, Use), short labels, one row that scrolls sideways when narrow.
-     Steps not reached yet are locked. */
-  ol.steps { list-style: none; display: flex; padding: 26px 4px 6px; margin: 14px 0 14px; overflow-x: auto; scroll-snap-type: x proximity; scrollbar-width: none; }
-  ol.steps::-webkit-scrollbar { display: none; }
-  ol.steps li { flex: 1 0 84px; scroll-snap-align: start; position: relative; }
-  ol.steps li[data-phase-start]::after { content: attr(data-phase-start); position: absolute; top: -24px; left: 6px; font: 600 .78rem/1 var(--body); color: var(--muted); white-space: nowrap; }
-  ol.steps li[data-phase-start]:not(:first-child) { margin-left: 18px; }
-  ol.steps li + li::before { content: ""; position: absolute; top: 15px; left: calc(-50% + 16px); right: calc(50% + 16px); height: 2px; background: var(--line-strong); }
-  ol.steps li[data-phase-start] + li::before { left: calc(-50% + 16px); }
-  ol.steps li[data-phase-start]:not(:first-child)::before { left: calc(-50% - 2px); }
-  ol.steps li.done + li::before { background: var(--good); }
-  ol.steps button { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; background: none; color: var(--muted); border: 0; font-weight: 600; font-size: .88rem; line-height: 1.2; padding: 0 2px 4px; border-radius: var(--radius-sm); }
-  ol.steps button:hover:not(:disabled) { background: none; color: var(--fg); }
-  ol.steps button:hover:not(:disabled) .n { border-color: var(--accent); }
-  ol.steps .n { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--line-strong); background: var(--surface); font: 600 .82rem var(--mono); color: var(--muted); position: relative; z-index: 1; }
-  ol.steps li.done button { color: var(--fg); }
-  ol.steps li.done .n { border-color: var(--good); background: var(--good); color: var(--surface); }
-  ol.steps li.current button { color: var(--accent); }
-  ol.steps li.current .n { border-color: var(--accent); background: var(--accent); color: var(--on-accent); box-shadow: 0 0 0 5px var(--accent-soft); }
-  ol.steps li.locked button { opacity: 1; }
-  ol.steps li.locked .n { border-style: dashed; background: transparent; }
-  /* Phones: circles only, plus the current step's label. */
-  @media (max-width: 560px) {
-    ol.steps li { flex: 1 0 40px; }
-    ol.steps li .lbl { display: none; }
-    ol.steps li.current { flex: 0 0 auto; padding-inline: 4px; }
-    ol.steps li.current .lbl { display: block; white-space: nowrap; }
-    ol.steps { padding-top: 6px; }
-    ol.steps li[data-phase-start]::after { display: none; }
-    ol.steps li[data-phase-start]:not(:first-child) { margin-left: 0; }
-    ol.steps li[data-phase-start]:not(:first-child)::before { left: calc(-50% + 16px); }
-  }
-
   /* The steps sit side by side and scroll horizontally; the track takes the height of the step in view. */
   .track { display: flex; align-items: flex-start; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scroll-behavior: smooth; gap: 16px; margin-bottom: 0; transition: height .2s ease; scrollbar-width: none; }
   .track::-webkit-scrollbar { display: none; }
-  .track > .slide { flex: 0 0 100%; min-width: 0; scroll-snap-align: start; margin-bottom: 0; padding: 24px 26px 24px; }
+  .track > .slide { position: relative; flex: 0 0 100%; min-width: 0; scroll-snap-align: start; margin-bottom: 0; background: none; border: 0; border-radius: 0; box-shadow: none; padding-inline: 2px;
+    min-height: calc(100dvh - var(--bar) - 1px - 69px); }
+  .slide > .purpose, .slide > .status, .slide > .row, .slide .pool, .slide > .table-wrap, .slide > ul.notes, .slide > .slot { max-width: 46rem; }
+  @media (prefers-reduced-motion: reduce) { .track { scroll-behavior: auto; transition: none; } }
   .track > .slide.hidden { display: none !important; }
-  .slide > h2 { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; }
+  .slide > h2 { display: block; }
+  .slide > p.quiet { margin-top: 12px; }
   .slide > h2 .n { display: none; }
   .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .slide > h2 > .muted { font: 400 .95rem var(--body) !important; }
-  .slide > .status { max-width: 76ch; margin-bottom: 18px; }
-  @media (max-width: 560px) { .track > .slide, section, details.panel { padding: 16px; } h2 { font-size: 1.25rem; } }
+  .slide > h2 > .muted { display: block; margin-top: 8px; font: 400 .92rem var(--body) !important; letter-spacing: 0; }
+  @media (max-width: 560px) { #record-panel, details.panel { padding: 16px; } }
+  /* The rest of the page sits under Back and Next, in the same column. */
+  .after { max-width: var(--page); margin: 0 auto; padding-top: 24px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+  @media (min-width: 64.01rem) { .after { padding-left: calc(max(16px, env(safe-area-inset-left, 0px)) + 14rem + var(--space-6)); } .after > * { max-width: 46rem; } }
+  .wz-main { min-width: 0; }
+  html { scroll-padding-top: calc(var(--bar) + env(safe-area-inset-top, 0px) + 16px); scroll-padding-bottom: 96px; }
+  .wz-nav #next-step.primary:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+  .wz-nav #next-step.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+  /* Recording: one slim box over the step. */
+  #record-panel { margin: 24px 0 0; padding: 12px 14px; box-shadow: none; max-width: 46rem; }
+  #record-panel h2 { font-size: 1rem; }
+  /* The answer to a paste leads with its bottom line. */
+  #next.answered #next-headline { font: 600 1.12rem/1.35 var(--display); color: var(--fg); margin: 0 0 8px; }
 
   /* Command steps: "Run in Cloud Shell" then "Paste the output", two numbered stops on a line. */
   .slot { counter-reset: stop; margin-top: 18px; }
@@ -164,22 +131,6 @@
     .slot > section:not(:last-child)::after { left: 13px; top: 28px; }
   }
 
-  /* On a wide screen Back / Next sits right under the step card; on a phone it docks at the bottom of the screen,
-     solid, with a shadow where the card runs under it, and focus scrolls clear of it. Anything scrolled into view
-     stops below the sticky avd-ops bar, never under it. */
-  .stepnav { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin: 16px 0; padding: 0; }
-  html { scroll-padding-top: calc(var(--bar) + env(safe-area-inset-top, 0px) + 16px); }
-  @media (max-width: 560px) {
-    .stepnav { position: sticky; bottom: 0; z-index: 5; margin: 12px calc(-1 * max(16px, env(safe-area-inset-right, 0px))) 16px calc(-1 * max(16px, env(safe-area-inset-left, 0px))); padding: 12px max(16px, env(safe-area-inset-right, 0px)) calc(12px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); background: var(--bg); border-top: 1px solid var(--line); box-shadow: 0 -10px 18px -14px rgba(0, 0, 0, .45); }
-    html { scroll-padding-bottom: 96px; }
-  }
-  .stepnav button { min-width: 7.5rem; box-shadow: var(--shadow); }
-  #next-step.primary:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-  #next-step.primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--on-accent); }
-  .stepnav .status { text-align: center; flex: 1; min-width: 0; font-family: var(--mono); font-size: .78rem; letter-spacing: .02em; }
-  @media (max-width: 560px) { .stepnav .status { display: none; } .stepnav button { min-width: 0; flex: 1 1 0; } .stepnav #prev-step { flex: 0 0 auto; padding-inline: 18px; } }
-  @media (prefers-reduced-motion: reduce) { .track { scroll-behavior: auto; transition: none; } button, a.btnlink { transition: none; } }
-
   /* Actions: each command is a terminal block with its own Copy button. */
   .action { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 16px; }
   .action:first-of-type { border-top: 0; padding-top: 0; margin-top: 0; }
@@ -190,7 +141,7 @@
   .term-label::before { content: "PS>"; color: var(--prompt); margin-right: 8px; }
   .term[data-shell="bash"] .term-label::before { content: "$"; }
   .term-head .untested { margin-right: auto; margin-left: 10px; }
-  .runin { margin: 0 0 24px; }
+  .sheet .runin { margin: 14px 0 6px; }
   .runin .segmented input:disabled + span { opacity: .45; cursor: default; }
   #runin-note:empty { display: none; }
   .action .requires, .action .unsupported { margin: 6px 0 0; }
@@ -262,12 +213,13 @@
   label.switch > input[type=checkbox]:checked::after { left: 19px; }
   label.switch > input[type=checkbox]:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
   @media (prefers-reduced-motion: reduce) { label.switch > input[type=checkbox], label.switch > input[type=checkbox]::after { transition: none; } }
-  input[type=time] { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 6px; padding: 2px 6px; margin-left: 6px; }
+  .portal input[type=time] { font: inherit; color: var(--fg); background: var(--surface); border: 1px solid var(--line-strong); border-radius: 6px; padding: 2px 6px; margin-left: 6px; width: auto; }
+  .portal textarea { min-height: 160px; }
   input[type=time]:disabled { opacity: .5; }
   progress { width: 100%; height: 6px; margin-top: 12px; accent-color: var(--accent); }
 </style>
 </head>
-<body class="shell">
+<body class="shell portal">
 <!-- The avd-ops shell (avd-ops docs/design-system.md, "Shell"): the brand bar and switcher shared with avd-ops.dev and the assessment portal. -->
 <header class="bar"><div class="bar-in"><a class="brand" href="https://avd-ops.dev/"><img class="mark" src="../assets/brand/mark.svg" alt="" width="44" height="44"><span class="name"><span class="word">avd-ops</span><span class="tag">Deploy quietly</span></span></a>
 <nav class="switcher" aria-label="avd-ops tools"><a href="https://avd-ops.dev/">Docs</a><a href="./" aria-current="page">Deploy</a><a href="https://avd-ops.github.io/avd-current-state/portal/">Assess</a></nav>
@@ -276,31 +228,16 @@
 <li>Not affiliated with, endorsed by or supported by the author's employer, and not an official Microsoft product.</li>
 <li>Use a lab subscription and tenant.</li></ul></div></details>
 <div class="tools"><button class="iconbtn theme" type="button" aria-label="Switch theme"><svg class="sun" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="3.5"/><path d="M10 1.8v2.2M10 16v2.2M1.8 10H4M16 10h2.2M4.2 4.2l1.6 1.6M14.2 14.2l1.6 1.6M4.2 15.8l1.6-1.6M14.2 5.8l1.6-1.6"/></svg><svg class="moon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z"/></svg></button></div></div></header>
-<main>
-  <header class="top">
-    <div class="title"><h1>AVD deployment portal</h1></div>
-    <div class="toplinks"><a class="about" href="https://avd-ops.dev/family/avd-landing-zone.html">About the landing zone</a>
-    <a href="#resume" id="resume-link" class="toolbtn" role="button" aria-controls="resume-panel" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9"/><path d="M2.5 2.5v2.5H5"/><path d="M8 5v3l2 1.5"/></svg>Where did I leave off?</a>
-    <a href="#settings" id="settings-link" class="toolbtn" role="button" aria-controls="settings-panel" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h7M13 4h1M2 12h1M7 12h7"/><circle cx="11" cy="4" r="2"/><circle cx="5" cy="12" r="2"/></svg>Deployment settings</a></div>
-  </header>
-  <div class="intro">
-  <p class="lede">
-    Deploys the <a href="https://github.com/avd-ops/avd-landing-zone" id="repo-link">AVD landing zone</a> step by step.
-    Run each command in <a href="https://shell.azure.com/powershell" target="_blank" rel="noopener">Azure Cloud Shell (PowerShell)</a>,
-    paste the output back here, and the portal tells you what to run next. Everything happens in your browser: pasted output is never sent anywhere.
-  </p>
-  </div>
-
-  <!-- Run in (avd-ops docs/design-system.md): every command block follows this choice. Cloud Shell PowerShell is the default; the choice is kept in this browser only. -->
-  <div class="runin" id="runin" role="group" aria-labelledby="runin-title"><span class="runin-title" id="runin-title">Run the commands in</span>
+  <button type="button" class="sheet-backdrop hidden" id="sheet-backdrop" tabindex="-1" aria-label="Close"></button>
+  <section id="settings-panel" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="headline"><h2 id="settings-title" style="margin:0">Deployment settings</h2><button type="button" class="linkbtn" id="settings-close" style="margin-left:auto">Close</button></div>
+    <p class="status">The commands are built from these. Pasted output fills them in; they stay in this browser.</p>
+    <!-- Run in (avd-ops docs/design-system.md): every command block follows this choice. Cloud Shell PowerShell is the default; the choice is kept in this browser only. -->
+    <div class="runin" id="runin" role="group" aria-labelledby="runin-title"><span class="runin-title" id="runin-title">Run the commands in</span>
     <div class="segmented" role="radiogroup" aria-label="Where"><label><input type="radio" name="runin-where" value="cloudshell" checked><span>Cloud Shell</span></label><label><input type="radio" name="runin-where" value="windows"><span>Windows</span></label><label><input type="radio" name="runin-where" value="macos"><span>macOS</span></label></div>
     <div class="segmented" role="radiogroup" aria-label="Shell"><label><input type="radio" name="runin-shell" value="pwsh" checked><span>PowerShell</span></label><label><input type="radio" name="runin-shell" value="bash"><span>Bash</span></label></div>
-    <span class="status" id="runin-note"></span>
   </div>
-
-  <section id="settings-panel" class="hidden" aria-labelledby="settings-title">
-    <div class="headline"><h2 id="settings-title" style="margin:0">Deployment settings</h2><button type="button" class="linkbtn" id="settings-close" style="margin-left:auto">Close</button></div>
-    <p class="status">Used to build the commands. Values from pasted output fill these in automatically; they are kept only in this browser.</p>
+    <p class="status" id="runin-note"></p>
     <p class="status hidden" id="settings-warning" role="alert"></p>
     <div class="row">
       <label class="field"><span>Parameter file</span>
@@ -319,7 +256,7 @@
       <label class="field"><span>Graph sign-in app client ID (optional)</span><input type="text" id="graphClientId" autocomplete="off" placeholder="from Initialize-AvdGraphApp.ps1" title="The avd-opsbot app (docs/operations.md). Empty: Microsoft's default Graph app."></label>
     </div>
     <div class="record-row" style="margin-top:14px">
-      <label class="switch"><input type="checkbox" id="record-on"><span><strong>Record this run</strong><br><span class="muted">Every command writes to a run journal, so the run can be picked up after a Cloud Shell reset and what it taught can improve the scripts and tests. Adds the steps to open and close the run.</span></span></label>
+      <label class="switch"><input type="checkbox" id="record-on"><span><strong>Record this run</strong><br><span class="muted">Every command writes to a run journal, so the run survives a Cloud Shell reset. Adds steps to open and close the run.</span></span></label>
       <label class="field" style="flex:0 1 260px"><span>Keep the run folder in</span>
         <select id="record-mode"><option value="azure">the run store and Cloud Shell</option><option value="on">Cloud Shell only</option></select>
       </label>
@@ -330,24 +267,34 @@
     </div>
   </section>
 
-  <section id="resume-panel" class="hidden" aria-labelledby="resume-title">
+  <section id="resume-panel" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="resume-title">
     <div class="headline"><h2 id="resume-title" style="margin:0">Where did I leave off?</h2><button type="button" class="linkbtn" id="resume-close" style="margin-left:auto">Close</button></div>
-    <p class="status">After a Cloud Shell reset or a break: this reads where the deployment stands from Azure (deployment history and resource groups; a recorded run's journal adds detail). It changes nothing. Run it, then paste its output in the box below and the portal picks up from there.</p>
+    <p class="status">Run this after a Cloud Shell reset or a break, then paste its output into the step's paste box. It changes nothing.</p>
+    <details class="more"><summary>What it reads</summary><p>Where the deployment stands, from Azure: the deployment history and the resource groups. A recorded run's journal adds detail.</p></details>
     <div id="resume-actions"></div>
   </section>
+<main class="wz-layout">
 
+    <header class="top wz-rail">
+    <div class="title"><h1>AVD deployment portal</h1>
+      <p class="purpose">Deploys the <a href="https://github.com/avd-ops/avd-landing-zone" id="repo-link">AVD landing zone</a>, one step at a time. Pasted output never leaves this browser.</p></div>
+    <ol class="wz-list" id="steps" aria-label="Deployment progress"></ol>
+    <ol class="wz-progress" id="steps-bar" aria-label="Deployment progress"></ol>
+    <div class="toplinks wz-tools">
+    <a href="#resume" id="resume-link" class="wz-tool" role="button" aria-controls="resume-panel" aria-expanded="false" title="Where did I leave off?"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9"/><path d="M2.5 2.5v2.5H5"/><path d="M8 5v3l2 1.5"/></svg><span class="t">Resume</span></a>
+    <a href="#settings" id="settings-link" class="wz-tool" role="button" aria-controls="settings-panel" aria-expanded="false" title="Deployment settings"><svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 4h7M13 4h1M2 12h1M7 12h7"/><circle cx="11" cy="4" r="2"/><circle cx="5" cy="12" r="2"/></svg><span class="t">Settings</span></a></div>
+  </header>
+  <div class="wz-main">
   <section id="record-panel" class="hidden" aria-labelledby="record-title">
     <div class="headline"><h2 id="record-title" style="margin:0">Recording <span class="run-id" id="record-id"></span></h2><button type="button" class="linkbtn" id="record-new" style="margin-left:auto">New run ID</button></div>
     <p class="status" id="record-note"></p>
     <details id="record-steps"><summary>Open and close the run (5 steps)</summary><div id="record-actions" style="margin-top:12px"></div></details>
   </section>
 
-  <ol class="steps" id="steps" aria-label="Deployment progress"></ol>
-
   <div class="track" id="track">
-    <section class="slide" id="region-panel" data-step="region" aria-label="Choose a region">
+    <section class="slide wz-stage" id="region-panel" data-step="region" aria-label="Choose a region">
       <h2><span class="n"></span>Choose a region <span class="muted" style="font-weight:400"><span class="sr-only">, </span><span id="region-summary"></span></span></h2>
-      <p class="status">Ranks Azure regions by round-trip time <strong>from this browser</strong>. Run it from where your users work, not from Cloud Shell or a VPN. Under 100&nbsp;ms is good for AVD, 100–150&nbsp;ms is usable, above 150&nbsp;ms feels sluggish.</p>
+      <p class="purpose">Pick the Azure region closest to your users. This page can measure it for you.</p>
       <div class="row" id="geos">
         <label><input type="checkbox" value="Americas" checked> Americas</label>
         <label><input type="checkbox" value="Europe" checked> Europe</label>
@@ -356,9 +303,9 @@
       </div>
       <div class="row" style="margin-top:12px">
         <button id="run">Measure latency</button>
-        <span class="status" id="lat-status">About 20 seconds: each region gets a warm-up request and 5 timed ones.</span>
-        <button type="button" class="linkbtn" id="region-skip">Skip: I already know the region</button>
+        <button type="button" class="linkbtn" id="region-skip">I already know the region</button>
       </div>
+      <p class="status quiet" id="lat-status">Takes about 20 seconds. Run it where your users work, off the VPN.</p>
       <progress id="progress" class="hidden" value="0" max="1"></progress>
       <div id="results" class="hidden" style="margin-top:12px">
         <div class="table-wrap">
@@ -369,15 +316,12 @@
         </div>
         <button type="button" class="linkbtn hidden" id="more" aria-controls="rows" aria-expanded="false"></button>
       </div>
+      <details class="more"><summary>How regions are rated</summary><p>Round-trip time from this browser, so run it where your users work, not from Cloud Shell or over a VPN. Under 100&nbsp;ms is good for AVD, 100 to 150&nbsp;ms is usable, above 150&nbsp;ms feels sluggish. Each region gets a warm-up request and 5 timed ones; the median counts.</p></details>
     </section>
-    <section class="slide" id="size-panel" data-step="size" aria-label="Size the host pool">
+    <section class="slide wz-stage" id="size-panel" data-step="size" aria-label="Size the host pool">
       <h2><span class="n"></span>Size the host pool <span class="muted" style="font-weight:400"><span class="sr-only">, </span><span id="size-summary"></span></span></h2>
-      <p class="status">Starts from the minimum viable kit: one memory-optimized E4as_v5 host and a 100&nbsp;GiB profile share. Choose the number of hosts, or Automatic to size them from how many people use them and how they work (Microsoft's multi-session guidance: light 6, medium 4, heavy 2, power 1 user per vCPU). It suggests memory-optimized E-series sizes, because hosts shared by many users run out of memory before CPU, and every host gets a Premium SSD OS disk. Once you apply a sizing, the commands carry it: the pre-deployment preflight checks quota and availability for it, and <code>deploy.sh</code> deploys it. The next step prices it.</p>
+      <p class="purpose">Choose how many session hosts to run. One host and a 100&nbsp;GiB profile share is enough to start.</p>
       <div id="pools"></div>
-      <div class="row">
-        <button type="button" class="secondary" id="add-pool" disabled title="The landing zone deploys one host pool today">Add a host pool</button>
-        <span class="status">One pooled host pool for now; the sizing is kept per host pool so more can be added later.</span>
-      </div>
       <div class="table-wrap" style="margin-top:12px"><table class="kv"><tbody id="size-result"></tbody></table></div>
       <ul class="notes" id="size-notes"></ul>
       <div class="row" style="margin-top:12px">
@@ -385,10 +329,18 @@
         <button class="secondary" id="size-clear">Use the parameter file's values</button>
         <span class="status" id="size-status" role="status"></span>
       </div>
+      <details class="more"><summary>How sizing works</summary>
+        <p>It starts from the minimum viable kit: one memory-optimized E4as_v5 host and a 100&nbsp;GiB profile share. Automatic sizes the hosts from how many people use them and how they work (Microsoft's multi-session guidance: light 6, medium 4, heavy 2, power 1 user per vCPU). It suggests memory-optimized E-series sizes, because hosts shared by many users run out of memory before CPU, and every host gets a Premium SSD OS disk.</p>
+        <p>Once you apply a sizing, the commands carry it: the pre-deployment preflight checks quota and availability for it, and <code>deploy.sh</code> deploys it. The next step prices it.</p>
+        <div class="row">
+          <button type="button" class="secondary" id="add-pool" disabled title="The landing zone deploys one host pool today">Add a host pool</button>
+          <span class="status">One pooled host pool for now; the sizing is kept per host pool so more can be added later.</span>
+        </div>
+      </details>
     </section>
-    <section class="slide" id="cost-panel" data-step="cost" aria-label="Cost">
+    <section class="slide wz-stage" id="cost-panel" data-step="cost" aria-label="Cost">
       <h2><span class="n"></span>Cost <span class="muted" style="font-weight:400"><span class="sr-only">, </span><span id="cost-summary"></span></span></h2>
-      <p class="status">Most of the cost is the hours the session hosts run, and two settings decide those hours. They are deployed with the landing zone. The pre-deployment preflight prices the plan at Azure list prices for your region; after that, changing a setting here reprices it without running anything.</p>
+      <p class="purpose">Hosts bill for the hours they run. These two settings decide those hours.</p>
       <div class="pool">
         <label class="switch"><input type="checkbox" id="power-svmoc"><span><strong>Start VM on Connect</strong><br><span class="muted">Starts a stopped host when someone connects, so hosts don't need to be running before people arrive.</span></span></label>
         <label class="switch"><input type="checkbox" id="power-shutdown"><span><strong>Scheduled auto shutdown</strong> <input type="time" id="power-time" step="900" aria-label="Stop time"><br><span class="muted">Stops the hosts every day at this time (idle hosts; the runbook also stops or locks them when the budget alert fires).</span></span></label>
@@ -403,26 +355,31 @@
         <button id="cost-continue">Continue to the preflight</button>
         <button class="secondary hidden" id="power-reset">Use the parameter file's power settings</button>
       </div>
+      <details class="more"><summary>How the cost is worked out</summary><p>Most of the cost is the hours the session hosts run. Both settings are deployed with the landing zone. The pre-deployment preflight prices the plan at Azure list prices for your region; after that, changing a setting here reprices it without running anything.</p></details>
     </section>
-    <section class="slide" id="slide-predeploy" data-step="predeploy" aria-label="Pre-deployment preflight">
+    <section class="slide wz-stage" id="slide-predeploy" data-step="predeploy" aria-label="Pre-deployment preflight">
       <h2><span class="n"></span>Pre-deployment preflight</h2>
+      <p class="purpose">Check that the subscription is ready. Nothing gets changed.</p>
       <div class="slot"></div>
     </section>
-    <section class="slide" id="slide-deploy" data-step="deploy" aria-label="Deploy the landing zone">
+    <section class="slide wz-stage" id="slide-deploy" data-step="deploy" aria-label="Deploy the landing zone">
       <h2><span class="n"></span>Deploy the landing zone</h2>
+      <p class="purpose">Deploy it once the preflight says Ready. It takes 30 to 45 minutes and keeps running in Azure if Cloud Shell disconnects.</p>
       <div class="slot"></div>
     </section>
-    <section class="slide" id="slide-postdeploy" data-step="postdeploy" aria-label="Post-deployment setup">
+    <section class="slide wz-stage" id="slide-postdeploy" data-step="postdeploy" aria-label="Post-deployment setup">
       <h2><span class="n"></span>Post-deployment setup</h2>
+      <p class="purpose">Finish what the deployment can't do on its own: admin consent, the Conditional Access exclusion and the profile share permissions.</p>
       <div class="slot"></div>
     </section>
-    <section class="slide" id="slide-signin" data-step="signin" aria-label="Sign in">
+    <section class="slide wz-stage" id="slide-signin" data-step="signin" aria-label="Sign in">
       <h2><span class="n"></span>Sign in</h2>
+      <p class="purpose">Open the desktop as a member of the users group.</p>
       <div class="slot"></div>
     </section>
-    <section class="slide" id="slide-verify" data-step="verify" aria-label="Verify access">
+    <section class="slide wz-stage" id="slide-verify" data-step="verify" aria-label="Verify access">
       <h2><span class="n"></span>Verify access <span class="muted" style="font-weight:400"><span class="sr-only">, </span><span id="reach-summary">not checked</span></span></h2>
-      <p class="status">Checks access to the desktop <strong>from this device and network</strong>, signed in as yourself. Run it where people will connect from. Each check says what it proves and what it doesn't.</p>
+      <p class="purpose">Check that this device can reach AVD, then open the desktop. Run it where people will connect from.</p>
       <div class="pool">
         <h3>Can this device reach AVD?</h3>
         <div class="row">
@@ -439,7 +396,7 @@
             </table>
           </div>
         </div>
-        <p class="status" id="reach-limits" style="margin:8px 0 0"></p>
+        <details class="more"><summary>What this check proves</summary><p class="status" id="reach-limits"></p></details>
       </div>
       <div class="pool">
         <h3>Open the desktop</h3>
@@ -449,16 +406,20 @@
           <label id="launch-tenant-label" class="hidden"><input type="checkbox" id="launch-tenant"> Add the tenant (for a guest account)</label>
           <label id="launch-hint-label" class="hidden"><input type="checkbox" id="launch-hint"> Prefill the sign-in with <span id="launch-hint-upn"></span></label>
         </div>
-        <p class="status" style="margin:8px 0 0">Sign in as a member of the users group. Expect a one-time prompt to allow the remote desktop connection the first time you reach each session host (Microsoft Entra single sign-on): choose Yes. A stopped host starts on the first connection, which then takes a few minutes and isn't representative. To test the Windows App and its RDP path, open the Windows App and choose the same desktop. There's no direct Windows App link: its parameters aren't confirmed yet.</p>
+        <p class="status" style="margin:8px 0 0">Sign in as a member of the users group, and choose Yes when asked to allow the remote desktop connection.</p>
+        <details class="more"><summary>What to expect</summary><p>The prompt to allow the connection comes once for each session host (Microsoft Entra single sign-on). A stopped host starts on the first connection, which then takes a few minutes and isn't representative. To test the Windows App and its RDP path, open the Windows App and choose the same desktop. There's no direct Windows App link: its parameters aren't confirmed yet.</p></details>
       </div>
       <div class="slot"></div>
     </section>
   </div>
-  <nav class="stepnav" aria-label="Step navigation">
-    <button type="button" class="secondary" id="prev-step">&larr; Back</button>
-    <span class="status" id="step-pos"></span>
-    <button type="button" class="secondary" id="next-step">Next &rarr;</button>
-  </nav>
+  </div>
+</main>
+<nav class="wz-nav wide" aria-label="Step navigation"><div class="in">
+  <button type="button" class="secondary" id="prev-step">&larr; Back</button>
+  <span class="where" id="step-pos"></span>
+  <button type="button" class="secondary" id="next-step">Next &rarr;</button>
+</div></nav>
+<div class="after">
   <div id="shared" class="hidden">
   <section id="next" aria-live="polite">
     <div class="headline"><h3 id="next-title" style="margin:0">Next step</h3><span id="next-chip" class="chip hidden"></span></div>
@@ -466,14 +427,14 @@
     <p id="estimate-line" class="status hidden"></p>
     <p id="version-line" class="status hidden" role="status"></p>
     <div id="findings" class="hidden"></div>
+    <p class="runline" id="runline">For <strong id="runline-where">Cloud Shell, PowerShell</strong><button type="button" class="linkbtn" id="runline-change">Change</button></p>
     <div id="actions"></div>
-    <p class="status" style="margin-top:12px">Copy a block, paste it into <a href="https://shell.azure.com/powershell" target="_blank" rel="noopener">Cloud Shell</a>, then paste the output below. Keep the Cloud Shell tab in front while it runs.
-      <span id="source-line">Commands run <a href="https://github.com/avd-ops/avd-landing-zone" id="source-repo">avd-ops/avd-landing-zone</a> at <code id="source-ref">master</code>.</span>
-      Wrong advice, or stuck? <button type="button" class="linkbtn" id="report-open">Report a problem</button></p>
+    <p class="status quiet" style="margin-top:12px">Copy the block into <a href="https://shell.azure.com/powershell" target="_blank" rel="noopener">Cloud Shell</a>, keep its tab in front while it runs, then paste the output below. Stuck? <button type="button" class="linkbtn" id="report-open">Report a problem</button></p>
+    <details class="more" id="source-more"><summary>Where these commands come from</summary><p><span id="source-line">Commands run <a href="https://github.com/avd-ops/avd-landing-zone" id="source-repo">avd-ops/avd-landing-zone</a> at <code id="source-ref">master</code>.</span></p></details>
   </section>
   <section id="paste-box">
-    <h3>Paste the output here</h3>
-    <textarea id="paste" spellcheck="false" placeholder="Paste everything from the command to the prompt that follows it. The scripts end with a line starting &lt;&lt;&lt;AVDLZ-STATE, which is what this page reads."></textarea>
+    <h3>Paste the output</h3>
+    <textarea id="paste" spellcheck="false" placeholder="Paste everything from the command to the next prompt. The page reads the line that starts &lt;&lt;&lt;AVDLZ-STATE."></textarea>
     <p id="paste-masked" class="hidden" role="status"></p>
     <div class="row" style="margin-top:10px">
       <button id="analyze">Analyze output</button>
@@ -499,7 +460,7 @@
   </details>
   <footer class="disclaimer">A personal project, provided as is, without warranty. Not affiliated with the author's employer or with Microsoft. Not for production use.</footer>
   <p class="credit">A <a href="https://prignano.ai/">prignano.ai</a> production</p>
-</main>
+</div>
 
 <script src="portal-config.js"></script>
 <script src="portal-core.js"></script>
