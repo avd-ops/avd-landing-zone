@@ -1,4 +1,4 @@
-/* avd-ops design system v2.5.0 (https://avd-ops.dev/, avd-ops/avd-ops site/assets/avd-ops.css). MIT.
+/* avd-ops design system v2.7.0 (https://avd-ops.dev/, avd-ops/avd-ops site/assets/avd-ops.css). MIT.
    Personal project, not for production, as is; not affiliated with the author's employer, Liquidware or Microsoft.
    One file for every public AVD page: tokens (light, dark, and a data-theme override), base type, and the shared
    pieces (top bar with the logo slot, notice, buttons, chips, status pills, tables, code, footer). Pages add only
@@ -13,6 +13,9 @@
 @font-face{font-family:"Schibsted Grotesk";font-weight:500 600;font-display:swap;src:url("fonts/schibsted-grotesk-latin-600-normal.woff2") format("woff2")}
 @font-face{font-family:"Schibsted Grotesk";font-weight:700;font-display:swap;src:url("fonts/schibsted-grotesk-latin-700-normal.woff2") format("woff2")}
 @font-face{font-family:"JetBrains Mono";font-weight:600;font-display:swap;src:url("fonts/jetbrains-mono-latin-600-normal.woff2") format("woff2")}
+@font-face{font-family:"Source Serif 4";font-weight:400;font-display:swap;src:url("fonts/source-serif-4-latin-400-normal.woff2") format("woff2")}
+@font-face{font-family:"Source Serif 4";font-weight:400;font-style:italic;font-display:swap;src:url("fonts/source-serif-4-latin-400-italic.woff2") format("woff2")}
+@font-face{font-family:"Source Serif 4";font-weight:600 700;font-display:swap;src:url("fonts/source-serif-4-latin-600-normal.woff2") format("woff2")}
 
 /* Tokens. Neutrals are a cool slate; the accent is the logo's teal, darkened on light backgrounds for contrast
    (--brand and --brand-ink are the logo's own colors, for brand surfaces only); amber marks the optional
@@ -35,9 +38,10 @@
   --mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",SFMono-Regular,Menlo,Consolas,monospace;
   --wordmark:"Schibsted Grotesk","Segoe UI",system-ui,sans-serif;
   --tagline:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  --prose:"Source Serif 4",Georgia,"Times New Roman",serif;
   --radius:8px; --radius-sm:6px; --pill:999px;
   --space-1:.25rem; --space-2:.5rem; --space-3:.75rem; --space-4:1rem; --space-5:1.5rem; --space-6:2.5rem;
-  --measure:46rem; --gutter:16px; --page:76rem; --side:15rem; --tap:44px; --radius-lg:14px; --bar:72px;
+  --measure:76rem; --gutter:16px; --page:76rem; --side:15rem; --tap:44px; --radius-lg:14px; --bar:72px;
   --ease:cubic-bezier(.2,.7,.2,1); --fast:120ms; --slow:220ms;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
@@ -74,6 +78,7 @@ h1,h2,h3{font-family:var(--display);line-height:1.2;text-wrap:balance}
 h1{font-size:clamp(2rem,5vw,2.9rem);margin:var(--space-6) 0 var(--space-3);letter-spacing:-.015em}
 h2{font-size:1.45rem;margin:2.75rem 0 var(--space-3);letter-spacing:-.005em} h3{font-size:1.1rem;margin:0 0 .35rem}
 code,.mono{font-family:var(--mono);font-size:.9em}
+.prose{font-family:var(--prose);font-size:1.06rem;line-height:1.65}
 :not(pre)>code{background:var(--sunken);border:1px solid var(--line);border-radius:4px;padding:0 .3em}
 pre{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);padding:.9rem 1rem;overflow-x:auto;font:.82rem/1.55 var(--mono)}
 /* Commands show every character as typed: no ligature turns << or != into one glyph. */
