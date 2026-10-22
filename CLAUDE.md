@@ -1,3 +1,5 @@
+@AGENTS.md
+
 # CLAUDE.md
 
 Cloud-native Azure Virtual Desktop landing zone: Bicep at subscription scope (`bicep/`), a deploy script (`scripts/deploy/deploy.sh`), and PowerShell ops scripts for Azure Cloud Shell (`scripts/ops/`): pre-deployment and post-deployment preflight with `-Fix`, demo host pool, cleanup.
