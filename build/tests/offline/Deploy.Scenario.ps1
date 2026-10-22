@@ -123,6 +123,10 @@ Invoke-Deploy 'jumpbox-os-alone' @('--jumpbox-os', 'windows')
 $env:AVD_JUMPBOX_OS = 'Windows'
 Invoke-Deploy 'jumpbox-os-env' @('--jumpbox')
 $env:AVD_JUMPBOX_OS = ''
+# Its group without its VM (a partial earlier run): ResourceNotFound, also no jumpbox (lesson 0034).
+$env:FAKE_JUMPBOX_RG_EXISTS = 'true'
+Invoke-Deploy 'jumpbox-rg-only' @('--jumpbox')
+$env:FAKE_JUMPBOX_RG_EXISTS = ''
 $env:FAKE_JUMPBOX_VM_ERROR = '(AuthorizationFailed) The client does not have authorization to perform action Microsoft.Compute/virtualMachines/read.'
 Invoke-Deploy 'jumpbox-unreadable' @('--jumpbox')
 $env:FAKE_JUMPBOX_VM_ERROR = ''

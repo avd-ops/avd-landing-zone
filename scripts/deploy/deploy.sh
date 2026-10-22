@@ -440,7 +440,7 @@ if $JUMPBOX && [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]]; then
       exit 1
     fi
     JUMPBOX_OS="$existing_os"
-  elif ! grep -q ResourceNotFound "$jumpbox_err"; then
+  elif ! grep -qE "ResourceNotFound|ResourceGroupNotFound" "$jumpbox_err"; then
     # Only "not found" means there is no jumpbox; anything else would re-send an existing VM.
     echo "Can't read the jumpbox VM:"; cat "$jumpbox_err"; exit 1
   fi
