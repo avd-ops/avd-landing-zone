@@ -63,7 +63,14 @@ if (-not $Local) {
 
 Write-AvdSection 'Expected cost'
 Write-Host '  Reading the parameter file and retail prices...' -ForegroundColor DarkGray
-$plan = Get-AvdDeploymentPlan -ParameterFile $ParameterFile -Location $Location
+# The sizing the deploy uses comes from the AVD_* variables (the portal's record step and the batch
+# runner set them); Get-AvdDeploymentPlan reads them only through -Sizing, and blanks them otherwise.
+$sizing = @{}
+foreach ($s in @{ hosts = 'AVD_SESSION_HOST_COUNT'; vmSize = 'AVD_SESSION_HOST_VM_SIZE'; maxSessions = 'AVD_MAX_SESSION_LIMIT'; profileQuotaGiB = 'AVD_PROFILE_QUOTA_GIB' }.GetEnumerator()) {
+  $v = [Environment]::GetEnvironmentVariable($s.Value)
+  if ($v) { $sizing[$s.Key] = $v }
+}
+$plan = Get-AvdDeploymentPlan -ParameterFile $ParameterFile -Location $Location -Sizing $sizing
 $hostCount = [int]$plan.sessionHostCount + $DemoHostCount
 $estimate = Get-AvdCostEstimate -Plan $plan
 $cost = Get-AvdRunCostExpected -Estimate $estimate -Hours $Hours -HostCount $hostCount -RunId $RunId -Cap $Cap

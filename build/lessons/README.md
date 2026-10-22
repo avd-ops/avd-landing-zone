@@ -40,6 +40,7 @@ Add a lesson whenever a real run fails for a reason the tests didn't catch. The 
 | 0032 | [Every field of a pasted state line is input, not only its settings](0032-pasted-state-line-fields.md) | Deployment portal | #111 | Portal test: crafted paste (every field of every state fixture) |
 | 0033 | [An unattended teardown must delete device objects with the app's own Graph token](0033-app-identity-graph-cleanup.md) | Ops scripts | #91 | Unit test: Test-AvdAppIdentity |
 | 0034 | [A read of a resource in a missing resource group fails with ResourceGroupNotFound, not ResourceNotFound](0034-vm-show-missing-group.md) | deploy.sh | #117 | Offline scenario: Deploy (jumpbox-new, jumpbox-rg-only) |
+| 0035 | [The run recorder prices the parameter file's default size unless sizing reaches the plan through -Sizing](0035-recorder-prices-deploy-size.md) | Run recorder | #114 | Offline scenario: RunRecorder `start-sized` |
 
 ## Template
 
