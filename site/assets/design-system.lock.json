@@ -1,7 +1,7 @@
 {
   "$comment": "The avd-ops design system copy in this folder: the avd-ops tag and commit it came from and the SHA-256 of each file (its MANIFEST.json). Update it with the Cloud Shell block in avd-ops docs/design-system.md, never by hand.",
   "tag": "ds-v2.7.0",
-  "commit": "206286353a6ead88bce76f703efd8d270305e1b6",
+  "commit": "ee0a1ab8ab11bf58d72cb6c9e63547935f87a6fd",
   "files": {
     "avd-ops.css": "0d3d2156506953d46f38fd3c677eae5efecde6b8e28a83a08c2f2e948bfeb23b",
     "avd-ops-shell.css": "940a1ca7d01449a09ec22dc5b17c5b94ee042c36ddccc8d09a69265537fd4270",
