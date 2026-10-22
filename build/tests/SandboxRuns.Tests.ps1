@@ -468,6 +468,10 @@ Describe 'Deadline teardown (decision 0021)' {
     $d.parameters.ResultsBlob | Should -Be 'queue/2026-10/b20261021-0100/results-G2.json'
     (Get-AvdBatchDeadline -Group (& $Down 'x' @{ namePrefix = 'Lab-1'; environment = 'test' }) @Common).resourceGroupPrefix | Should -Be 'rg-lab1-test-'
   }
+  It 'refuses to arm a scope the runbook would reject, so a firing never fails on its parameters' {
+    { Get-AvdBatchDeadline -Group (& $Down 'x' @{ namePrefix = 'avd-sandbox1'; environment = 'dev' }) @Common } | Should -Throw '*runbook takes*'
+    { Get-AvdBatchDeadline -Group (& $Down 'x' @{ namePrefix = 'lab'; environment = 'qa' }) @Common } | Should -Throw '*runbook takes*'
+  }
   It 'treats an unfinished group as gone once its last step is older than its deadline and teardown budget' {
     $g = @{ hours = 2; deadlineHours = 3 }
     $r = { param($ago) @{ steps = @(@{ step = 'start'; startedAt = $Now.AddHours(-10).ToString('o') }, @{ step = 'test'; startedAt = $Now.AddMinutes(-$ago).ToString('o') }) } }

@@ -173,10 +173,10 @@ if ($mode -eq 'start') {
     if (-not $book -or $book.properties.state -ne 'Published') {
       Write-Host "Not starting: no deadline teardown in this subscription (aa-avdlz-runs in avdlz-runs-rg, runbook Invoke-AvdSandboxDeadline$(if ($book) { " is $($book.properties.state)" })). Run Initialize-AvdRunStore.ps1 again to add it (no cost while idle), or pass -NoDeadlineTeardown. Nothing was claimed, deployed or spent." -ForegroundColor Red; exit 2
     }
-    $plan = Get-AvdBatchDeadline -Batch $batch -Group $g -Now (Get-Date) -SubscriptionId $subId -StorageAccount $runStore -ResultsBlob $resultsName
-    $schedule = "$aa/schedules/$($plan.scheduleName)?api-version=$apiAa"
     $jobSchedule = [guid]::NewGuid().ToString()
     try {
+      $plan = Get-AvdBatchDeadline -Batch $batch -Group $g -Now (Get-Date) -SubscriptionId $subId -StorageAccount $runStore -ResultsBlob $resultsName
+      $schedule = "$aa/schedules/$($plan.scheduleName)?api-version=$apiAa"
       # A schedule left by an earlier attempt goes first, with its link to the runbook.
       $null = Invoke-AvdSpendArm -Method DELETE -Path $schedule -AllowNotFound
       $null = Invoke-AvdSpendArm -Method PUT -Path $schedule -Body @{ name = $plan.scheduleName; properties = @{ description = "Deadline teardown of batch $($batch.batchId) $Group"; startTime = $plan.fireAt; frequency = 'OneTime'; timeZone = 'UTC' } }

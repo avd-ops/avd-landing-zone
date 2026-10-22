@@ -160,11 +160,12 @@ else {
   $groups = @(Get-ArmList -Path "/subscriptions/$SubscriptionId/resourcegroups?api-version=$apiRg" | Where-Object { $_.name -like "$ResourceGroupPrefix*" -and $_.name -ne $protected })
   $report.found = @($groups | ForEach-Object { $_.name })
   if (-not $groups.Count) { Write-Output "  No resource group named $ResourceGroupPrefix* is left." }
+  $deleting = @()
   foreach ($g in $groups) {
     $rgPath = "/subscriptions/$SubscriptionId/resourceGroups/$($g.name)"
     if ($Action -eq 'Delete') {
       if ($PSCmdlet.ShouldProcess($g.name, 'Delete the resource group')) {
-        try { Invoke-Arm -Method DELETE -Path "$rgPath`?api-version=$apiRg" | Out-Null; Write-Output "  $($g.name): deleting" }
+        try { Invoke-Arm -Method DELETE -Path "$rgPath`?api-version=$apiRg" | Out-Null; $deleting += $g.name; Write-Output "  $($g.name): deleting" }
         catch { $report.errors += "$($_.Exception.Message)"; Write-Output "  $($g.name): $($_.Exception.Message)" }
       }
     }
@@ -178,14 +179,16 @@ else {
     }
   }
   if ($Action -eq 'Delete' -and $groups.Count -and -not $WhatIfPreference) {
-    # Resource group deletes run in the background: wait (within the Automation job's three hours) and check.
+    # Resource group deletes run in the background: wait (within the Automation job's three hours) and
+    # check, but only for the deletes ARM accepted; a refused one is already an error, and is left.
     $until = (Get-Date).AddMinutes($WaitMinutes)
-    do {
+    $left = @($report.found | Where-Object { $_ -notin $deleting })
+    if ($deleting.Count) { do {
       $left = @(Get-ArmList -Path "/subscriptions/$SubscriptionId/resourcegroups?api-version=$apiRg" | Where-Object { $_.name -in $report.found } | ForEach-Object { $_.name })
-      if (-not $left.Count -or (Get-Date) -gt $until) { break }
-      Write-Output "  waiting for $($left.Count) resource group(s) to go ..."
+      if (-not @($left | Where-Object { $_ -in $deleting }).Count -or (Get-Date) -gt $until) { break }
+      Write-Output "  waiting for $(@($left | Where-Object { $_ -in $deleting }).Count) resource group(s) to go ..."
       Start-Sleep -Seconds 60
-    } while ($true)
+    } while ($true) }
     $report.remaining = @($left)
     $report.deleted = @($report.found | Where-Object { $_ -notin $left })
   }

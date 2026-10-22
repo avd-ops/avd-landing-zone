@@ -547,6 +547,10 @@ function Get-AvdBatchDeadline {
   $lead = @($Group.members | Where-Object { $_.role -eq 'lead' }) | Select-Object -First 1
   $discards = [bool]($lead -and "$($lead.teardown)" -match '(?i)(^|\s)-DiscardLastCopy\b')
   $lz = Get-AvdBatchLandingZoneName -Group $Group
+  # The runbook accepts only this shape; arming a value it would reject leaves nothing to fire.
+  if ($lz.resourceGroupPrefix -cnotmatch '^rg-[a-z0-9]{2,8}-(dev|test|prod)-$') {
+    throw "The deadline teardown can't cover $($lz.resourceGroupPrefix)*: the runbook takes rg-<2 to 8 lowercase letters or digits>-<dev|test|prod>-."
+  }
   $minutes = [double]$Group.deadlineHours * 60 + (Get-AvdBatchTeardownBudget -Group $Group) + $GraceMinutes
   $fireAt = $Now.ToUniversalTime().AddMinutes([math]::Ceiling($minutes))
   $action = if ($discards) { 'Delete' } else { 'Deallocate' }
