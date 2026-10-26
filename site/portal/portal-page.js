@@ -36,7 +36,7 @@
   $('issues-link').textContent = repoSlug;
 
   // Saved settings are checked like typed ones: an old or edited value that no longer fits is dropped.
-  var cfg = Object.assign({}, P.DEFAULTS, P.validSettings(load('config', {})).settings, { repoUrl: repoUrl, ref: site.ref, sizing: P.validSizing(load('sizing', null)), power: P.validPower(load('power', null)), hoursWorkedPerWeek: load('hoursWorked', 50), launch: P.launchTarget(load('launch', null)), record: load('record', null) });
+  var cfg = Object.assign({}, P.DEFAULTS, P.validSettings(load('config', {})).settings, { repoUrl: repoUrl, ref: site.ref, sizing: P.validSizing(load('sizing', null)), topology: P.validTopology(load('topology', null)), power: P.validPower(load('power', null)), hoursWorkedPerWeek: load('hoursWorked', 50), launch: P.launchTarget(load('launch', null)), record: load('record', null) });
   var step = load('step', null);
   // Furthest step reached, by id: later steps stay hidden until the deployment gets there. (Saved as an
   // index before the Cost step existed; those indexes are read against the old step list.)
@@ -57,6 +57,8 @@
     // A pasted preflight says which sizing it validated; the next commands keep it.
     var sizing = patch && P.validSizing(patch.sizing);
     if (sizing) { cfg.sizing = sizing; save('sizing', cfg.sizing); }
+    var topology = patch && P.validTopology(patch.topology);
+    if (topology) { cfg.topology = topology; save('topology', cfg.topology); }
     // ... and which power settings it priced.
     var power = patch && P.validPower(patch.power);
     if (power) { cfg.power = power; save('power', cfg.power); }
@@ -423,9 +425,15 @@
     try { Object.keys(localStorage).filter(function (k) { return k.indexOf('avdlz.portal.') === 0; }).forEach(function (k) { localStorage.removeItem(k); }); } catch (e) { /* storage unavailable */ }
     // A shell that ran a recorded block still has the run ID: the next blocks clear it.
     var wasRecording = P.recording(cfg);
-    cfg = Object.assign({}, P.DEFAULTS, { repoUrl: repoUrl, ref: site.ref, sizing: null, power: null, hoursWorkedPerWeek: 50, launch: null, record: wasRecording ? { mode: wasRecording.mode } : null });
+    cfg = Object.assign({}, P.DEFAULTS, { repoUrl: repoUrl, ref: site.ref, sizing: null, topology: null, power: null, hoursWorkedPerWeek: 50, launch: null, record: wasRecording ? { mode: wasRecording.mode } : null });
     if (wasRecording) save('record', cfg.record); step = null; reached = 0; ranked = null; lastAnalysis = null; latency = [];
-    pools = [Object.assign({}, P.HOST_POOL_DEFAULTS)]; estimate = null; renderPools(); renderCost();
+    pools = [Object.assign({}, P.HOST_POOL_DEFAULTS)];
+    workspaces = [Object.assign({}, P.WORKSPACE_DEFAULTS)];
+    appGroups = [Object.assign({}, P.APP_GROUP_DEFAULTS)];
+    privateLink = JSON.parse(JSON.stringify(P.PRIVATE_LINK_DEFAULTS));
+    selectedPools = { 0: true };
+    estimate = null;
+    renderTemplatesBar(); renderPools(); renderWorkspacesAndAppGroups(); renderPrivateLinkPanel(); renderCost();
     reach = null; $('reach-results').classList.add('hidden'); renderReachability();
     $('results').classList.add('hidden'); $('paste').value = ''; maskedCount = 0; showMasked(); setConfig({}); render(); showStep();
   });
@@ -464,70 +472,760 @@
     window.open(link.url, '_blank', 'noopener');
   });
 
-  // ---------------------------------------------------------------- sizing and cost (decision 0010)
+  // ---------------------------------------------------------------- topology, setting templates, sizing and cost (decision 0010)
   // Sizings saved before the host count could be chosen start again from the minimum viable kit.
   var pools = (load('hostPools', null) || []).filter(function (p) { return p && p.hostCount !== undefined; });
   if (!pools.length) pools = [Object.assign({}, P.HOST_POOL_DEFAULTS)];
+  var workspaces = (load('workspaces', null) || []).filter(function (w) { return w && typeof w === 'object'; });
+  if (!workspaces.length) workspaces = [Object.assign({}, P.WORKSPACE_DEFAULTS)];
+  var appGroups = (load('appGroups', null) || []).filter(function (g) { return g && typeof g === 'object'; });
+  if (!appGroups.length) appGroups = [Object.assign({}, P.APP_GROUP_DEFAULTS)];
+  var privateLink = load('privateLink', null);
+  if (!privateLink || typeof privateLink !== 'object') privateLink = JSON.parse(JSON.stringify(P.PRIVATE_LINK_DEFAULTS));
+  if (!privateLink.dnsZones || typeof privateLink.dnsZones !== 'object') privateLink.dnsZones = JSON.parse(JSON.stringify(P.PRIVATE_LINK_DEFAULTS.dnsZones));
+  var customTemplates = load('customTemplates', {}) || {};
+  var selectedPools = { 0: true };
   var estimate = load('estimate', null);
-  var POOL_FIELDS = [
-    ['name', 'Name', 'text'], ['users', 'People who will use it', 'number'], ['concurrencyPercent', 'Signed in at the busiest time (%)', 'number'],
-    ['workload', 'How they work', 'workload'], ['vmSize', 'VM size', 'vmsize'], ['hostCount', 'Session hosts', 'hostcount'], ['spareHost', 'Spare host (Automatic only)', 'spare'],
-    ['profileGiBPerUser', 'Profile size per person (GiB)', 'number']
-  ];
+
   function money(n, cur) { return (n === null || n === undefined) ? '–' : Number(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ' + (cur || ''); }
   function poolResult(i) { return P.computePool(pools[i], cfg.environment); }
+  function currentTopologyComputed() {
+    return P.computeTopology({ hostPools: pools, workspaces: workspaces, appGroups: appGroups, privateLink: privateLink }, cfg.environment);
+  }
+  function currentManifestFromComputed(comp) {
+    comp = comp || currentTopologyComputed();
+    return P.validTopology({
+      workspaces: comp.workspaces.map(function (ws) {
+        return {
+          name: ws.name,
+          friendlyName: ws.friendlyName,
+          description: ws.description,
+          publicNetworkAccess: ws.publicNetworkAccess,
+          enableFeedPrivateEndpoint: ws.enableFeedPrivateEndpoint,
+          enableGlobalPrivateEndpoint: ws.enableGlobalPrivateEndpoint
+        };
+      }),
+      hostPools: comp.pools.map(function (hp) {
+        return {
+          name: hp.poolKey,
+          friendlyName: hp.name,
+          hostPoolType: hp.hostPoolType,
+          personalDesktopAssignmentType: hp.personalDesktopAssignmentType,
+          loadBalancerType: hp.loadBalancerType,
+          preferredAppGroupType: hp.preferredAppGroupType,
+          maxSessionLimit: hp.sessionsPerHost,
+          rdpProperties: hp.rdpProperties,
+          validationEnvironment: hp.validationEnvironment,
+          startVmOnConnect: hp.startVmOnConnect,
+          deployScalingPlan: hp.deployScalingPlan,
+          scalingTimeZone: hp.scalingTimeZone,
+          enablePrivateEndpoint: hp.enablePrivateEndpoint,
+          publicNetworkAccess: hp.publicNetworkAccess,
+          sessionHostCount: hp.hosts,
+          sessionHostVmSize: hp.vmSize,
+          availabilityZones: hp.availabilityZones,
+          encryptionAtHost: hp.encryptionAtHost,
+          enrollInIntune: hp.enrollInIntune,
+          fslogixProfileSizeMiB: hp.fslogixProfileSizeMiB
+        };
+      }),
+      appGroups: comp.appGroups.map(function (ag) {
+        var o = {
+          name: ag.name,
+          friendlyName: ag.friendlyName,
+          applicationGroupType: ag.applicationGroupType,
+          hostPoolName: ag.hostPool,
+          workspaceName: ag.workspace
+        };
+        if (ag.usersGroupObjectId) o.usersGroupObjectId = ag.usersGroupObjectId;
+        return o;
+      }),
+      privateLink: {
+        enableConnectionPrivateEndpoint: comp.privateLink.enableAvdConnectionPrivateLink,
+        enableFeedPrivateEndpoint: comp.privateLink.enableAvdFeedPrivateLink,
+        enableGlobalPrivateEndpoint: comp.privateLink.enableAvdGlobalPrivateLink,
+        hostPoolPublicNetworkAccess: comp.privateLink.hostPoolPublicNetworkAccess,
+        workspacePublicNetworkAccess: comp.privateLink.workspacePublicNetworkAccess,
+        dnsZones: {
+          file: { mode: comp.privateLink.dnsZones.file.mode === 'existing' ? 'existing' : 'new', resourceId: comp.privateLink.dnsZones.file.existingResourceId || '' },
+          keyVault: { mode: comp.privateLink.dnsZones.keyVault.mode === 'existing' ? 'existing' : 'new', resourceId: comp.privateLink.dnsZones.keyVault.existingResourceId || '' },
+          avd: { mode: comp.privateLink.dnsZones.avd.mode === 'existing' ? 'existing' : 'new', resourceId: comp.privateLink.dnsZones.avd.existingResourceId || '' },
+          avdGlobal: { mode: comp.privateLink.dnsZones.avdGlobal.mode === 'existing' ? 'existing' : 'new', resourceId: comp.privateLink.dnsZones.avdGlobal.existingResourceId || '' }
+        }
+      }
+    });
+  }
+
+  // Setting templates bar
+  function getSelectedTemplateObj() {
+    var sel = $('template-select');
+    if (!sel) return P.POOL_TEMPLATES.general;
+    var v = sel.value;
+    if (v && v.indexOf('custom:') === 0) {
+      var ck = v.slice(7);
+      return customTemplates[ck] || P.POOL_TEMPLATES.general;
+    }
+    return P.POOL_TEMPLATES[v] || P.POOL_TEMPLATES.general;
+  }
+  function renderTemplatesBar() {
+    var sel = $('template-select'), srcSel = $('template-source-pool');
+    if (!sel || !srcSel) return;
+    var prev = sel.value || 'general';
+    sel.textContent = '';
+    Object.keys(P.POOL_TEMPLATES).forEach(function (k) {
+      var op = document.createElement('option');
+      op.value = k;
+      op.textContent = P.POOL_TEMPLATES[k].label;
+      sel.appendChild(op);
+    });
+    Object.keys(customTemplates).forEach(function (k) {
+      var op = document.createElement('option');
+      op.value = 'custom:' + k;
+      op.textContent = 'Custom: ' + (customTemplates[k].label || k);
+      sel.appendChild(op);
+    });
+    if (Array.prototype.some.call(sel.options, function (o) { return o.value === prev; })) sel.value = prev;
+    var tpl = getSelectedTemplateObj();
+    $('template-desc').textContent = tpl.description || 'Custom template saved in this browser.';
+    $('template-delete-custom').classList.toggle('hidden', sel.value.indexOf('custom:') !== 0);
+
+    var prevSrc = srcSel.value || '0';
+    srcSel.textContent = '';
+    pools.forEach(function (p, idx) {
+      var op = document.createElement('option');
+      op.value = String(idx);
+      op.textContent = 'Host pool ' + (idx + 1) + ' (' + (p.poolKey || ('pool-' + (idx + 1))) + ')';
+      srcSel.appendChild(op);
+    });
+    if (Number(prevSrc) < pools.length) srcSel.value = prevSrc;
+  }
+  if ($('template-select')) {
+    $('template-select').addEventListener('change', function () {
+      var tpl = getSelectedTemplateObj();
+      $('template-desc').textContent = tpl.description || 'Custom template saved in this browser.';
+      $('template-delete-custom').classList.toggle('hidden', $('template-select').value.indexOf('custom:') !== 0);
+    });
+    $('template-apply-all').addEventListener('click', function () {
+      var tpl = getSelectedTemplateObj();
+      pools = P.applyPoolTemplate(pools, tpl, 'all');
+      save('hostPools', pools);
+      $('template-status').textContent = 'Applied "' + (tpl.label || 'template') + '" to all ' + pools.length + ' host pool(s).';
+      renderPools();
+    });
+    $('template-apply-selected').addEventListener('click', function () {
+      var indices = Object.keys(selectedPools).filter(function (k) { return selectedPools[k] && Number(k) < pools.length; }).map(Number);
+      if (!indices.length) { $('template-status').textContent = 'Check at least one host pool below first.'; return; }
+      var tpl = getSelectedTemplateObj();
+      pools = P.applyPoolTemplate(pools, tpl, indices);
+      save('hostPools', pools);
+      $('template-status').textContent = 'Applied "' + (tpl.label || 'template') + '" to ' + indices.length + ' selected host pool(s).';
+      renderPools();
+    });
+    $('template-save-custom').addEventListener('click', function () {
+      var name = ($('template-custom-name').value || '').trim();
+      if (!name) { $('template-status').textContent = 'Enter a name for the custom template first.'; return; }
+      var key = name.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) || 'custom';
+      var srcIdx = Number($('template-source-pool').value) || 0;
+      var src = pools[srcIdx] || pools[0];
+      var settings = {};
+      ['hostPoolType', 'personalDesktopAssignmentType', 'loadBalancerType', 'preferredAppGroupType', 'workload', 'concurrencyPercent', 'vmSize', 'maxSessionLimitOverride', 'profileGiBPerUser', 'fslogixProfileSizeMiB', 'rdpProperties', 'validationEnvironment', 'startVmOnConnect', 'deployScalingPlan', 'scalingTimeZone', 'encryptionAtHost', 'enrollInIntune', 'availabilityZones', 'enablePrivateEndpoint', 'publicNetworkAccess'].forEach(function (k) {
+        if (src[k] !== undefined) settings[k] = src[k];
+      });
+      customTemplates[key] = { id: key, label: name, description: 'Saved from Host pool ' + (srcIdx + 1) + ' (' + (src.poolKey || 'general') + ').', settings: settings };
+      save('customTemplates', customTemplates);
+      $('template-custom-name').value = '';
+      renderTemplatesBar();
+      $('template-select').value = 'custom:' + key;
+      $('template-delete-custom').classList.remove('hidden');
+      $('template-status').textContent = 'Saved custom template "' + name + '".';
+    });
+    $('template-delete-custom').addEventListener('click', function () {
+      var v = $('template-select').value;
+      if (v.indexOf('custom:') !== 0) return;
+      var k = v.slice(7);
+      delete customTemplates[k];
+      save('customTemplates', customTemplates);
+      renderTemplatesBar();
+      $('template-status').textContent = 'Deleted custom template.';
+    });
+  }
+
+  var POOL_FIELDS = [
+    ['poolKey', 'Pool slug (ID)', 'slug'],
+    ['name', 'Display name', 'text'],
+    ['hostPoolType', 'Pool type', 'pooltype'],
+    ['users', 'People who will use it', 'number'],
+    ['concurrencyPercent', 'Signed in at busiest time (%)', 'number'],
+    ['workload', 'How they work', 'workload'],
+    ['vmSize', 'VM size', 'vmsize'],
+    ['hostCount', 'Session hosts', 'hostcount'],
+    ['spareHost', 'Spare host (Automatic only)', 'spare'],
+    ['profileGiBPerUser', 'Profile size per person (GiB)', 'number']
+  ];
+
+  function makeSelect(opts, currentVal) {
+    var s = document.createElement('select');
+    opts.forEach(function (o) {
+      var op = document.createElement('option');
+      op.value = o[0];
+      op.textContent = o[1];
+      s.appendChild(op);
+    });
+    s.value = currentVal === null || currentVal === undefined ? '' : String(currentVal);
+    return s;
+  }
+
   function renderPools() {
     var box = $('pools'); box.textContent = '';
     pools.forEach(function (pool, i) {
-      var card = el('div', 'pool'); card.appendChild(el('h3', '', 'Host pool ' + (i + 1) + ' (pooled)'));
+      if (!pool.poolKey) pool.poolKey = i === 0 ? 'general' : ('pool-' + (i + 1));
+      var comp = P.computePool(pool, cfg.environment);
+      var card = el('div', 'pool');
+
+      var head = el('div', 'headline');
+      var selLab = el('label');
+      var selChk = document.createElement('input');
+      selChk.type = 'checkbox';
+      selChk.checked = !!selectedPools[i];
+      selChk.title = 'Select this host pool for template application';
+      selChk.addEventListener('change', function () { selectedPools[i] = selChk.checked; });
+      selLab.appendChild(selChk);
+      selLab.appendChild(el('strong', '', 'Host pool ' + (i + 1) + ': ' + comp.poolKey + ' (' + comp.hostPoolType.toLowerCase() + ')'));
+      head.appendChild(selLab);
+
+      var btnWrap = el('div'); btnWrap.style.marginLeft = 'auto'; btnWrap.style.display = 'flex'; btnWrap.style.gap = '8px';
+      var dupBtn = el('button', 'linkbtn', 'Duplicate');
+      dupBtn.type = 'button';
+      dupBtn.disabled = pools.length >= P.MAX_HOST_POOLS;
+      dupBtn.addEventListener('click', function () {
+        if (pools.length >= P.MAX_HOST_POOLS) return;
+        var copyPool = JSON.parse(JSON.stringify(pool));
+        copyPool.poolKey = (pool.poolKey || 'pool') + '-' + (pools.length + 1);
+        copyPool.name = (pool.name || 'Host pool') + ' ' + (pools.length + 1);
+        pools.push(copyPool);
+        selectedPools[pools.length - 1] = true;
+        save('hostPools', pools);
+        renderTemplatesBar(); renderPools(); renderWorkspacesAndAppGroups();
+      });
+      btnWrap.appendChild(dupBtn);
+      if (pools.length > 1) {
+        var rmBtn = el('button', 'linkbtn', 'Remove');
+        rmBtn.type = 'button';
+        rmBtn.addEventListener('click', function () {
+          pools.splice(i, 1);
+          save('hostPools', pools);
+          renderTemplatesBar(); renderPools(); renderWorkspacesAndAppGroups();
+        });
+        btnWrap.appendChild(rmBtn);
+      }
+      head.appendChild(btnWrap);
+      card.appendChild(head);
+
       var row = el('div', 'row');
       POOL_FIELDS.forEach(function (f) {
         var lab = el('label', 'field'); lab.appendChild(el('span', '', f[1]));
         var input;
-        if (f[2] === 'workload' || f[2] === 'vmsize' || f[2] === 'spare' || f[2] === 'hostcount') {
-          input = document.createElement('select');
-          var opts = f[2] === 'workload' ? Object.keys(P.WORKLOADS).map(function (k) { return [k, P.WORKLOADS[k].label + ' (' + P.WORKLOADS[k].usersPerVcpu + '/vCPU)']; })
+        if (f[2] === 'pooltype' || f[2] === 'workload' || f[2] === 'vmsize' || f[2] === 'spare' || f[2] === 'hostcount') {
+          var opts = f[2] === 'pooltype' ? [['Pooled', 'Pooled (multi-session shared hosts)'], ['Personal', 'Personal (1:1 dedicated desktop per user)']]
+            : f[2] === 'workload' ? Object.keys(P.WORKLOADS).map(function (k) { return [k, P.WORKLOADS[k].label + ' (' + P.WORKLOADS[k].usersPerVcpu + '/vCPU)']; })
             : f[2] === 'vmsize' ? [['', 'Suggested: memory-optimized E-series']].concat(Object.keys(P.VM_SIZES).map(function (k) { return [k, k.replace('Standard_', '') + ' (' + P.VM_SIZES[k].vcpu + ' vCPU, ' + P.VM_SIZES[k].ramGiB + ' GiB' + (P.VM_SIZES[k].recommended ? ', recommended' : '') + ')']; }))
-              : f[2] === 'hostcount' ? [['auto', 'Automatic: enough for the busiest time']].concat(Array.from({ length: P.MAX_HOSTS }, function (_, n) { return [String(n + 1), (n + 1) + (n ? ' hosts' : ' host (minimum)')]; }))
-                : [['', 'Automatic (one in prod)'], ['true', 'Yes'], ['false', 'No']];
-          opts.forEach(function (o) { var op = document.createElement('option'); op.value = o[0]; op.textContent = o[1]; input.appendChild(op); });
-          input.value = pool[f[0]] === null || pool[f[0]] === undefined ? '' : String(pool[f[0]]);
-          if (f[2] === 'spare') input.disabled = pool.hostCount !== 'auto';
+            : f[2] === 'hostcount' ? [['auto', 'Automatic: enough for the busiest time']].concat(Array.from({ length: P.MAX_HOSTS }, function (_, n) { return [String(n + 1), (n + 1) + (n ? ' hosts' : ' host (minimum)')]; }))
+            : [['', 'Automatic (one in prod)'], ['true', 'Yes'], ['false', 'No']];
+          var curVal = f[0] === 'hostPoolType' ? comp.hostPoolType : pool[f[0]];
+          input = makeSelect(opts, curVal);
+          if (f[2] === 'spare') input.disabled = pool.hostCount !== 'auto' || comp.hostPoolType === 'Personal';
+          if (f[2] === 'workload') input.disabled = comp.hostPoolType === 'Personal';
         }
-        else { input = document.createElement('input'); input.type = f[2]; if (f[2] === 'number') input.min = '1'; input.value = pool[f[0]]; input.autocomplete = 'off'; }
+        else {
+          input = document.createElement('input');
+          input.type = f[2] === 'slug' ? 'text' : f[2];
+          if (f[2] === 'number') input.min = '1';
+          input.value = pool[f[0]] === undefined || pool[f[0]] === null ? '' : pool[f[0]];
+          input.autocomplete = 'off';
+          if (f[0] === 'concurrencyPercent') input.disabled = comp.hostPoolType === 'Personal';
+        }
         input.addEventListener('input', function () {
           var v = input.value;
-          pools[i][f[0]] = f[2] === 'number' ? Number(v) : f[2] === 'spare' ? (v === '' ? null : v === 'true') : f[2] === 'hostcount' ? (v === 'auto' ? 'auto' : Number(v)) : v;
+          if (f[0] === 'poolKey') {
+            pools[i].poolKey = v.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24) || ('pool-' + (i + 1));
+          } else if (f[0] === 'hostPoolType') {
+            pools[i].hostPoolType = v === 'Personal' ? 'Personal' : 'Pooled';
+            pools[i].type = pools[i].hostPoolType === 'Personal' ? 'personal' : 'pooled';
+            if (pools[i].hostPoolType === 'Personal') pools[i].loadBalancerType = 'Persistent';
+            else if (pools[i].loadBalancerType === 'Persistent') pools[i].loadBalancerType = 'BreadthFirst';
+          } else {
+            pools[i][f[0]] = f[2] === 'number' ? Number(v) : f[2] === 'spare' ? (v === '' ? null : v === 'true') : f[2] === 'hostcount' ? (v === 'auto' ? 'auto' : Number(v)) : v;
+          }
           save('hostPools', pools);
-          if (f[2] === 'hostcount') renderPools(); else renderSizeResult();
+          if (f[2] === 'hostcount' || f[2] === 'pooltype') renderPools();
+          else { renderSizeResult(); if (f[0] === 'poolKey') { renderTemplatesBar(); renderWorkspacesAndAppGroups(); } }
         });
         lab.appendChild(input); row.appendChild(lab);
       });
-      card.appendChild(row); box.appendChild(card);
+      card.appendChild(row);
+
+      // Expandable per-pool settings
+      var adv = el('details', 'more'); adv.style.marginTop = '10px';
+      adv.appendChild(el('summary', '', 'All pool settings (load balancing, RDP, autoscale, Intune, Private Link)'));
+      var advRow1 = el('div', 'row'); advRow1.style.marginTop = '8px';
+
+      // Load balancer
+      var lbLab = el('label', 'field'); lbLab.appendChild(el('span', '', 'Load balancing algorithm'));
+      var lbSel = makeSelect(comp.hostPoolType === 'Personal' ? [['Persistent', 'Persistent (1:1 personal desktop)']] : [['BreadthFirst', 'BreadthFirst (spread sessions across hosts)'], ['DepthFirst', 'DepthFirst (fill one host before the next)']], comp.loadBalancerType);
+      lbSel.disabled = comp.hostPoolType === 'Personal';
+      lbSel.addEventListener('change', function () { pools[i].loadBalancerType = lbSel.value; save('hostPools', pools); renderSizeResult(); });
+      lbLab.appendChild(lbSel); advRow1.appendChild(lbLab);
+
+      // Personal assignment type
+      var paLab = el('label', 'field'); paLab.appendChild(el('span', '', 'Personal desktop assignment'));
+      var paSel = makeSelect([['Automatic', 'Automatic (assign first available host)'], ['Direct', 'Direct (admin assigns specific host)']], comp.personalDesktopAssignmentType);
+      paSel.disabled = comp.hostPoolType !== 'Personal';
+      paSel.addEventListener('change', function () { pools[i].personalDesktopAssignmentType = paSel.value; save('hostPools', pools); renderSizeResult(); });
+      paLab.appendChild(paSel); advRow1.appendChild(paLab);
+
+      // Preferred app group type
+      var agtLab = el('label', 'field'); agtLab.appendChild(el('span', '', 'Preferred app group type'));
+      var agtSel = makeSelect([['Desktop', 'Desktop (full desktop sessions)'], ['RailApplications', 'RailApplications (RemoteApp programs)']], comp.preferredAppGroupType);
+      agtSel.addEventListener('change', function () { pools[i].preferredAppGroupType = agtSel.value; save('hostPools', pools); renderSizeResult(); });
+      agtLab.appendChild(agtSel); advRow1.appendChild(agtLab);
+
+      // Max session limit override
+      var msLab = el('label', 'field'); msLab.appendChild(el('span', '', 'Max sessions per host override'));
+      var msIn = document.createElement('input'); msIn.type = 'number'; msIn.min = '1'; msIn.max = '999999'; msIn.placeholder = 'Auto (' + comp.sessionsPerHost + ')';
+      msIn.value = pool.maxSessionLimitOverride ? String(pool.maxSessionLimitOverride) : '';
+      msIn.disabled = comp.hostPoolType === 'Personal';
+      msIn.addEventListener('input', function () { pools[i].maxSessionLimitOverride = msIn.value ? Number(msIn.value) : null; save('hostPools', pools); renderSizeResult(); });
+      msLab.appendChild(msIn); advRow1.appendChild(msLab);
+
+      // FSLogix VHDX max size MiB
+      var fslLab = el('label', 'field'); fslLab.appendChild(el('span', '', 'FSLogix max VHDX size (MiB)'));
+      var fslIn = document.createElement('input'); fslIn.type = 'number'; fslIn.min = '500'; fslIn.max = '1048576';
+      fslIn.value = String(comp.fslogixProfileSizeMiB || 30000);
+      fslIn.addEventListener('input', function () { pools[i].fslogixProfileSizeMiB = Number(fslIn.value) || 30000; save('hostPools', pools); renderSizeResult(); });
+      fslLab.appendChild(fslIn); advRow1.appendChild(fslLab);
+
+      adv.appendChild(advRow1);
+
+      var advRow2 = el('div', 'row'); advRow2.style.marginTop = '8px';
+
+      // Scaling plan
+      var spLab = el('label', 'field'); spLab.appendChild(el('span', '', 'Autoscale scaling plan'));
+      var spVal = pool.deployScalingPlan === null || pool.deployScalingPlan === undefined ? '' : String(pool.deployScalingPlan);
+      var spSel = makeSelect([['', 'Default (enabled in prod)'], ['true', 'Enabled'], ['false', 'Disabled']], spVal);
+      spSel.disabled = comp.hostPoolType === 'Personal';
+      spSel.addEventListener('change', function () { pools[i].deployScalingPlan = spSel.value === '' ? null : spSel.value === 'true'; save('hostPools', pools); renderSizeResult(); });
+      spLab.appendChild(spSel); advRow2.appendChild(spLab);
+
+      // Scaling time zone
+      var tzLab = el('label', 'field'); tzLab.appendChild(el('span', '', 'Autoscale time zone'));
+      var tzSel = makeSelect([
+        ['Central Standard Time', 'Central Standard Time'],
+        ['Eastern Standard Time', 'Eastern Standard Time'],
+        ['Mountain Standard Time', 'Mountain Standard Time'],
+        ['Pacific Standard Time', 'Pacific Standard Time'],
+        ['GMT Standard Time', 'GMT Standard Time'],
+        ['W. Europe Standard Time', 'W. Europe Standard Time'],
+        ['UTC', 'UTC']
+      ], comp.scalingTimeZone || 'Central Standard Time');
+      tzSel.addEventListener('change', function () { pools[i].scalingTimeZone = tzSel.value; save('hostPools', pools); renderSizeResult(); });
+      tzLab.appendChild(tzSel); advRow2.appendChild(tzLab);
+
+      // Encryption at host
+      var encLab = el('label', 'field'); encLab.appendChild(el('span', '', 'Encryption at Host'));
+      var encVal = pool.encryptionAtHost === null || pool.encryptionAtHost === undefined ? '' : String(pool.encryptionAtHost);
+      var encSel = makeSelect([['', 'Default (enabled in prod)'], ['true', 'Enabled'], ['false', 'Disabled']], encVal);
+      encSel.addEventListener('change', function () { pools[i].encryptionAtHost = encSel.value === '' ? null : encSel.value === 'true'; save('hostPools', pools); renderSizeResult(); });
+      encLab.appendChild(encSel); advRow2.appendChild(encLab);
+
+      // Intune enrollment
+      var intLab = el('label', 'field'); intLab.appendChild(el('span', '', 'Enroll hosts in Intune'));
+      var intVal = pool.enrollInIntune === null || pool.enrollInIntune === undefined ? '' : String(pool.enrollInIntune);
+      var intSel = makeSelect([['', 'Default (off unless set)'], ['true', 'Enabled'], ['false', 'Disabled']], intVal);
+      intSel.addEventListener('change', function () { pools[i].enrollInIntune = intSel.value === '' ? null : intSel.value === 'true'; save('hostPools', pools); renderSizeResult(); });
+      intLab.appendChild(intSel); advRow2.appendChild(intLab);
+
+      // Availability zones
+      var azLab = el('label', 'field'); azLab.appendChild(el('span', '', 'Availability zones'));
+      var azVal = Array.isArray(pool.availabilityZones) ? pool.availabilityZones.join(',') : '';
+      var azSel = makeSelect([['', 'Default (zones 1,2,3 in prod)'], ['none', 'None (regional)'], ['1,2,3', 'Zones 1, 2, 3'], ['1,2', 'Zones 1, 2'], ['1', 'Zone 1 only']], pool.availabilityZones === null || pool.availabilityZones === undefined ? '' : (azVal || 'none'));
+      azSel.addEventListener('change', function () {
+        var v = azSel.value;
+        pools[i].availabilityZones = v === '' ? null : v === 'none' ? [] : v.split(',').map(Number);
+        save('hostPools', pools); renderSizeResult();
+      });
+      azLab.appendChild(azSel); advRow2.appendChild(azLab);
+
+      adv.appendChild(advRow2);
+
+      var advRow3 = el('div', 'row'); advRow3.style.marginTop = '8px';
+
+      // Public network access (per pool)
+      var pnaLab = el('label', 'field'); pnaLab.appendChild(el('span', '', 'Host pool public network access'));
+      var pnaSel = makeSelect([
+        ['EnabledForClientsOnly', 'EnabledForClientsOnly (clients public, hosts private)'],
+        ['Enabled', 'Enabled (public clients and session hosts)'],
+        ['EnabledForSessionHostsOnly', 'EnabledForSessionHostsOnly (private clients, public hosts)'],
+        ['Disabled', 'Disabled (Private Link only)']
+      ], comp.publicNetworkAccess || 'EnabledForClientsOnly');
+      pnaSel.addEventListener('change', function () { pools[i].publicNetworkAccess = pnaSel.value; save('hostPools', pools); renderSizeResult(); });
+      pnaLab.appendChild(pnaSel); advRow3.appendChild(pnaLab);
+
+      // Private endpoint (per pool)
+      var peLab = el('label', 'field'); peLab.appendChild(el('span', '', 'Host pool connection Private Endpoint'));
+      var peVal = pool.enablePrivateEndpoint === null || pool.enablePrivateEndpoint === undefined ? '' : String(pool.enablePrivateEndpoint);
+      var peSel = makeSelect([['', 'Follow landing zone default'], ['true', 'Enabled (deploy connection PE)'], ['false', 'Disabled (no connection PE)']], peVal);
+      peSel.addEventListener('change', function () { pools[i].enablePrivateEndpoint = peSel.value === '' ? null : peSel.value === 'true'; save('hostPools', pools); renderSizeResult(); });
+      peLab.appendChild(peSel); advRow3.appendChild(peLab);
+
+      // Start VM on Connect & Validation environment
+      var svmLab = el('label', 'field'); svmLab.appendChild(el('span', '', 'Start VM on Connect'));
+      var svmSel = makeSelect([['true', 'Enabled'], ['false', 'Disabled']], String(comp.startVmOnConnect !== false));
+      svmSel.addEventListener('change', function () { pools[i].startVmOnConnect = svmSel.value === 'true'; save('hostPools', pools); renderSizeResult(); });
+      svmLab.appendChild(svmSel); advRow3.appendChild(svmLab);
+
+      var valLab = el('label', 'field'); valLab.appendChild(el('span', '', 'Validation environment'));
+      var valSel = makeSelect([['false', 'Standard (production flights)'], ['true', 'Validation (early AVD updates)']], String(!!comp.validationEnvironment));
+      valSel.addEventListener('change', function () { pools[i].validationEnvironment = valSel.value === 'true'; save('hostPools', pools); renderSizeResult(); });
+      valLab.appendChild(valSel); advRow3.appendChild(valLab);
+
+      adv.appendChild(advRow3);
+
+      // RDP properties
+      var rdpWrap = el('div'); rdpWrap.style.marginTop = '8px';
+      var rdpLab = el('label', 'field'); rdpLab.appendChild(el('span', '', 'Custom RDP properties'));
+      var rdpIn = document.createElement('input'); rdpIn.type = 'text'; rdpIn.autocomplete = 'off';
+      rdpIn.value = comp.rdpProperties || P.DEFAULT_RDP_PROPERTIES;
+      rdpIn.addEventListener('input', function () { pools[i].rdpProperties = rdpIn.value; save('hostPools', pools); renderSizeResult(); });
+      rdpLab.appendChild(rdpIn); rdpWrap.appendChild(rdpLab);
+      var rdpBtns = el('div', 'row'); rdpBtns.style.marginTop = '4px';
+      var rdpDefBtn = el('button', 'linkbtn', 'Use standard RDP preset'); rdpDefBtn.type = 'button';
+      rdpDefBtn.addEventListener('click', function () { pools[i].rdpProperties = P.DEFAULT_RDP_PROPERTIES; rdpIn.value = P.DEFAULT_RDP_PROPERTIES; save('hostPools', pools); renderSizeResult(); });
+      var rdpLockBtn = el('button', 'linkbtn', 'Use locked-down RDP preset (no clipboard/printer/USB/camera)'); rdpLockBtn.type = 'button';
+      rdpLockBtn.addEventListener('click', function () { pools[i].rdpProperties = P.LOCKED_DOWN_RDP_PROPERTIES; rdpIn.value = P.LOCKED_DOWN_RDP_PROPERTIES; save('hostPools', pools); renderSizeResult(); });
+      rdpBtns.appendChild(rdpDefBtn); rdpBtns.appendChild(rdpLockBtn);
+      rdpWrap.appendChild(rdpBtns);
+      adv.appendChild(rdpWrap);
+
+      card.appendChild(adv);
+      box.appendChild(card);
     });
     $('add-pool').disabled = pools.length >= P.MAX_HOST_POOLS;
+    if ($('pools-count-status')) $('pools-count-status').textContent = pools.length + ' of ' + P.MAX_HOST_POOLS + ' host pool(s) configured.';
     renderSizeResult();
   }
+
+  if ($('add-pool')) {
+    $('add-pool').addEventListener('click', function () {
+      if (pools.length >= P.MAX_HOST_POOLS) return;
+      var nextNum = pools.length + 1;
+      var newKey = 'pool-' + nextNum;
+      pools.push(Object.assign({}, P.HOST_POOL_DEFAULTS, { poolKey: newKey, name: 'Host pool ' + nextNum }));
+      selectedPools[pools.length - 1] = true;
+      // Also create a default Desktop app group wired to this new pool and the first workspace
+      if (appGroups.length < P.MAX_APP_GROUPS) {
+        var wsKey = (workspaces[0] && workspaces[0].name) || 'default';
+        appGroups.push(Object.assign({}, P.APP_GROUP_DEFAULTS, {
+          name: newKey + '-desktop',
+          friendlyName: 'Host pool ' + nextNum + ' Desktop',
+          applicationGroupType: 'Desktop',
+          hostPool: newKey,
+          workspace: wsKey
+        }));
+        save('appGroups', appGroups);
+      }
+      save('hostPools', pools);
+      renderTemplatesBar(); renderPools(); renderWorkspacesAndAppGroups();
+    });
+  }
+
+  // Workspaces and Application Groups UI
+  function renderWorkspacesAndAppGroups() {
+    var wsBox = $('workspaces'), agBox = $('app-groups');
+    if (!wsBox || !agBox) return;
+    wsBox.textContent = ''; agBox.textContent = '';
+
+    workspaces.forEach(function (ws, i) {
+      var card = el('div', 'pool');
+      var head = el('div', 'headline');
+      head.appendChild(el('strong', '', 'Workspace ' + (i + 1) + ': ' + (ws.name || ('ws-' + (i + 1)))));
+      if (workspaces.length > 1) {
+        var rm = el('button', 'linkbtn', 'Remove'); rm.type = 'button'; rm.style.marginLeft = 'auto';
+        rm.addEventListener('click', function () {
+          workspaces.splice(i, 1); save('workspaces', workspaces); renderWorkspacesAndAppGroups(); renderSizeResult();
+        });
+        head.appendChild(rm);
+      }
+      card.appendChild(head);
+      var row = el('div', 'row');
+
+      var slugLab = el('label', 'field'); slugLab.appendChild(el('span', '', 'Workspace slug'));
+      var slugIn = document.createElement('input'); slugIn.type = 'text'; slugIn.value = ws.name || 'default'; slugIn.autocomplete = 'off';
+      slugIn.addEventListener('input', function () {
+        ws.name = slugIn.value.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24) || ('ws-' + (i + 1));
+        save('workspaces', workspaces); renderWorkspacesAndAppGroups(); renderSizeResult();
+      });
+      slugLab.appendChild(slugIn); row.appendChild(slugLab);
+
+      var fnLab = el('label', 'field'); fnLab.appendChild(el('span', '', 'Display name'));
+      var fnIn = document.createElement('input'); fnIn.type = 'text'; fnIn.value = ws.friendlyName || ''; fnIn.autocomplete = 'off';
+      fnIn.addEventListener('input', function () { ws.friendlyName = fnIn.value; save('workspaces', workspaces); renderSizeResult(); });
+      fnLab.appendChild(fnIn); row.appendChild(fnLab);
+
+      var pubLab = el('label', 'field'); pubLab.appendChild(el('span', '', 'Public network access'));
+      var pubSel = makeSelect([
+        ['Enabled', 'Enabled (public feed)'],
+        ['EnabledForClientsOnly', 'EnabledForClientsOnly'],
+        ['EnabledForSessionHostsOnly', 'EnabledForSessionHostsOnly'],
+        ['Disabled', 'Disabled (Private Link feed only)']
+      ], ws.publicNetworkAccess || 'Enabled');
+      pubSel.addEventListener('change', function () { ws.publicNetworkAccess = pubSel.value; save('workspaces', workspaces); renderSizeResult(); });
+      pubLab.appendChild(pubSel); row.appendChild(pubLab);
+
+      var feedLab = el('label', 'field'); feedLab.appendChild(el('span', '', 'Feed Private Endpoint'));
+      var feedVal = ws.enableFeedPrivateEndpoint === null || ws.enableFeedPrivateEndpoint === undefined ? '' : String(ws.enableFeedPrivateEndpoint);
+      var feedSel = makeSelect([['', 'Follow landing zone default'], ['true', 'Enabled (deploy feed PE)'], ['false', 'Disabled']], feedVal);
+      feedSel.addEventListener('change', function () { ws.enableFeedPrivateEndpoint = feedSel.value === '' ? null : feedSel.value === 'true'; save('workspaces', workspaces); renderSizeResult(); });
+      feedLab.appendChild(feedSel); row.appendChild(feedLab);
+
+      card.appendChild(row);
+      wsBox.appendChild(card);
+    });
+    if ($('add-workspace')) $('add-workspace').disabled = workspaces.length >= P.MAX_WORKSPACES;
+
+    var poolSlugs = pools.map(function (p, idx) { var k = p.poolKey || (idx === 0 ? 'general' : ('pool-' + (idx + 1))); return [k, k + ' (' + (p.name || ('Pool ' + (idx + 1))) + ')']; });
+    var wsSlugs = workspaces.map(function (w, idx) { var k = w.name || (idx === 0 ? 'default' : ('ws-' + (idx + 1))); return [k, k + ' (' + (w.friendlyName || ('Workspace ' + (idx + 1))) + ')']; });
+
+    appGroups.forEach(function (ag, i) {
+      var card = el('div', 'pool');
+      var head = el('div', 'headline');
+      head.appendChild(el('strong', '', 'Application group ' + (i + 1) + ': ' + (ag.name || ('ag-' + (i + 1)))));
+      if (appGroups.length > 1) {
+        var rm = el('button', 'linkbtn', 'Remove'); rm.type = 'button'; rm.style.marginLeft = 'auto';
+        rm.addEventListener('click', function () {
+          appGroups.splice(i, 1); save('appGroups', appGroups); renderWorkspacesAndAppGroups(); renderSizeResult();
+        });
+        head.appendChild(rm);
+      }
+      card.appendChild(head);
+      var row = el('div', 'row');
+
+      var slugLab = el('label', 'field'); slugLab.appendChild(el('span', '', 'App group slug'));
+      var slugIn = document.createElement('input'); slugIn.type = 'text'; slugIn.value = ag.name || 'desktop'; slugIn.autocomplete = 'off';
+      slugIn.addEventListener('input', function () {
+        ag.name = slugIn.value.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24) || ('ag-' + (i + 1));
+        save('appGroups', appGroups); renderSizeResult();
+      });
+      slugLab.appendChild(slugIn); row.appendChild(slugLab);
+
+      var fnLab = el('label', 'field'); fnLab.appendChild(el('span', '', 'Display name'));
+      var fnIn = document.createElement('input'); fnIn.type = 'text'; fnIn.value = ag.friendlyName || ''; fnIn.autocomplete = 'off';
+      fnIn.addEventListener('input', function () { ag.friendlyName = fnIn.value; save('appGroups', appGroups); renderSizeResult(); });
+      fnLab.appendChild(fnIn); row.appendChild(fnLab);
+
+      var typeLab = el('label', 'field'); typeLab.appendChild(el('span', '', 'Type'));
+      var typeSel = makeSelect([['Desktop', 'Desktop'], ['RemoteApp', 'RemoteApp']], ag.applicationGroupType || 'Desktop');
+      typeSel.addEventListener('change', function () { ag.applicationGroupType = typeSel.value; save('appGroups', appGroups); renderSizeResult(); });
+      typeLab.appendChild(typeSel); row.appendChild(typeLab);
+
+      var hpLab = el('label', 'field'); hpLab.appendChild(el('span', '', 'Host pool'));
+      var curHp = ag.hostPool || ag.hostPoolName || (poolSlugs[0] && poolSlugs[0][0]) || 'general';
+      var hpSel = makeSelect(poolSlugs, curHp);
+      hpSel.addEventListener('change', function () { ag.hostPool = hpSel.value; ag.hostPoolName = hpSel.value; save('appGroups', appGroups); renderSizeResult(); });
+      hpLab.appendChild(hpSel); row.appendChild(hpLab);
+
+      var wsLab = el('label', 'field'); wsLab.appendChild(el('span', '', 'Workspace'));
+      var curWs = ag.workspace || ag.workspaceName || (wsSlugs[0] && wsSlugs[0][0]) || 'default';
+      var wsSel = makeSelect(wsSlugs, curWs);
+      wsSel.addEventListener('change', function () { ag.workspace = wsSel.value; ag.workspaceName = wsSel.value; save('appGroups', appGroups); renderSizeResult(); });
+      wsLab.appendChild(wsSel); row.appendChild(wsLab);
+
+      var ugLab = el('label', 'field'); ugLab.appendChild(el('span', '', 'Entra group Object ID (optional)'));
+      var ugIn = document.createElement('input'); ugIn.type = 'text'; ugIn.placeholder = 'Default: AVD users group'; ugIn.value = ag.usersGroupObjectId || ''; ugIn.autocomplete = 'off';
+      ugIn.addEventListener('input', function () { ag.usersGroupObjectId = ugIn.value.trim(); save('appGroups', appGroups); renderSizeResult(); });
+      ugLab.appendChild(ugIn); row.appendChild(ugLab);
+
+      card.appendChild(row);
+      agBox.appendChild(card);
+    });
+    if ($('add-app-group')) $('add-app-group').disabled = appGroups.length >= P.MAX_APP_GROUPS;
+    if ($('ws-ag-summary')) $('ws-ag-summary').textContent = workspaces.length + ' workspace' + (workspaces.length === 1 ? '' : 's') + ', ' + appGroups.length + ' application group' + (appGroups.length === 1 ? '' : 's');
+  }
+
+  if ($('add-workspace')) {
+    $('add-workspace').addEventListener('click', function () {
+      if (workspaces.length >= P.MAX_WORKSPACES) return;
+      var n = workspaces.length + 1;
+      workspaces.push(Object.assign({}, P.WORKSPACE_DEFAULTS, { name: 'ws-' + n, friendlyName: 'AVD Workspace ' + n }));
+      save('workspaces', workspaces); renderWorkspacesAndAppGroups(); renderSizeResult();
+    });
+  }
+  if ($('add-app-group')) {
+    $('add-app-group').addEventListener('click', function () {
+      if (appGroups.length >= P.MAX_APP_GROUPS) return;
+      var n = appGroups.length + 1;
+      var hpSlug = (pools[0] && pools[0].poolKey) || 'general';
+      var wsSlug = (workspaces[0] && workspaces[0].name) || 'default';
+      appGroups.push(Object.assign({}, P.APP_GROUP_DEFAULTS, { name: 'remoteapp-' + n, friendlyName: 'RemoteApp Group ' + n, applicationGroupType: 'RemoteApp', hostPool: hpSlug, workspace: wsSlug }));
+      save('appGroups', appGroups); renderWorkspacesAndAppGroups(); renderSizeResult();
+    });
+  }
+
+  // Private Link & Private DNS zones UI
+  function renderPrivateLinkPanel() {
+    if (!$('dns-zones')) return;
+    $('pl-hp-public').value = privateLink.hostPoolPublicNetworkAccess || 'EnabledForClientsOnly';
+    $('pl-ws-public').value = privateLink.workspacePublicNetworkAccess || 'Enabled';
+    $('pl-conn').checked = privateLink.enableAvdConnectionPrivateLink !== false;
+    $('pl-feed').checked = !!privateLink.enableAvdFeedPrivateLink;
+    $('pl-global').checked = !!privateLink.enableAvdGlobalPrivateLink;
+
+    var dnsBox = $('dns-zones'); dnsBox.textContent = '';
+    Object.keys(P.DNS_ZONE_DEFINITIONS).forEach(function (k) {
+      var def = P.DNS_ZONE_DEFINITIONS[k];
+      var z = (privateLink.dnsZones && privateLink.dnsZones[k]) || { mode: k === 'avdGlobal' ? 'disabled' : 'new', existingResourceId: '' };
+      var row = el('div', 'row'); row.style.marginTop = '8px';
+
+      var modeLab = el('label', 'field'); modeLab.style.flex = '1 1 240px';
+      modeLab.appendChild(el('span', '', def.label + ' (' + def.zoneName + ')'));
+      var modeOpts = [['new', 'Create new Private DNS zone'], ['existing', 'Use existing Private DNS zone (Resource ID)']];
+      if (k === 'avdGlobal') modeOpts.push(['disabled', 'Not deployed (unless Global Private Link is on)']);
+      var modeSel = makeSelect(modeOpts, z.mode || (k === 'avdGlobal' ? 'disabled' : 'new'));
+
+      var idLab = el('label', 'field'); idLab.style.flex = '2 1 320px';
+      idLab.appendChild(el('span', '', 'Existing DNS zone Resource ID'));
+      var idIn = document.createElement('input'); idIn.type = 'text'; idIn.autocomplete = 'off';
+      idIn.placeholder = '/subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.Network/privateDnsZones/' + def.zoneName;
+      idIn.value = z.existingResourceId || '';
+      idIn.disabled = modeSel.value !== 'existing';
+
+      modeSel.addEventListener('change', function () {
+        privateLink.dnsZones[k] = { mode: modeSel.value, existingResourceId: idIn.value.trim() };
+        idIn.disabled = modeSel.value !== 'existing';
+        save('privateLink', privateLink); renderSizeResult();
+      });
+      idIn.addEventListener('input', function () {
+        privateLink.dnsZones[k] = { mode: modeSel.value, existingResourceId: idIn.value.trim() };
+        save('privateLink', privateLink); renderSizeResult();
+      });
+
+      modeLab.appendChild(modeSel); row.appendChild(modeLab);
+      idLab.appendChild(idIn); row.appendChild(idLab);
+      dnsBox.appendChild(row);
+    });
+  }
+
+  if ($('pl-hp-public')) {
+    $('pl-hp-public').addEventListener('change', function () { privateLink.hostPoolPublicNetworkAccess = $('pl-hp-public').value; save('privateLink', privateLink); renderSizeResult(); });
+    $('pl-ws-public').addEventListener('change', function () { privateLink.workspacePublicNetworkAccess = $('pl-ws-public').value; save('privateLink', privateLink); renderSizeResult(); });
+    $('pl-conn').addEventListener('change', function () { privateLink.enableAvdConnectionPrivateLink = $('pl-conn').checked; save('privateLink', privateLink); renderSizeResult(); });
+    $('pl-feed').addEventListener('change', function () { privateLink.enableAvdFeedPrivateLink = $('pl-feed').checked; save('privateLink', privateLink); renderSizeResult(); });
+    $('pl-global').addEventListener('change', function () {
+      privateLink.enableAvdGlobalPrivateLink = $('pl-global').checked;
+      if ($('pl-global').checked && privateLink.dnsZones.avdGlobal && privateLink.dnsZones.avdGlobal.mode === 'disabled') {
+        privateLink.dnsZones.avdGlobal.mode = 'new';
+      }
+      save('privateLink', privateLink); renderPrivateLinkPanel(); renderSizeResult();
+    });
+  }
+
   function renderSizeResult() {
-    var r = poolResult(0), tb = $('size-result'); tb.textContent = '';
-    [['Concurrent sessions', r.concurrentUsers + ' of ' + r.users + ' people'],
-      ['Session hosts', (r.hostCountAuto ? '' : 'Chosen: ') + r.hosts + ' × ' + r.vmSize.replace('Standard_', '') + ' (' + r.vcpuPerHost + ' vCPU, ' + r.ramGiBPerHost + ' GiB each; ' + r.memoryPerSessionGiB + ' GiB per session)'],
+    var comp = currentTopologyComputed(), r = comp.pools[0], tb = $('size-result'); tb.textContent = '';
+    var hostSummary = comp.pools.length === 1
+      ? ((r.hostCountAuto ? '' : 'Chosen: ') + r.hosts + ' × ' + r.vmSize.replace('Standard_', '') + ' (' + r.vcpuPerHost + ' vCPU, ' + r.ramGiBPerHost + ' GiB each; ' + r.memoryPerSessionGiB + ' GiB per session)')
+      : comp.pools.map(function (p) { return p.poolKey + ': ' + p.hosts + ' × ' + p.vmSize.replace('Standard_', '') + ' (' + p.hostPoolType + ')'; }).join('; ');
+    var dnsModes = ['file', 'keyVault', 'avd', 'avdGlobal'].map(function (k) {
+      var z = comp.privateLink.dnsZones[k];
+      return z.mode === 'existing' ? (k + ': existing') : z.deployNew ? (k + ': new') : null;
+    }).filter(Boolean).join(', ');
+    var rows = [
+      ['Concurrent sessions', comp.totals.concurrentUsers + ' of ' + comp.totals.users + ' people' + (comp.pools.length > 1 ? ' across ' + comp.pools.length + ' host pools' : '')],
+      ['Session hosts', hostSummary],
       ['OS disk', r.osDisk + ' on every host'],
-      ['Sessions per host (max session limit)', String(r.sessionsPerHost)],
-      ['Capacity', r.capacity + ' sessions'],
-      ['vCPU quota needed', r.vcpus + ' vCPUs'],
-      ['Profile share', r.profileQuotaGiB + ' GiB provisioned (storage SKU from ' + cfg.parameterFile.replace(/^parameters\//, '') + ')']
-    ].forEach(function (kv) { var tr = el('tr'); tr.appendChild(el('td', '', kv[0])); tr.appendChild(el('td', '', kv[1])); tb.appendChild(tr); });
-    var ul = $('size-notes'); ul.textContent = ''; r.notes.forEach(function (n) { ul.appendChild(el('li', '', n)); });
-    var s = cfg.sizing, mine = P.toSizing(r);
+      ['Sessions per host (max session limit)', comp.pools.length === 1 ? String(r.sessionsPerHost) : comp.pools.map(function (p) { return p.poolKey + ': ' + p.sessionsPerHost; }).join(', ')],
+      ['Capacity', comp.totals.capacity + ' sessions (' + comp.totals.hosts + ' total host' + (comp.totals.hosts === 1 ? '' : 's') + ')'],
+      ['vCPU quota needed', comp.totals.vcpus + ' vCPUs'],
+      ['Profile share', comp.totals.profileQuotaGiB + ' GiB provisioned (storage SKU from ' + cfg.parameterFile.replace(/^parameters\//, '') + ')'],
+      ['Workspaces & app groups', comp.workspaces.length + ' workspace(s), ' + comp.appGroups.length + ' app group(s)'],
+      ['Private Link & DNS zones', 'AVD connection PE: ' + (comp.privateLink.enableAvdConnectionPrivateLink ? 'on' : 'off') + ', feed PE: ' + (comp.privateLink.enableAvdFeedPrivateLink ? 'on' : 'off') + ', global PE: ' + (comp.privateLink.enableAvdGlobalPrivateLink ? 'on' : 'off') + ' (' + (dnsModes || 'no DNS zones') + ')']
+    ];
+    rows.forEach(function (kv) { var tr = el('tr'); tr.appendChild(el('td', '', kv[0])); tr.appendChild(el('td', '', kv[1])); tb.appendChild(tr); });
+
+    if ($('ws-ag-summary')) $('ws-ag-summary').textContent = comp.workspaces.length + ' workspace' + (comp.workspaces.length === 1 ? '' : 's') + ', ' + comp.appGroups.length + ' application group' + (comp.appGroups.length === 1 ? '' : 's');
+    if ($('pl-dns-summary')) $('pl-dns-summary').textContent = 'AVD connection PE ' + (comp.privateLink.enableAvdConnectionPrivateLink ? 'on' : 'off') + ', feed PE ' + (comp.privateLink.enableAvdFeedPrivateLink ? 'on' : 'off') + ', ' + (dnsModes || 'default DNS');
+
+    var manifest = currentManifestFromComputed(comp);
+    if ($('manifest-json') && document.activeElement !== $('manifest-json')) {
+      $('manifest-json').value = manifest ? JSON.stringify(manifest, null, 2) : '{}';
+    }
+
+    var ul = $('size-notes'); ul.textContent = ''; comp.notes.forEach(function (n) { ul.appendChild(el('li', '', n)); });
+    var s = cfg.sizing, mine = P.toSizing(comp);
     if (s && (s.hosts !== mine.hosts || s.vmSize !== mine.vmSize || s.maxSessions !== mine.maxSessions || s.profileQuotaGiB !== mine.profileQuotaGiB))
-      ul.appendChild(el('li', '', 'The commands use ' + s.hosts + ' × ' + s.vmSize.replace('Standard_', '') + ' with ' + s.maxSessions + ' sessions each (the last sizing applied or checked by a pasted preflight). Select Use this sizing to switch to the one above.'));
+      ul.appendChild(el('li', '', 'The commands use ' + s.hosts + ' × ' + s.vmSize.replace('Standard_', '') + ' with ' + s.maxSessions + ' sessions each (the last sizing applied or checked by a pasted preflight). Select Use this sizing & topology to switch to the one above.'));
     renderSizeSummary();
   }
   function renderSizeSummary() {
-    var s = cfg.sizing;
-    $('size-summary').textContent = s ? s.hosts + ' × ' + s.vmSize.replace('Standard_', '') + ', ' + (s.hosts * s.maxSessions) + ' sessions' : 'not set (the parameter file\'s values)';
+    var s = cfg.sizing, t = cfg.topology;
+    var poolCount = (t && t.hostPools && t.hostPools.length) || 1;
+    var wsCount = (t && t.workspaces && t.workspaces.length) || 1;
+    $('size-summary').textContent = s
+      ? (poolCount > 1 || wsCount > 1
+        ? poolCount + ' pools (' + s.hosts + ' hosts), ' + wsCount + ' workspace(s)'
+        : s.hosts + ' × ' + s.vmSize.replace('Standard_', '') + ', ' + (s.hosts * s.maxSessions) + ' sessions')
+      : 'not set (the parameter file\'s values)';
   }
+
+  if ($('manifest-copy')) {
+    $('manifest-copy').addEventListener('click', function () {
+      copy($('manifest-json').value || '{}', $('manifest-copy'));
+    });
+    $('manifest-import').addEventListener('click', function () {
+      try {
+        var raw = JSON.parse($('manifest-json').value || '{}');
+        var valid = P.validTopology(raw);
+        if (!valid) { $('manifest-status').textContent = 'Invalid topology manifest JSON (check slugs, sizes, or DNS zone resource IDs).'; return; }
+        if (valid.hostPools && valid.hostPools.length) {
+          pools = valid.hostPools.map(function (hp) {
+            return Object.assign({}, P.HOST_POOL_DEFAULTS, hp, {
+              poolKey: hp.name,
+              name: hp.friendlyName || hp.name,
+              hostCount: hp.sessionHostCount,
+              vmSize: hp.sessionHostVmSize,
+              maxSessionLimitOverride: hp.maxSessionLimit
+            });
+          });
+          save('hostPools', pools);
+        }
+        if (valid.workspaces && valid.workspaces.length) {
+          workspaces = valid.workspaces.map(function (ws) { return Object.assign({}, P.WORKSPACE_DEFAULTS, ws); });
+          save('workspaces', workspaces);
+        }
+        if (valid.appGroups && valid.appGroups.length) {
+          appGroups = valid.appGroups.map(function (ag) { return Object.assign({}, P.APP_GROUP_DEFAULTS, ag, { hostPool: ag.hostPoolName, workspace: ag.workspaceName }); });
+          save('appGroups', appGroups);
+        }
+        if (valid.privateLink) {
+          var vpl = valid.privateLink;
+          privateLink.enableAvdConnectionPrivateLink = vpl.enableConnectionPrivateEndpoint !== false;
+          privateLink.enableAvdFeedPrivateLink = !!vpl.enableFeedPrivateEndpoint;
+          privateLink.enableAvdGlobalPrivateLink = !!vpl.enableGlobalPrivateEndpoint;
+          privateLink.hostPoolPublicNetworkAccess = vpl.hostPoolPublicNetworkAccess || 'EnabledForClientsOnly';
+          privateLink.workspacePublicNetworkAccess = vpl.workspacePublicNetworkAccess || 'Enabled';
+          if (vpl.dnsZones) {
+            ['file', 'keyVault', 'avd', 'avdGlobal'].forEach(function (k) {
+              if (vpl.dnsZones[k]) privateLink.dnsZones[k] = { mode: vpl.dnsZones[k].mode, existingResourceId: vpl.dnsZones[k].resourceId || '' };
+            });
+          }
+          save('privateLink', privateLink);
+        }
+        renderTemplatesBar(); renderPools(); renderWorkspacesAndAppGroups(); renderPrivateLinkPanel();
+        $('manifest-status').textContent = 'Imported topology manifest (' + pools.length + ' pool(s), ' + workspaces.length + ' workspace(s), ' + appGroups.length + ' app group(s)).';
+      } catch (e) {
+        $('manifest-status').textContent = 'Could not parse JSON: ' + e.message;
+      }
+    });
+  }
+
   // ---------------------------------------------------------------- cost (power settings reprice the estimate)
   function renderCost() {
     var p = P.effectivePower(cfg), hh = P.hostHours(cfg.hoursWorkedPerWeek, p);
@@ -544,7 +1242,7 @@
     var e = P.repriceEstimate(estimate, cfg.sizing, hh.hoursPerWeek, cfg.location);
     $('cost-summary').textContent = e && !e.stale.length ? 'about ' + money(e.total, e.currency) + '/month' : hh.hoursPerWeek + ' h/week per host';
     if (!e) {
-      var r = poolResult(0), s = cfg.sizing || P.toSizing(r), q = Math.round(s.hosts * hh.hoursPerWeek * 52 / 12 * 10) / 10;
+      var comp = currentTopologyComputed(), s = cfg.sizing || P.toSizing(comp), q = Math.round(s.hosts * hh.hoursPerWeek * 52 / 12 * 10) / 10;
       box.appendChild(el('h3', '', 'What gets priced'));
       var t0 = el('table', 'kv'), tb0 = el('tbody');
       [['Session hosts', s.hosts + ' × ' + s.vmSize.replace('Standard_', '') + ' × ' + hh.hoursPerWeek + ' h/week = ' + q + ' host-hours a month'],
@@ -588,18 +1286,22 @@
   $('power-reset').addEventListener('click', function () { cfg.power = null; save('power', null); lastAnalysis = null; renderCost(); render(); });
   $('cost-continue').addEventListener('click', function () { goTo('predeploy'); });
 
-  function applySizing(s) {
+  function applySizingAndTopology(s, topo) {
     cfg.sizing = s; save('sizing', s);
+    cfg.topology = topo; save('topology', topo);
     renderSizeResult(); renderCost(); lastAnalysis = null; render();
   }
   $('size-apply').addEventListener('click', function () {
-    var r = poolResult(0);
-    applySizing(P.toSizing(r));
-    $('size-status').textContent = 'Applied: the commands now check and price ' + r.hosts + ' × ' + r.vmSize.replace('Standard_', '') + '.';
+    var comp = currentTopologyComputed();
+    var s = P.toSizing(comp);
+    var manifest = currentManifestFromComputed(comp);
+    var customTopo = manifest && P.hasCustomTopology({ topology: manifest }) ? manifest : null;
+    applySizingAndTopology(s, customTopo);
+    $('size-status').textContent = 'Applied: ' + comp.pools.length + ' pool(s) (' + comp.totals.hosts + ' host(s)), ' + comp.workspaces.length + ' workspace(s), ' + comp.appGroups.length + ' app group(s).';
     if (curIndex() <= stepIndex('size')) goTo('cost');
   });
   $('size-clear').addEventListener('click', function () {
-    applySizing(null); $('size-status').textContent = 'The commands use the parameter file\'s sizing.';
+    applySizingAndTopology(null, null); $('size-status').textContent = 'The commands use the parameter file\'s sizing and default topology.';
     if (curIndex() <= stepIndex('size')) goTo('cost');
   });
 
@@ -773,6 +1475,6 @@
   // ---------------------------------------------------------------- start
   if (/^#(region|size|cost)$/.test(location.hash) && stepIndex(location.hash.slice(1)) <= reached) step = location.hash.slice(1);
   setConfig({});
-  renderPools(); renderCost(); renderReachability();
+  renderTemplatesBar(); renderPools(); renderWorkspacesAndAppGroups(); renderPrivateLinkPanel(); renderCost(); renderReachability();
   render(); showStep('instant');
 })();

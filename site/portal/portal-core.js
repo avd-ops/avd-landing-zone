@@ -155,6 +155,11 @@
     });
     var launch = context && launchTarget(context.launch);
     if (launch) checked.settings.launch = launch;
+    if (present(context, 'topology')) {
+      var topo = validTopology(context.topology);
+      if (topo) checked.settings.topology = topo;
+      else checked.rejected.push('topology');
+    }
     return checked;
   }
   // Values from a state line's other fields that go into a command, checked where they are read.
@@ -200,55 +205,345 @@
     Standard_D4s_v5: { vcpu: 4, ramGiB: 16 }, Standard_D8s_v5: { vcpu: 8, ramGiB: 32 }, Standard_D16s_v5: { vcpu: 16, ramGiB: 64 }
   };
   var OS_DISK = 'Premium SSD (P10, 128 GiB)';
+  var DEFAULT_RDP_PROPERTIES = 'enablerdsaadauth:i:1;targetisaadjoined:i:1;drivestoredirect:s:;usbdevicestoredirect:s:;redirectcomports:i:0;redirectsmartcards:i:1;redirectprinters:i:1;redirectclipboard:i:1;redirectwebauthn:i:1;audiomode:i:0;audiocapturemode:i:1;camerastoredirect:s:*;use multimon:i:1';
+  var LOCKED_DOWN_RDP_PROPERTIES = 'enablerdsaadauth:i:1;targetisaadjoined:i:1;drivestoredirect:s:;usbdevicestoredirect:s:;redirectcomports:i:0;redirectsmartcards:i:0;redirectprinters:i:0;redirectclipboard:i:0;redirectwebauthn:i:1;audiomode:i:0;audiocapturemode:i:0;camerastoredirect:s:;use multimon:i:1';
   // hostCount: a number of hosts, or 'auto' to size from people and workload.
   // spareHost (automatic sizing only): true / false, or null for automatic (a spare in prod).
   // Defaults are the minimum viable kit, matching parameters/dev.bicepparam: one E4as_v5 host and
-  // a 100 GiB profile share. One entry per host pool. The landing zone deploys one pooled host pool
-  // today; the list shape leaves room for more (each would get its own sizing and, later, its own deployment).
-  var HOST_POOL_DEFAULTS = { name: 'Pooled desktops', type: 'pooled', users: 10, concurrencyPercent: 80, workload: 'medium', vmSize: 'Standard_E4as_v5', hostCount: 1, spareHost: null, profileGiBPerUser: 5, activeHoursPerWeek: 50 };
+  // a 100 GiB profile share. Each host pool has its own per-pool settings, and setting templates
+  // can be applied to all or selected host pools.
+  var HOST_POOL_DEFAULTS = {
+    name: 'Pooled desktops',
+    poolKey: 'general',
+    type: 'pooled',
+    hostPoolType: 'Pooled',
+    personalDesktopAssignmentType: 'Automatic',
+    loadBalancerType: 'BreadthFirst',
+    preferredAppGroupType: 'Desktop',
+    templateId: 'general',
+    users: 10,
+    concurrencyPercent: 80,
+    workload: 'medium',
+    vmSize: 'Standard_E4as_v5',
+    hostCount: 1,
+    spareHost: null,
+    maxSessionLimit: null,
+    profileGiBPerUser: 5,
+    fslogixProfileSizeMiB: 30720,
+    activeHoursPerWeek: 50,
+    rdpProperties: DEFAULT_RDP_PROPERTIES,
+    validationEnvironment: false,
+    startVmOnConnect: true,
+    deployScalingPlan: true,
+    scalingTimeZone: 'UTC',
+    encryptionAtHost: true,
+    enrollInIntune: true,
+    availabilityZones: [],
+    enablePrivateEndpoint: true,
+    publicNetworkAccess: 'EnabledForClientsOnly'
+  };
   var MAX_HOSTS = 50;
-  var MAX_HOST_POOLS = 1;
+  var MAX_HOST_POOLS = 20;
+  var MAX_WORKSPACES = 20;
+  var MAX_APP_GROUPS = 40;
+
+  var POOL_TEMPLATES = {
+    general: {
+      id: 'general',
+      label: 'General Knowledge Worker (Pooled Breadth-First)',
+      description: 'Balanced multi-session pooled desktops with breadth-first load balancing, Start VM on Connect, autoscale, and Private Link connection.',
+      settings: {
+        type: 'pooled', hostPoolType: 'Pooled', personalDesktopAssignmentType: 'Automatic',
+        loadBalancerType: 'BreadthFirst', preferredAppGroupType: 'Desktop',
+        workload: 'medium', vmSize: 'Standard_E4as_v5', profileGiBPerUser: 5, fslogixProfileSizeMiB: 30720,
+        rdpProperties: DEFAULT_RDP_PROPERTIES, validationEnvironment: false,
+        startVmOnConnect: true, deployScalingPlan: true, scalingTimeZone: 'UTC',
+        encryptionAtHost: true, enrollInIntune: true, enablePrivateEndpoint: true, publicNetworkAccess: 'EnabledForClientsOnly'
+      }
+    },
+    task: {
+      id: 'task',
+      label: 'Task / Call-Center Worker (Pooled Depth-First)',
+      description: 'High-density multi-session pooled desktops using depth-first packing to minimize running session hosts.',
+      settings: {
+        type: 'pooled', hostPoolType: 'Pooled', personalDesktopAssignmentType: 'Automatic',
+        loadBalancerType: 'DepthFirst', preferredAppGroupType: 'Desktop',
+        workload: 'light', vmSize: 'Standard_E4as_v5', profileGiBPerUser: 5, fslogixProfileSizeMiB: 30720,
+        rdpProperties: DEFAULT_RDP_PROPERTIES, validationEnvironment: false,
+        startVmOnConnect: true, deployScalingPlan: true, scalingTimeZone: 'UTC',
+        encryptionAtHost: true, enrollInIntune: true, enablePrivateEndpoint: true, publicNetworkAccess: 'EnabledForClientsOnly'
+      }
+    },
+    power: {
+      id: 'power',
+      label: 'Power / Engineering Multi-Session (E16as_v5)',
+      description: 'Memory-rich 16-vCPU multi-session hosts with 60 GiB FSLogix profile containers for developers and analysts.',
+      settings: {
+        type: 'pooled', hostPoolType: 'Pooled', personalDesktopAssignmentType: 'Automatic',
+        loadBalancerType: 'BreadthFirst', preferredAppGroupType: 'Desktop',
+        workload: 'power', vmSize: 'Standard_E16as_v5', profileGiBPerUser: 15, fslogixProfileSizeMiB: 61440,
+        rdpProperties: DEFAULT_RDP_PROPERTIES, validationEnvironment: false,
+        startVmOnConnect: true, deployScalingPlan: true, scalingTimeZone: 'UTC',
+        encryptionAtHost: true, enrollInIntune: true, enablePrivateEndpoint: true, publicNetworkAccess: 'EnabledForClientsOnly'
+      }
+    },
+    personal: {
+      id: 'personal',
+      label: 'Personal Dedicated Desktop (1:1 Persistent)',
+      description: 'Dedicated 1:1 personal desktops with automatic user assignment and Start VM on Connect.',
+      settings: {
+        type: 'personal', hostPoolType: 'Personal', personalDesktopAssignmentType: 'Automatic',
+        loadBalancerType: 'Persistent', preferredAppGroupType: 'Desktop',
+        workload: 'power', vmSize: 'Standard_D4as_v5', maxSessionLimit: 1, profileGiBPerUser: 10, fslogixProfileSizeMiB: 30720,
+        rdpProperties: DEFAULT_RDP_PROPERTIES, validationEnvironment: false,
+        startVmOnConnect: true, deployScalingPlan: false, scalingTimeZone: 'UTC',
+        encryptionAtHost: true, enrollInIntune: true, enablePrivateEndpoint: true, publicNetworkAccess: 'EnabledForClientsOnly'
+      }
+    },
+    'locked-down': {
+      id: 'locked-down',
+      label: 'High-Security / Zero Public Network Access',
+      description: 'Private-only host pool (publicNetworkAccess Disabled) with clipboard, printer, drive, USB, and camera redirection disabled.',
+      settings: {
+        type: 'pooled', hostPoolType: 'Pooled', personalDesktopAssignmentType: 'Automatic',
+        loadBalancerType: 'DepthFirst', preferredAppGroupType: 'Desktop',
+        workload: 'medium', vmSize: 'Standard_E8as_v5', profileGiBPerUser: 5, fslogixProfileSizeMiB: 30720,
+        rdpProperties: LOCKED_DOWN_RDP_PROPERTIES, validationEnvironment: false,
+        startVmOnConnect: true, deployScalingPlan: true, scalingTimeZone: 'UTC',
+        encryptionAtHost: true, enrollInIntune: true, enablePrivateEndpoint: true, publicNetworkAccess: 'Disabled'
+      }
+    }
+  };
+
+  var WORKSPACE_DEFAULTS = {
+    name: 'default',
+    friendlyName: 'Default Workspace',
+    publicNetworkAccess: 'Enabled',
+    enableFeedPrivateEndpoint: false,
+    enableGlobalPrivateEndpoint: false
+  };
+
+  var APP_GROUP_DEFAULTS = {
+    name: 'desktop',
+    friendlyName: 'Desktop',
+    applicationGroupType: 'Desktop',
+    hostPoolName: 'general',
+    workspaceName: 'default',
+    usersGroupObjectId: ''
+  };
+
+  var DNS_ZONE_DEFINITIONS = {
+    file: { key: 'file', zoneName: 'privatelink.file.core.windows.net', label: 'Azure Files (FSLogix profiles)' },
+    keyVault: { key: 'keyVault', zoneName: 'privatelink.vaultcore.azure.net', label: 'Key Vault (break-glass secret)' },
+    avd: { key: 'avd', zoneName: 'privatelink.wvd.microsoft.com', label: 'AVD Connection & Feed (host pools & workspaces)' },
+    avdGlobal: { key: 'avdGlobal', zoneName: 'privatelink-global.wvd.microsoft.com', label: 'AVD Global Discovery (workspace global endpoint)' }
+  };
+
+  var PRIVATE_LINK_DEFAULTS = {
+    enableConnectionPrivateEndpoint: true,
+    enableFeedPrivateEndpoint: false,
+    enableGlobalPrivateEndpoint: false,
+    hostPoolPublicNetworkAccess: 'EnabledForClientsOnly',
+    workspacePublicNetworkAccess: 'Enabled',
+    dnsZones: {
+      file: { mode: 'new', resourceId: '' },
+      keyVault: { mode: 'new', resourceId: '' },
+      avd: { mode: 'new', resourceId: '' },
+      avdGlobal: { mode: 'new', resourceId: '' }
+    }
+  };
+
+  // Applies a built-in template ID or custom template object to all pools (when targetIndices is null/empty/'all')
+  // or only to the specified pool indices, preserving each pool's identity (name, poolKey, users, hostCount).
+  function applyPoolTemplate(pools, templateIdOrObj, targetIndices) {
+    var list = Array.isArray(pools) && pools.length ? pools : [merge(HOST_POOL_DEFAULTS, {})];
+    var tpl = typeof templateIdOrObj === 'string' ? POOL_TEMPLATES[templateIdOrObj] : templateIdOrObj;
+    if (!tpl || !tpl.settings) return list.map(function (p) { return merge(HOST_POOL_DEFAULTS, p); });
+    var all = !targetIndices || targetIndices === 'all' || (Array.isArray(targetIndices) && !targetIndices.length);
+    var idxSet = {};
+    if (!all && Array.isArray(targetIndices)) targetIndices.forEach(function (idx) { idxSet[Number(idx)] = true; });
+    return list.map(function (pool, i) {
+      var base = merge(HOST_POOL_DEFAULTS, pool);
+      if (!all && !idxSet[i]) return base;
+      var updated = merge(base, tpl.settings);
+      updated.name = base.name;
+      updated.poolKey = base.poolKey;
+      updated.users = base.users;
+      updated.concurrencyPercent = base.concurrencyPercent;
+      updated.hostCount = base.hostCount;
+      updated.spareHost = base.spareHost;
+      updated.templateId = tpl.id || 'custom';
+      if (tpl.settings.maxSessionLimit === undefined) updated.maxSessionLimit = null;
+      return updated;
+    });
+  }
 
   function num(v, d) { var n = Number(v); return isFinite(n) && n > 0 ? n : d; }
 
-  // Sizing for one host pool: hosts, sessions per host, vCPUs to request quota for, profile share size.
+  // Sizing for one host pool: hosts, sessions per host, vCPUs to request quota for, profile share size, plus all per-pool settings.
   function computePool(spec, environment) {
     var p = merge(HOST_POOL_DEFAULTS, spec || {}), notes = [];
     // '' is a choice here ('Suggested' size, 'Automatic' host count), not a missing value.
     ['vmSize', 'hostCount'].forEach(function (k) { if (spec && spec[k] === '') p[k] = ''; });
+    var isPersonal = String(p.hostPoolType || p.type || 'Pooled').toLowerCase() === 'personal';
+    var hostPoolType = isPersonal ? 'Personal' : 'Pooled';
+    var personalAssignment = p.personalDesktopAssignmentType === 'Direct' ? 'Direct' : 'Automatic';
+    var loadBalancerType = isPersonal ? 'Persistent' : (p.loadBalancerType === 'DepthFirst' ? 'DepthFirst' : 'BreadthFirst');
+    var preferredAppGroupType = p.preferredAppGroupType === 'RailApplications' ? 'RailApplications' : 'Desktop';
     var w = WORKLOADS[p.workload] || WORKLOADS.medium;
     var vmSize = p.vmSize || w.suggestedSize, vm = VM_SIZES[vmSize];
     if (!vm) { vmSize = w.suggestedSize; vm = VM_SIZES[vmSize]; notes.push('Unknown size; using ' + vmSize + '.'); }
     var users = Math.round(num(p.users, 1));
-    var concurrent = Math.max(1, Math.ceil(users * Math.min(num(p.concurrencyPercent, 100), 100) / 100));
-    var sessionsPerHost = Math.max(1, vm.vcpu * w.usersPerVcpu);
+    var concurrent = isPersonal ? users : Math.max(1, Math.ceil(users * Math.min(num(p.concurrencyPercent, 100), 100) / 100));
+    var computedSessions = isPersonal ? 1 : Math.max(1, vm.vcpu * w.usersPerVcpu);
+    var rawMax = p.maxSessionLimitOverride !== undefined && p.maxSessionLimitOverride !== null && p.maxSessionLimitOverride !== '' ? p.maxSessionLimitOverride : p.maxSessionLimit;
+    var customMax = wholeIn(rawMax, 1, 1000);
+    var sessionsPerHost = isPersonal ? 1 : (customMax || computedSessions);
     var auto = p.hostCount === 'auto' || p.hostCount === '' || p.hostCount === null || p.hostCount === undefined;
     var hosts;
     if (auto) {
       hosts = Math.ceil(concurrent / sessionsPerHost);
-      var spare = p.spareHost === true || p.spareHost === 'true' || (environment === 'prod' && p.spareHost !== false && p.spareHost !== 'false');
+      var spare = !isPersonal && (p.spareHost === true || p.spareHost === 'true' || (environment === 'prod' && p.spareHost !== false && p.spareHost !== 'false'));
       if (spare) { hosts += 1; notes.push('One spare host, so a host can be drained or fail without turning users away.'); }
-      if (environment === 'prod' && hosts < 2) { hosts = 2; notes.push('At least two hosts in prod (the Well-Architected review flags one).'); }
+      if (!isPersonal && environment === 'prod' && hosts < 2) { hosts = 2; notes.push('At least two hosts in prod (the Well-Architected review flags one).'); }
     }
     else {
       // The number chosen is kept; the notes say what it means.
       hosts = Math.min(MAX_HOSTS, Math.max(1, Math.round(num(p.hostCount, 1))));
       if (hosts * sessionsPerHost < concurrent)
         notes.push(hosts + ' host' + (hosts > 1 ? 's' : '') + ' carry ' + hosts * sessionsPerHost + ' sessions, but ' + concurrent + ' people are expected at the busiest time. Add hosts, choose a larger size, or choose Automatic.');
-      if (hosts === 1) notes.push('One host: no redundancy. Users can\'t sign in while it is drained, updated or down.' + (environment === 'prod' ? ' The Well-Architected review flags one host in prod.' : ''));
+      if (hosts === 1 && !isPersonal) notes.push('One host: no redundancy. Users can\'t sign in while it is drained, updated or down.' + (environment === 'prod' ? ' The Well-Architected review flags one host in prod.' : ''));
     }
     // Premium file shares are provisioned (minimum 100 GiB); 20% headroom over the expected profile sizes.
     var profileQuotaGiB = Math.max(100, Math.ceil(users * num(p.profileGiBPerUser, 10) * 1.2 / 100) * 100);
     // Too little memory per session: below 1 GiB on any size, below 1.5 GiB on a D-series (the
     // preflight applies the same rule).
     var ramPerSession = vm.ramGiB / sessionsPerHost, isE = /^Standard_E/.test(vmSize);
-    if (ramPerSession < 1 || (ramPerSession < 1.5 && !isE))
+    if (!isPersonal && (ramPerSession < 1 || (ramPerSession < 1.5 && !isE)))
       notes.push('Only ' + ramPerSession.toFixed(1) + ' GiB of memory per session. ' + (isE ? 'Use a larger E-series size.' : 'The memory-optimized ' + vmSize.replace(/^Standard_D/, 'Standard_E') + ' has twice the memory for the same vCPUs.'));
+    var enablePe = p.enablePrivateEndpoint !== false && p.enablePrivateEndpoint !== 'false';
+    var pubAccess = ['Enabled', 'Disabled', 'EnabledForClientsOnly', 'EnabledForSessionHostsOnly'].indexOf(p.publicNetworkAccess) >= 0
+      ? p.publicNetworkAccess
+      : (enablePe ? 'EnabledForClientsOnly' : 'Enabled');
     return {
-      name: p.name, workload: p.workload, users: users, concurrentUsers: concurrent, vmSize: vmSize, vcpuPerHost: vm.vcpu, ramGiBPerHost: vm.ramGiB,
+      name: p.name, poolKey: p.poolKey || 'general', templateId: p.templateId || 'general',
+      hostPoolType: hostPoolType, personalDesktopAssignmentType: personalAssignment,
+      loadBalancerType: loadBalancerType, preferredAppGroupType: preferredAppGroupType,
+      workload: p.workload, users: users, concurrentUsers: concurrent, vmSize: vmSize, vcpuPerHost: vm.vcpu, ramGiBPerHost: vm.ramGiB,
       memoryPerSessionGiB: Math.round(ramPerSession * 10) / 10, osDisk: OS_DISK,
       sessionsPerHost: sessionsPerHost, hosts: hosts, hostCountAuto: auto, vcpus: hosts * vm.vcpu, capacity: hosts * sessionsPerHost,
-      profileQuotaGiB: profileQuotaGiB, activeHoursPerWeek: Math.min(168, Math.round(num(p.activeHoursPerWeek, 50))), notes: notes
+      profileGiBPerUser: num(p.profileGiBPerUser, 5), profileQuotaGiB: profileQuotaGiB,
+      fslogixProfileSizeMiB: wholeIn(p.fslogixProfileSizeMiB, 1024, 1048576) || 30720,
+      rdpProperties: typeof p.rdpProperties === 'string' && p.rdpProperties ? p.rdpProperties : DEFAULT_RDP_PROPERTIES,
+      validationEnvironment: p.validationEnvironment === true || p.validationEnvironment === 'true',
+      startVmOnConnect: p.startVmOnConnect !== false && p.startVmOnConnect !== 'false',
+      deployScalingPlan: !isPersonal && p.deployScalingPlan !== false && p.deployScalingPlan !== 'false',
+      scalingTimeZone: typeof p.scalingTimeZone === 'string' && p.scalingTimeZone ? p.scalingTimeZone : 'UTC',
+      encryptionAtHost: p.encryptionAtHost !== false && p.encryptionAtHost !== 'false',
+      enrollInIntune: p.enrollInIntune !== false && p.enrollInIntune !== 'false',
+      availabilityZones: Array.isArray(p.availabilityZones) ? p.availabilityZones.filter(function (z) { return z === 1 || z === 2 || z === 3; }) : [],
+      enablePrivateEndpoint: enablePe, publicNetworkAccess: pubAccess,
+      activeHoursPerWeek: Math.min(168, Math.round(num(p.activeHoursPerWeek, 50))), notes: notes
+    };
+  }
+
+  // Computes sizing across all pools in a multi-pool topology, returning both per-pool results, workspaces, appGroups, privateLink, and aggregate sizing.
+  function computeTopology(topology, environment) {
+    var rawPools = topology && Array.isArray(topology.hostPools) && topology.hostPools.length ? topology.hostPools : [HOST_POOL_DEFAULTS];
+    var pools = rawPools.slice(0, MAX_HOST_POOLS).map(function (p) { return computePool(p, environment); });
+    var totalHosts = 0, totalVcpus = 0, totalCapacity = 0, totalUsers = 0, totalConcurrent = 0, totalProfileRawGiB = 0, allNotes = [];
+    pools.forEach(function (r) {
+      totalHosts += r.hosts;
+      totalVcpus += r.vcpus;
+      totalCapacity += r.capacity;
+      totalUsers += r.users;
+      totalConcurrent += r.concurrentUsers;
+      totalProfileRawGiB += r.users * r.profileGiBPerUser;
+      r.notes.forEach(function (n) { allNotes.push((pools.length > 1 ? '[' + r.name + '] ' : '') + n); });
+    });
+    var profileQuotaGiB = Math.max(100, Math.ceil(totalProfileRawGiB * 1.2 / 100) * 100);
+    var primary = pools[0];
+    var rawWs = topology && Array.isArray(topology.workspaces) && topology.workspaces.length ? topology.workspaces : [WORKSPACE_DEFAULTS];
+    var rawPl = (topology && topology.privateLink) || {};
+    var connPl = rawPl.enableAvdConnectionPrivateLink !== undefined ? rawPl.enableAvdConnectionPrivateLink !== false : rawPl.enableConnectionPrivateEndpoint !== false;
+    var feedPl = !!(rawPl.enableAvdFeedPrivateLink || rawPl.enableFeedPrivateEndpoint);
+    var globalPl = !!(rawPl.enableAvdGlobalPrivateLink || rawPl.enableGlobalPrivateEndpoint);
+    var hpPub = PUBLIC_NET_MODES.indexOf(rawPl.hostPoolPublicNetworkAccess) >= 0 ? rawPl.hostPoolPublicNetworkAccess : 'EnabledForClientsOnly';
+    var wsPub = PUBLIC_NET_MODES.indexOf(rawPl.workspacePublicNetworkAccess) >= 0 ? rawPl.workspacePublicNetworkAccess : 'Enabled';
+    var rawDns = rawPl.dnsZones || {};
+    var dnsZones = {};
+    ['file', 'keyVault', 'avd', 'avdGlobal'].forEach(function (k) {
+      var z = rawDns[k] || {};
+      var resId = String(z.existingResourceId || z.resourceId || '').trim();
+      var mode = z.mode === 'existing' ? 'existing' : z.mode === 'disabled' ? 'disabled' : (k === 'avdGlobal' && !globalPl ? 'disabled' : 'new');
+      if (k === 'avdGlobal' && globalPl && mode === 'disabled') mode = 'new';
+      dnsZones[k] = {
+        mode: mode,
+        existingResourceId: mode === 'existing' ? resId : '',
+        resourceId: mode === 'existing' ? resId : '',
+        deployNew: mode === 'new'
+      };
+    });
+    var workspaces = rawWs.slice(0, MAX_WORKSPACES).map(function (ws, idx) {
+      var pub = PUBLIC_NET_MODES.indexOf(ws.publicNetworkAccess) >= 0 ? ws.publicNetworkAccess : wsPub;
+      return {
+        name: String(ws.name || (idx === 0 ? 'default' : ('ws-' + (idx + 1)))).trim(),
+        friendlyName: String(ws.friendlyName || (idx === 0 ? 'Default Workspace' : ('Workspace ' + (idx + 1)))).trim(),
+        description: String(ws.description || '').trim(),
+        publicNetworkAccess: pub,
+        enableFeedPrivateEndpoint: ws.enableFeedPrivateEndpoint === undefined || ws.enableFeedPrivateEndpoint === null ? feedPl : !!ws.enableFeedPrivateEndpoint,
+        enableGlobalPrivateEndpoint: idx === 0 && (ws.enableGlobalPrivateEndpoint === undefined || ws.enableGlobalPrivateEndpoint === null ? globalPl : !!ws.enableGlobalPrivateEndpoint)
+      };
+    });
+    var rawAg = topology && Array.isArray(topology.appGroups) && topology.appGroups.length ? topology.appGroups : [APP_GROUP_DEFAULTS];
+    var appGroups = rawAg.slice(0, MAX_APP_GROUPS).map(function (ag, idx) {
+      var hpSlug = String(ag.hostPool || ag.hostPoolName || (primary && primary.poolKey) || 'general').trim();
+      var wsSlug = String(ag.workspace || ag.workspaceName || (workspaces[0] && workspaces[0].name) || 'default').trim();
+      return {
+        name: String(ag.name || (idx === 0 ? 'desktop' : ('ag-' + (idx + 1)))).trim(),
+        friendlyName: String(ag.friendlyName || (idx === 0 ? 'Desktop' : ('App Group ' + (idx + 1)))).trim(),
+        applicationGroupType: ag.applicationGroupType === 'RemoteApp' ? 'RemoteApp' : 'Desktop',
+        hostPool: hpSlug,
+        hostPoolName: hpSlug,
+        workspace: wsSlug,
+        workspaceName: wsSlug,
+        usersGroupObjectId: String(ag.usersGroupObjectId || '').trim()
+      };
+    });
+    return {
+      pools: pools,
+      workspaces: workspaces,
+      appGroups: appGroups,
+      privateLink: {
+        enableAvdConnectionPrivateLink: connPl,
+        enableConnectionPrivateEndpoint: connPl,
+        enableAvdFeedPrivateLink: feedPl,
+        enableFeedPrivateEndpoint: feedPl,
+        enableAvdGlobalPrivateLink: globalPl,
+        enableGlobalPrivateEndpoint: globalPl,
+        hostPoolPublicNetworkAccess: hpPub,
+        workspacePublicNetworkAccess: wsPub,
+        dnsZones: dnsZones
+      },
+      totals: {
+        users: totalUsers,
+        concurrentUsers: totalConcurrent,
+        hosts: totalHosts,
+        vcpus: totalVcpus,
+        capacity: totalCapacity,
+        profileQuotaGiB: profileQuotaGiB
+      },
+      primary: primary,
+      hosts: primary.hosts,
+      totalHosts: totalHosts,
+      vmSize: primary.vmSize,
+      sessionsPerHost: primary.sessionsPerHost,
+      vcpus: totalVcpus,
+      capacity: totalCapacity,
+      users: totalUsers,
+      profileQuotaGiB: profileQuotaGiB,
+      activeHoursPerWeek: primary.activeHoursPerWeek,
+      notes: allNotes
     };
   }
 
@@ -319,6 +614,164 @@
   function toSizing(r) { return { hosts: r.hosts, vmSize: r.vmSize, maxSessions: r.sessionsPerHost, profileQuotaGiB: r.profileQuotaGiB, activeHoursPerWeek: r.activeHoursPerWeek }; }
   function sized(cfg) { var s = cfg.sizing; return s && s.hosts && s.vmSize ? s : null; }
 
+  // ---------------------------------------------------------------- topology manifest validation & serialization
+  var SAFE_SLUG = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
+  var SAFE_TEXT = /^[^\x00-\x1f\x7f]{0,120}$/;
+  var SAFE_RDP = /^[a-zA-Z0-9_.:;* -]{0,1024}$/;
+  var SAFE_TZ = /^[a-zA-Z0-9_./ ()+-]{1,64}$/;
+  var DNS_RES_ID = /^\/subscriptions\/[0-9a-fA-F-]{36}\/resourceGroups\/[A-Za-z0-9._()-]{1,90}\/providers\/Microsoft\.Network\/privateDnsZones\/[A-Za-z0-9._-]{1,253}$/;
+  var PUBLIC_NET_MODES = ['Enabled', 'Disabled', 'EnabledForClientsOnly', 'EnabledForSessionHostsOnly'];
+
+  function validTopology(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    var out = {}, ok = true;
+    if (raw.workspaces !== undefined) {
+      if (!Array.isArray(raw.workspaces) || raw.workspaces.length > MAX_WORKSPACES) return null;
+      out.workspaces = raw.workspaces.map(function (ws) {
+        if (!ws || typeof ws !== 'object' || Array.isArray(ws)) { ok = false; return null; }
+        var name = String(ws.name || 'default').trim();
+        var friendly = String(ws.friendlyName || '').trim();
+        var pub = ws.publicNetworkAccess || 'Enabled';
+        if (!SAFE_SLUG.test(name) || !SAFE_TEXT.test(friendly) || PUBLIC_NET_MODES.indexOf(pub) < 0) { ok = false; return null; }
+        return {
+          name: name,
+          friendlyName: friendly,
+          publicNetworkAccess: pub,
+          enableFeedPrivateEndpoint: ws.enableFeedPrivateEndpoint === true || ws.enableFeedPrivateEndpoint === 'true',
+          enableGlobalPrivateEndpoint: ws.enableGlobalPrivateEndpoint === true || ws.enableGlobalPrivateEndpoint === 'true'
+        };
+      });
+    }
+    if (!ok) return null;
+    if (raw.hostPools !== undefined) {
+      if (!Array.isArray(raw.hostPools) || raw.hostPools.length > MAX_HOST_POOLS) return null;
+      out.hostPools = raw.hostPools.map(function (hp, i) {
+        if (!hp || typeof hp !== 'object' || Array.isArray(hp)) { ok = false; return null; }
+        var name = String(hp.name || hp.poolKey || ('pool-' + (i + 1))).trim();
+        var friendly = String(hp.friendlyName || '').trim();
+        var hpType = hp.hostPoolType === 'Personal' ? 'Personal' : 'Pooled';
+        var assign = hp.personalDesktopAssignmentType === 'Direct' ? 'Direct' : 'Automatic';
+        var lb = hpType === 'Personal' ? 'Persistent' : (hp.loadBalancerType === 'DepthFirst' ? 'DepthFirst' : 'BreadthFirst');
+        var prefAg = hp.preferredAppGroupType === 'RailApplications' ? 'RailApplications' : 'Desktop';
+        var vmSize = String(hp.sessionHostVmSize || hp.vmSize || 'Standard_E4as_v5').trim();
+        var hosts = wholeIn(hp.sessionHostCount !== undefined ? hp.sessionHostCount : (hp.hosts !== undefined ? hp.hosts : 1), 0, 200);
+        var maxSess = wholeIn(hp.maxSessionLimit !== undefined && hp.maxSessionLimit !== null ? hp.maxSessionLimit : (hp.sessionsPerHost || 8), 1, 1000);
+        var rdp = hp.rdpProperties !== undefined ? String(hp.rdpProperties) : DEFAULT_RDP_PROPERTIES;
+        var tz = hp.scalingTimeZone !== undefined ? String(hp.scalingTimeZone) : 'UTC';
+        var pub = hp.publicNetworkAccess || 'EnabledForClientsOnly';
+        var fsl = wholeIn(hp.fslogixProfileSizeMiB !== undefined ? hp.fslogixProfileSizeMiB : 30720, 1024, 1048576);
+        if (!SAFE_SLUG.test(name) || !SAFE_TEXT.test(friendly) || !VM_SIZE.test(vmSize) || hosts === null || maxSess === null || fsl === null || !SAFE_RDP.test(rdp) || !SAFE_TZ.test(tz) || PUBLIC_NET_MODES.indexOf(pub) < 0) {
+          ok = false; return null;
+        }
+        var zones = Array.isArray(hp.availabilityZones) ? hp.availabilityZones.filter(function (z) { return z === 1 || z === 2 || z === 3; }) : [];
+        return {
+          name: name,
+          friendlyName: friendly,
+          hostPoolType: hpType,
+          personalDesktopAssignmentType: assign,
+          loadBalancerType: lb,
+          preferredAppGroupType: prefAg,
+          maxSessionLimit: maxSess,
+          rdpProperties: rdp,
+          validationEnvironment: hp.validationEnvironment === true || hp.validationEnvironment === 'true',
+          startVmOnConnect: hp.startVmOnConnect !== false && hp.startVmOnConnect !== 'false',
+          deployScalingPlan: hpType === 'Pooled' && hp.deployScalingPlan !== false && hp.deployScalingPlan !== 'false',
+          scalingTimeZone: tz,
+          enablePrivateEndpoint: hp.enablePrivateEndpoint !== false && hp.enablePrivateEndpoint !== 'false',
+          publicNetworkAccess: pub,
+          sessionHostCount: hosts,
+          sessionHostVmSize: vmSize,
+          availabilityZones: zones,
+          encryptionAtHost: hp.encryptionAtHost !== false && hp.encryptionAtHost !== 'false',
+          enrollInIntune: hp.enrollInIntune !== false && hp.enrollInIntune !== 'false',
+          fslogixProfileSizeMiB: fsl
+        };
+      });
+    }
+    if (!ok) return null;
+    if (raw.appGroups !== undefined) {
+      if (!Array.isArray(raw.appGroups) || raw.appGroups.length > MAX_APP_GROUPS) return null;
+      out.appGroups = raw.appGroups.map(function (ag, i) {
+        if (!ag || typeof ag !== 'object' || Array.isArray(ag)) { ok = false; return null; }
+        var name = String(ag.name || ('ag-' + (i + 1))).trim();
+        var friendly = String(ag.friendlyName || name).trim();
+        var agType = ag.applicationGroupType === 'RemoteApp' ? 'RemoteApp' : 'Desktop';
+        var hpName = String(ag.hostPoolName || 'general').trim();
+        var wsName = String(ag.workspaceName || 'default').trim();
+        var ugId = String(ag.usersGroupObjectId || '').trim();
+        if (!SAFE_SLUG.test(name) || !SAFE_TEXT.test(friendly) || !SAFE_SLUG.test(hpName) || !SAFE_SLUG.test(wsName) || (ugId && !SETTINGS.graphClientId.test(ugId))) {
+          ok = false; return null;
+        }
+        var item = { name: name, friendlyName: friendly, applicationGroupType: agType, hostPoolName: hpName, workspaceName: wsName };
+        if (ugId) item.usersGroupObjectId = ugId;
+        return item;
+      });
+    }
+    if (!ok) return null;
+    if (raw.privateLink !== undefined) {
+      var pl = raw.privateLink;
+      if (!pl || typeof pl !== 'object' || Array.isArray(pl)) return null;
+      var hpPub = pl.hostPoolPublicNetworkAccess || 'EnabledForClientsOnly';
+      var wsPub = pl.workspacePublicNetworkAccess || 'Enabled';
+      if (PUBLIC_NET_MODES.indexOf(hpPub) < 0 || PUBLIC_NET_MODES.indexOf(wsPub) < 0) return null;
+      var dnsOut = {};
+      if (pl.dnsZones !== undefined) {
+        if (!pl.dnsZones || typeof pl.dnsZones !== 'object' || Array.isArray(pl.dnsZones)) return null;
+        ['file', 'keyVault', 'avd', 'avdGlobal'].forEach(function (k) {
+          var z = pl.dnsZones[k];
+          if (!z) return;
+          if (typeof z !== 'object' || Array.isArray(z)) { ok = false; return; }
+          var mode = z.mode === 'existing' ? 'existing' : 'new';
+          var resId = String(z.resourceId || '').trim();
+          if (mode === 'existing' && (!resId || !DNS_RES_ID.test(resId))) { ok = false; return; }
+          if (mode === 'new' && resId && !DNS_RES_ID.test(resId)) { ok = false; return; }
+          dnsOut[k] = { mode: mode, resourceId: mode === 'existing' ? resId : '' };
+        });
+      }
+      if (!ok) return null;
+      out.privateLink = {
+        enableConnectionPrivateEndpoint: pl.enableConnectionPrivateEndpoint !== false && pl.enableConnectionPrivateEndpoint !== 'false',
+        enableFeedPrivateEndpoint: pl.enableFeedPrivateEndpoint === true || pl.enableFeedPrivateEndpoint === 'true',
+        enableGlobalPrivateEndpoint: pl.enableGlobalPrivateEndpoint === true || pl.enableGlobalPrivateEndpoint === 'true',
+        hostPoolPublicNetworkAccess: hpPub,
+        workspacePublicNetworkAccess: wsPub,
+        dnsZones: dnsOut
+      };
+    }
+    return Object.keys(out).length ? out : null;
+  }
+
+  function hasCustomTopology(cfg) {
+    var t = cfg && validTopology(cfg.topology);
+    if (!t) return false;
+    if (t.workspaces && (t.workspaces.length > 1 || (t.workspaces[0] && (t.workspaces[0].name !== 'default' || t.workspaces[0].publicNetworkAccess !== 'Enabled' || t.workspaces[0].enableFeedPrivateEndpoint || t.workspaces[0].enableGlobalPrivateEndpoint)))) return true;
+    if (t.appGroups && (t.appGroups.length > 1 || (t.appGroups[0] && (t.appGroups[0].name !== 'desktop' || t.appGroups[0].applicationGroupType !== 'Desktop' || t.appGroups[0].usersGroupObjectId)))) return true;
+    if (t.privateLink) {
+      var pl = t.privateLink;
+      if (!pl.enableConnectionPrivateEndpoint || pl.enableFeedPrivateEndpoint || pl.enableGlobalPrivateEndpoint || pl.hostPoolPublicNetworkAccess !== 'EnabledForClientsOnly' || pl.workspacePublicNetworkAccess !== 'Enabled') return true;
+      var dz = pl.dnsZones || {};
+      if (['file', 'keyVault', 'avd', 'avdGlobal'].some(function (k) { return dz[k] && dz[k].mode === 'existing' && dz[k].resourceId; })) return true;
+    }
+    if (t.hostPools) {
+      if (t.hostPools.length > 1) return true;
+      var hp = t.hostPools[0];
+      if (hp && (hp.hostPoolType !== 'Pooled' || hp.loadBalancerType !== 'BreadthFirst' || hp.preferredAppGroupType !== 'Desktop' || hp.rdpProperties !== DEFAULT_RDP_PROPERTIES || !hp.enablePrivateEndpoint || hp.publicNetworkAccess !== 'EnabledForClientsOnly' || !hp.deployScalingPlan || hp.scalingTimeZone !== 'UTC' || !hp.encryptionAtHost || !hp.enrollInIntune || hp.fslogixProfileSizeMiB !== 30720 || (hp.availabilityZones && hp.availabilityZones.length))) return true;
+    }
+    return false;
+  }
+
+  function buildTopologyManifest(cfg) {
+    var t = cfg && validTopology(cfg.topology);
+    return t && hasCustomTopology(cfg) ? t : null;
+  }
+
+  function topologyArgs(cfg, ps) {
+    var m = buildTopologyManifest(cfg);
+    if (!m) return '';
+    var json = JSON.stringify(m);
+    return ps ? ' -Topology ' + psQuote(json) : ' --topology ' + psQuote(json);
+  }
+
   // ---------------------------------------------------------------- commands
   // Every command is a self-contained Cloud Shell (PowerShell) block: sessions are ephemeral,
   // so each starts by cloning or updating the repo and moving into it (build/lessons/0015).
@@ -364,9 +817,9 @@
     predeploy: function (cfg) {
       var s = sized(cfg);
       return (s ? ' -SessionHostCount ' + s.hosts + ' -SessionHostVmSize ' + s.vmSize + ' -MaxSessionLimit ' + s.maxSessions + ' -ProfileShareQuotaGiB ' + s.profileQuotaGiB : '') +
-        powerArgs(cfg, true) + (s || cfg.power ? ' -ActiveHoursPerWeek ' + pricedHours(cfg) : '');
+        powerArgs(cfg, true) + (s || cfg.power ? ' -ActiveHoursPerWeek ' + pricedHours(cfg) : '') + topologyArgs(cfg, true);
     },
-    deploy: function (cfg) { var s = sized(cfg); return (s ? ' --hosts ' + s.hosts + ' --vm-size ' + s.vmSize + ' --max-sessions ' + s.maxSessions + ' --profile-quota ' + s.profileQuotaGiB : '') + powerArgs(cfg, false); },
+    deploy: function (cfg) { var s = sized(cfg); return (s ? ' --hosts ' + s.hosts + ' --vm-size ' + s.vmSize + ' --max-sessions ' + s.maxSessions + ' --profile-quota ' + s.profileQuotaGiB : '') + powerArgs(cfg, false) + topologyArgs(cfg, false); },
     postdeploy: function (cfg) { var s = sized(cfg); return s ? ' -SessionHostVmSize ' + s.vmSize + ' -SessionHostCount ' + s.hosts : ''; }
   };
 
@@ -419,10 +872,19 @@
     // they are cleared again so later blocks in the same shell use only their own flags.
     recordStart: function (cfg) {
       var r = recording(cfg); if (!r) return '';
-      var s = sized(cfg), vars = ['AVD_SESSION_HOST_COUNT', 'AVD_SESSION_HOST_VM_SIZE', 'AVD_MAX_SESSION_LIMIT', 'AVD_PROFILE_QUOTA_GIB'];
-      var lines = s ? ["$env:AVD_SESSION_HOST_COUNT = '" + s.hosts + "'; $env:AVD_SESSION_HOST_VM_SIZE = '" + s.vmSize + "'; $env:AVD_MAX_SESSION_LIMIT = '" + s.maxSessions + "'; $env:AVD_PROFILE_QUOTA_GIB = '" + s.profileQuotaGiB + "'"] : [];
+      var s = sized(cfg), m = buildTopologyManifest(cfg), vars = [];
+      var envSets = [];
+      if (s) {
+        vars.push('AVD_SESSION_HOST_COUNT', 'AVD_SESSION_HOST_VM_SIZE', 'AVD_MAX_SESSION_LIMIT', 'AVD_PROFILE_QUOTA_GIB');
+        envSets.push("$env:AVD_SESSION_HOST_COUNT = '" + s.hosts + "'; $env:AVD_SESSION_HOST_VM_SIZE = '" + s.vmSize + "'; $env:AVD_MAX_SESSION_LIMIT = '" + s.maxSessions + "'; $env:AVD_PROFILE_QUOTA_GIB = '" + s.profileQuotaGiB + "'");
+      }
+      if (m) {
+        vars.push('AVD_TOPOLOGY_JSON');
+        envSets.push('$env:AVD_TOPOLOGY_JSON = ' + psQuote(JSON.stringify(m)));
+      }
+      var lines = envSets.length ? [envSets.join('; ')] : [];
       lines.push('./scripts/ops/Start-AvdRunRecorder.ps1 -RunId ' + r.runId + ' -ParameterFile ' + cfg.parameterFile + ' -Location ' + cfg.location + ' -Hours 3 -Cap 10' + (r.mode === 'on' ? ' -Local' : ''));
-      if (s) lines.push('Remove-Item ' + vars.map(function (v) { return 'Env:' + v; }).join(', ') + ' -ErrorAction SilentlyContinue');
+      if (vars.length) lines.push('Remove-Item ' + vars.map(function (v) { return 'Env:' + v; }).join(', ') + ' -ErrorAction SilentlyContinue');
       return block(cfg, lines);
     },
     // Close a recorded run (Stop-AvdRunRecorder.ps1). mode: 'before-cleanup' (export the AVD logs while the
@@ -1186,7 +1648,7 @@
     return a;
   }
 
-  return { STEPS: STEPS, newRunId: newRunId, recording: recording, recordActions: recordActions, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, isCommit: isCommit, siteConfig: siteConfig, SETTINGS: SETTINGS, SETTING_NAMES: SETTING_NAMES, validSettings: validSettings, contextSettings: contextSettings, validSizing: validSizing, validPower: validPower, validEstimate: validEstimate, versionNote: versionNote, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_HOSTS: MAX_HOSTS, computePool: computePool, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
+  return { STEPS: STEPS, newRunId: newRunId, recording: recording, recordActions: recordActions, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, isCommit: isCommit, siteConfig: siteConfig, SETTINGS: SETTINGS, SETTING_NAMES: SETTING_NAMES, validSettings: validSettings, contextSettings: contextSettings, validSizing: validSizing, validPower: validPower, validEstimate: validEstimate, validTopology: validTopology, hasCustomTopology: hasCustomTopology, buildTopologyManifest: buildTopologyManifest, versionNote: versionNote, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, DEFAULT_RDP_PROPERTIES: DEFAULT_RDP_PROPERTIES, LOCKED_DOWN_RDP_PROPERTIES: LOCKED_DOWN_RDP_PROPERTIES, POOL_TEMPLATES: POOL_TEMPLATES, WORKSPACE_DEFAULTS: WORKSPACE_DEFAULTS, APP_GROUP_DEFAULTS: APP_GROUP_DEFAULTS, DNS_ZONE_DEFINITIONS: DNS_ZONE_DEFINITIONS, PRIVATE_LINK_DEFAULTS: PRIVATE_LINK_DEFAULTS, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_WORKSPACES: MAX_WORKSPACES, MAX_APP_GROUPS: MAX_APP_GROUPS, MAX_HOSTS: MAX_HOSTS, applyPoolTemplate: applyPoolTemplate, computePool: computePool, computeTopology: computeTopology, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
     PLATFORMS: PLATFORMS, RUNIN_DEFAULT: RUNIN_DEFAULT, PLACES: PLACES, validRunIn: validRunIn, isDefaultRunIn: isDefaultRunIn, scriptsIn: scriptsIn, support: support, forRunIn: forRunIn,
     REACHABILITY_HOSTS: REACHABILITY_HOSTS, rateLatency: rateLatency, classifyReachability: classifyReachability, launchTarget: launchTarget, launchUrl: launchUrl };
 });

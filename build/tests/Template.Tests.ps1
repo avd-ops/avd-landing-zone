@@ -589,3 +589,39 @@ Describe 'Deadline teardown for sandbox batches (decision 0021)' {
     ([regex]::Matches($src, "Microsoft.Authorization/roleAssignments")).Count | Should -Be 1
   }
 }
+
+Describe 'Multi-pool topology, Private Link and per-zone Private DNS' {
+  It 'reads AVD_TOPOLOGY_JSON in every parameter file and defaults to an empty object' {
+    foreach ($file in 'parameters/dev.bicepparam', 'parameters/test.bicepparam', 'parameters/prod.bicepparam') {
+      $env:AVD_TOPOLOGY_JSON = '{"hostPools":[{"name":"general","hostPoolType":"Pooled","sessionHostCount":2}],"privateLink":{"enableFeedPrivateEndpoint":true,"enableGlobalPrivateEndpoint":true}}'
+      try { $p = ((& $script:bicep build-params $file --stdout | ConvertFrom-Json).parametersJson | ConvertFrom-Json).parameters }
+      finally { $env:AVD_TOPOLOGY_JSON = '' }
+      $p.topology.value.hostPools[0].name | Should -Be 'general' -Because $file
+      $p.topology.value.privateLink.enableFeedPrivateEndpoint | Should -BeTrue -Because $file
+      $p.topology.value.privateLink.enableGlobalPrivateEndpoint | Should -BeTrue -Because $file
+      $empty = ((& $script:bicep build-params $file --stdout | ConvertFrom-Json).parametersJson | ConvertFrom-Json).parameters
+      @($empty.topology.value.PSObject.Properties).Count | Should -Be 0 -Because "$file default"
+    }
+  }
+
+  It 'supports per-zone new vs existing Private DNS zones and the privatelink-global.wvd.microsoft.com zone' {
+    $raw = (& $script:bicep build 'bicep/modules/privateDns.bicep' --stdout) -join "`n"
+    $m = $raw | ConvertFrom-Json -Depth 50 -AsHashtable
+    foreach ($flag in 'deployFileZone', 'deployKeyVaultZone', 'deployAvdZone', 'deployAvdGlobalZone') {
+      $m['parameters'].Keys | Should -Contain $flag
+    }
+    $raw | Should -Match 'privatelink-global\.wvd\.microsoft\.com'
+    $m['outputs'].Keys | Should -Contain 'avdGlobalZoneResourceId'
+  }
+
+  It 'compiles additionalPool.bicep and controlPlane.bicep with multi-workspace, multi-app-group, feed and global Private Link' {
+    $poolRaw = (& $script:bicep build 'bicep/modules/additionalPool.bicep' --stdout) -join "`n"
+    $poolMod = $poolRaw | ConvertFrom-Json -Depth 50 -AsHashtable
+    $poolMod['outputs']['registrationToken']['type'] | Should -Be 'securestring'
+    $cpRaw = (& $script:bicep build 'bicep/modules/controlPlane.bicep' --stdout) -join "`n"
+    $cpMod = $cpRaw | ConvertFrom-Json -Depth 50 -AsHashtable
+    foreach ($p in 'primaryPool', 'primaryAppGroup', 'primaryWorkspace', 'additionalAppGroups', 'additionalWorkspaces', 'enableAvdFeedPrivateLink', 'enableAvdGlobalPrivateLink', 'avdGlobalPrivateDnsZoneResourceId') {
+      $cpMod['parameters'].Keys | Should -Contain $p
+    }
+  }
+}

@@ -3,7 +3,7 @@
 [`index.html`](index.html) is a static page (GitHub Pages: <https://deploy.avd-ops.dev/portal/>, or a copy in your own subscription from [`Publish-AvdPortal.ps1`](../../docs/operations.md#your-own-copy-of-the-portal-optional), [decision 0017](../../build/decisions/0017-portal-hosting.md)) that walks an operator through a deployment:
 
 1. **Choose a region.** Latency measured from the browser; the closest region is selected.
-2. **Size the host pool.** Starts at the minimum viable kit (one E4as_v5 host). You choose the number of hosts, or Automatic sizes it from people and workload; the commands then carry the sizing ([decision 0010](../../build/decisions/0010-sizing-and-cost.md)).
+2. **Topology & sizing.** Starts at the minimum viable kit (one E4as_v5 host, one workspace, one desktop application group). Supports configuring multiple host pools (`Pooled` or `Personal`, up to `MAX_HOST_POOLS = 20`) with per-pool settings (load balancing, max sessions, custom RDP properties, FSLogix profile size, autoscale scaling plan and time zone, Encryption at Host, Intune enrollment, availability zones, and Private Link), applying built-in or custom **setting templates** to all pools or a selected subset (`applyPoolTemplate`), adding multiple **workspaces** and **application groups** (`Desktop` or `RemoteApp`), and configuring **AVD Private Link** (`connection`, `feed`, and `global` private endpoints plus `publicNetworkAccess` controls) and **Private DNS zones** (`new` vs `existing` resource ID per zone). The commands carry both the aggregate sizing and the validated topology manifest (`-Topology` / `--topology`, [decision 0010](../../build/decisions/0010-sizing-and-cost.md)).
 3. **Cost.** Toggles for Start VM on Connect and the scheduled auto shutdown, and the hours people work. Together they give the hours each host runs. The commands deploy the settings, the preflight prices the plan, and after that the toggles reprice it in the page (`repriceEstimate`).
 4. **Pre-deployment preflight.**
 5. **Deploy the landing zone.**
@@ -63,9 +63,9 @@ The same value always gets the same placeholder. Reports carry `<!-- avdlz-porta
 
 **Triage:** a report whose analysis is wrong is a fixture waiting to happen. The retro routine applies. Check the output for anything private the patterns missed, then save it to `build/tests/portal/fixtures/`.
 
-## Sizing
+## Topology, setting templates and sizing
 
-`portal-core.js` keeps sizing per host pool: `HOST_POOL_DEFAULTS` describes one entry (name, type, users, `concurrencyPercent`, workload, `vmSize`, `hostCount` (a number, or `'auto'`), `spareHost` (Automatic only), `profileGiBPerUser`, `activeHoursPerWeek`), `computePool()` sizes it, and `toSizing()` turns the result into the object the commands use. The page stores a list (`avdlz.portal.hostPools`) with one entry while `MAX_HOST_POOLS` is 1. To add host pools: raise the limit, give each entry its own commands, and extend the templates. The single-pool commands don't change.
+`portal-core.js` keeps sizing and settings per host pool (`HOST_POOL_DEFAULTS`, up to `MAX_HOST_POOLS = 20`), workspaces (`WORKSPACE_DEFAULTS`, up to `MAX_WORKSPACES = 20`), application groups (`APP_GROUP_DEFAULTS`, up to `MAX_APP_GROUPS = 40`), and Private Link / Private DNS zones (`PRIVATE_LINK_DEFAULTS`, `DNS_ZONE_DEFINITIONS`). `POOL_TEMPLATES` (`general`, `task`, `power`, `personal`, `locked-down`) and user-saved custom templates apply to all host pools or a selected subset via `applyPoolTemplate()`. `computePool()` sizes one pool, `computeTopology()` computes all pools, workspaces, application groups, and Private Link/DNS settings, `validTopology()` validates the manifest, and `buildTopologyManifest()` emits the JSON passed to `-Topology` (`Test-AvdLandingZoneReadiness.ps1`) and `--topology` (`deploy.sh` / `AVD_TOPOLOGY_JSON`). Single-pool default deployments omit `-Topology` / `--topology` so the default command line remains unchanged.
 
 ## Reachability probe
 

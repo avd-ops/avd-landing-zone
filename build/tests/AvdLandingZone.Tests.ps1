@@ -918,3 +918,53 @@ Describe 'Get-AvdRdpRedirectionOff' {
     (Get-AvdRdpRedirectionOff -CustomRdpProperty '') | Should -BeNullOrEmpty
   }
 }
+
+Describe 'Multi-pool topology and Private Link cost & plan' {
+  It 'prices multiple host pools and full AVD Private Link private endpoints accurately' {
+    Mock -ModuleName AvdLandingZone Get-AvdRetailPrice {
+      if ($Filter -like "*armSkuName eq 'Standard_E4as_v5'*") {
+        [pscustomobject]@{ productName = 'Virtual Machines Easv5 Series'; skuName = 'E4as v5'; meterName = 'E4as v5'; unitOfMeasure = '1 Hour'; retailPrice = 0.20 }
+      }
+      elseif ($Filter -like "*armSkuName eq 'Standard_D8s_v5'*") {
+        [pscustomobject]@{ productName = 'Virtual Machines Dv5 Series'; skuName = 'D8s v5'; meterName = 'D8s v5'; unitOfMeasure = '1 Hour'; retailPrice = 0.40 }
+      }
+      elseif ($Filter -like "*P10 LRS*") {
+        [pscustomobject]@{ productName = 'Premium SSD Managed Disks'; skuName = 'P10 LRS'; meterName = 'P10 LRS Disk'; unitOfMeasure = '1/Month'; retailPrice = 19.71 }
+      }
+      elseif ($Filter -like "*Private Link*") {
+        [pscustomobject]@{ productName = 'Virtual Network Private Link'; skuName = 'Standard'; meterName = 'Standard Private Endpoint'; unitOfMeasure = '1 Hour'; retailPrice = 0.01 }
+      }
+    }
+    $topo = @{
+      hostPools = @(
+        @{ key = 'general'; sessionHostVmSize = 'Standard_E4as_v5'; sessionHostCount = 2; enablePrivateLink = $true }
+        @{ key = 'devs'; sessionHostVmSize = 'Standard_D8s_v5'; sessionHostCount = 1; enablePrivateLink = $true }
+      )
+      workspaces = @(
+        @{ key = 'main' }
+        @{ key = 'devs-ws' }
+      )
+      privateLink = @{
+        enableConnectionPrivateLink = $true
+        enableFeedPrivateLink       = $true
+        enableGlobalPrivateLink     = $true
+      }
+    }
+    $plan = @{
+      location             = 'eastus2'
+      sessionHostCount     = 3
+      sessionHostVmSize    = 'Standard_E4as_v5'
+      profileShareQuotaGiB = 100
+      profileStorageSku    = 'Premium_LRS'
+      connectivityMode     = 'Standalone'
+      enableAvdPrivateLink = $true
+      deployJumpbox        = $false
+      topology             = $topo
+    }
+    $e = Get-AvdCostEstimate -Plan $plan -ActiveHoursPerWeek 50
+    @($e.lines | Where-Object { $_.key -like 'compute*' }).Count | Should -Be 2
+    ($e.lines | Where-Object key -eq 'osdisk').quantity | Should -Be 3
+    # 2 Storage + 1 KeyVault + 2 connection PEs + 2 feed PEs + 1 global PE = 8 PEs
+    ($e.lines | Where-Object key -eq 'privateendpoints').item | Should -Match 'Private endpoints \(7\)'
+  }
+}
