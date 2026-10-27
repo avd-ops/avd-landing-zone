@@ -61,15 +61,17 @@ jobs:
             printf 'eligible=false\nreason=scripts/kb/auto_merge.py is missing\n' >> "$GITHUB_OUTPUT"
           fi
       - name: Turn auto-merge on
+        id: enable
         if: steps.verdict.outputs.eligible == 'true' && steps.gate.outputs.paused != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --auto --merge --match-head-commit "$HEAD"
-      # always(): if an earlier step failed, a PR armed on an older head is still turned off.
+      # always(): if an earlier step failed, or turning it on failed or was canceled, a PR armed on
+      # an older head is still turned off.
       - name: Turn auto-merge off
-        if: always() && (steps.verdict.outputs.eligible != 'true' || steps.gate.outputs.paused == 'true')
+        if: always() && (steps.verdict.outputs.eligible != 'true' || steps.gate.outputs.paused == 'true' || steps.enable.outcome == 'failure' || steps.enable.outcome == 'cancelled')
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
