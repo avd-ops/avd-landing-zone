@@ -26,6 +26,13 @@
    "requires": "bash, the az CLI with Bicep",
    "evidence": "build/tests/portal/fixtures/real-deploy-dcr-tables.txt, build/lessons/0006-provider-registration.md"
   },
+  "scripts/deploy/Invoke-AvdControlPlanes.ps1": {
+   "cloudshell-pwsh": "untested",
+   "cloudshell-bash": "untested",
+   "windows": "untested",
+   "macos": "untested",
+   "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules"
+  },
   "scripts/ops/Deploy-AvdDemo.ps1": {
    "cloudshell-pwsh": "untested",
    "cloudshell-bash": "untested",

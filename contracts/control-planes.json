@@ -1,0 +1,166 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "schema": "avd-ops-control-planes-pins/v1",
+  "decision": "0009-split-landing-zone-into-five-control-planes",
+  "description": "Pinned repository URLs, commit SHAs, entry-point scripts, teardown scripts, and handoff manifest contracts for the five AVD control planes.",
+  "executionOrder": [
+    "entra",
+    "intune",
+    "m365",
+    "azure",
+    "power-platform"
+  ],
+  "teardownOrder": [
+    "power-platform",
+    "azure",
+    "m365",
+    "intune",
+    "entra"
+  ],
+  "presets": {
+    "greenfield": {
+      "label": "Greenfield — all 5 control planes",
+      "planes": [
+        "entra",
+        "intune",
+        "m365",
+        "azure",
+        "power-platform"
+      ]
+    },
+    "brownfield": {
+      "label": "Brownfield — Entra + Intune + Azure",
+      "planes": [
+        "entra",
+        "intune",
+        "azure"
+      ]
+    },
+    "azure-only": {
+      "label": "Azure only",
+      "planes": [
+        "azure"
+      ]
+    }
+  },
+  "planes": {
+    "entra": {
+      "id": "entra",
+      "key": "entra",
+      "name": "avd-entra",
+      "label": "Entra ID",
+      "stage": 1,
+      "repo": "avd-ops/avd-entra",
+      "url": "https://github.com/avd-ops/avd-entra",
+      "branch": "main",
+      "commit": "3a6132c2146a58a7c5feb44cbeab3581d750d3fc",
+      "shortCommit": "3a6132c",
+      "entryPoint": "scripts/Deploy-AvdEntra.ps1",
+      "teardownScript": "scripts/Remove-AvdEntra.ps1",
+      "dependsOn": [],
+      "consumes": [],
+      "handoffManifest": "entra-manifest.json",
+      "runManifest": "entra-run-manifest.json",
+      "schemaId": "avd-ops-entra-manifest/v1",
+      "schemaFile": "contracts/schemas/entra-manifest.schema.json"
+    },
+    "intune": {
+      "id": "intune",
+      "key": "intune",
+      "name": "avd-intune",
+      "label": "Intune",
+      "stage": 2,
+      "repo": "avd-ops/avd-intune",
+      "url": "https://github.com/avd-ops/avd-intune",
+      "branch": "main",
+      "commit": "f64c56a84f7f53bcb7aeb398a456e0853d877633",
+      "shortCommit": "f64c56a",
+      "entryPoint": "scripts/Deploy-AvdIntune.ps1",
+      "teardownScript": "scripts/Remove-AvdIntune.ps1",
+      "dependsOn": [
+        "entra"
+      ],
+      "consumes": [
+        "entra-manifest.json"
+      ],
+      "handoffManifest": "intune-manifest.json",
+      "runManifest": "intune-run-manifest.json",
+      "schemaId": "avd-ops-intune-manifest/v1",
+      "schemaFile": "contracts/schemas/intune-manifest.schema.json"
+    },
+    "m365": {
+      "id": "m365",
+      "key": "m365",
+      "name": "avd-m365",
+      "label": "Microsoft 365",
+      "stage": 2,
+      "repo": "avd-ops/avd-m365",
+      "url": "https://github.com/avd-ops/avd-m365",
+      "branch": "main",
+      "commit": "f18b14f9866cce604b92738c92afa390e14ee7fc",
+      "shortCommit": "f18b14f",
+      "entryPoint": "scripts/Deploy-AvdM365.ps1",
+      "teardownScript": "scripts/Remove-AvdM365.ps1",
+      "dependsOn": [
+        "entra"
+      ],
+      "consumes": [
+        "entra-manifest.json"
+      ],
+      "handoffManifest": "m365-manifest.json",
+      "runManifest": "m365-run-manifest.json",
+      "schemaId": "avd-ops-m365-manifest/v1",
+      "schemaFile": "contracts/schemas/m365-manifest.schema.json"
+    },
+    "azure": {
+      "id": "azure",
+      "key": "azure",
+      "name": "avd-azure",
+      "label": "Azure Infrastructure",
+      "stage": 2,
+      "repo": "avd-ops/avd-azure",
+      "url": "https://github.com/avd-ops/avd-azure",
+      "branch": "main",
+      "commit": "ac01bc41b1e60d04bdfc01f77fe7832255d6644c",
+      "shortCommit": "ac01bc4",
+      "entryPoint": "scripts/deploy/deploy.sh",
+      "teardownScript": null,
+      "dependsOn": [
+        "entra"
+      ],
+      "consumes": [
+        "entra-manifest.json"
+      ],
+      "handoffManifest": "azure-outputs.json",
+      "runManifest": "azure-outputs.json",
+      "schemaId": "avd-ops-azure-outputs/v1",
+      "schemaFile": "contracts/schemas/azure-outputs.schema.json"
+    },
+    "power-platform": {
+      "id": "power-platform",
+      "key": "powerPlatform",
+      "name": "avd-power-platform",
+      "label": "Power Platform",
+      "stage": 3,
+      "repo": "avd-ops/avd-power-platform",
+      "url": "https://github.com/avd-ops/avd-power-platform",
+      "branch": "main",
+      "commit": "454335695e8db154dd71550788e1ce3694b59e7e",
+      "shortCommit": "4543356",
+      "entryPoint": "scripts/Deploy-AvdPowerPlatform.ps1",
+      "teardownScript": "scripts/Remove-AvdPowerPlatform.ps1",
+      "dependsOn": [
+        "entra",
+        "azure"
+      ],
+      "consumes": [
+        "entra-manifest.json",
+        "azure-outputs.json"
+      ],
+      "handoffManifest": "power-platform-manifest.json",
+      "runManifest": "power-platform-run-manifest.json",
+      "schemaId": "avd-ops-power-platform-manifest/v1",
+      "schemaFile": "contracts/schemas/power-platform-manifest.schema.json"
+    }
+  }
+}

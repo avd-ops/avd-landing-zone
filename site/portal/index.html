@@ -404,20 +404,20 @@
       </details>
 
       <details class="panel" id="control-planes-panel">
-        <summary>Control-plane stages (<span id="cp-summary">Azure Only</span>)</summary>
-        <p class="status">Select which of the five control-plane repositories to run in sequence. Each enabled repository is cloned at its pinned commit from <code>contracts/PINS.json</code> and passes <code>entra-manifest.json</code> &rarr; <code>azure-outputs.json</code> &rarr; <code>power-platform-manifest.json</code>.</p>
+        <summary>Control Planes (<span id="cp-summary">Azure only</span>)</summary>
+        <p class="status">Select which of the five control-plane repositories to run in sequence. Each selected repository is cloned at its pinned commit from <code>contracts/control-planes.json</code> and passes redacted handoff manifests (<code>entra-manifest.json</code> &rarr; <code>azure-outputs.json</code> &rarr; <code>power-platform-manifest.json</code>).</p>
         <div class="row" style="margin-top:8px">
-          <button type="button" class="secondary" id="cp-preset-greenfield">Full Greenfield (all 5 planes)</button>
-          <button type="button" class="secondary" id="cp-preset-brownfield">Brownfield Azure + Intune</button>
-          <button type="button" class="secondary" id="cp-preset-azure">Azure Only</button>
+          <button type="button" class="secondary" id="cp-preset-greenfield">Greenfield &mdash; all 5 control planes</button>
+          <button type="button" class="secondary" id="cp-preset-brownfield">Brownfield &mdash; Entra + Intune + Azure</button>
+          <button type="button" class="secondary" id="cp-preset-azure">Azure only</button>
           <span class="status" id="cp-preset-status" role="status"></span>
         </div>
         <div class="pool" style="margin-top:10px" id="control-planes-list">
-          <label class="switch"><input type="checkbox" id="cp-entra"><span><strong>1. Entra ID (<code>avd-ops/avd-entra</code>)</strong><br><span class="muted">Creates AVD security groups, service principals, and Conditional Access exclusions, writing <code>entra-manifest.json</code>.</span></span></label>
-          <label class="switch"><input type="checkbox" id="cp-intune"><span><strong>2. Intune (<code>avd-ops/avd-intune</code>)</strong><br><span class="muted">Configures AVD Settings Catalog device baselines, compliance policies, and group assignments from <code>entra-manifest.json</code>, writing <code>intune-manifest.json</code>.</span></span></label>
-          <label class="switch"><input type="checkbox" id="cp-m365"><span><strong>3. Microsoft 365 (<code>avd-ops/avd-m365</code>)</strong><br><span class="muted">Configures Microsoft 365 Apps shared computer activation and OneDrive Known Folder Move policies from <code>entra-manifest.json</code>, writing <code>m365-manifest.json</code>.</span></span></label>
-          <label class="switch"><input type="checkbox" id="cp-azure" checked><span><strong>4. Azure Infrastructure (<code>avd-ops/avd-azure</code>)</strong><br><span class="muted">Deploys subscription Bicep resource groups, VNet, FSLogix storage, Key Vault, host pools, workspaces, and session hosts, writing <code>azure-outputs.json</code>.</span></span></label>
-          <label class="switch"><input type="checkbox" id="cp-powerPlatform"><span><strong>5. Power Platform (<code>avd-ops/avd-power-platform</code>)</strong><br><span class="muted">Configures Power Platform environment, DLP policies, and VNet integration from <code>entra-manifest.json</code> and <code>azure-outputs.json</code>, writing <code>power-platform-manifest.json</code>.</span></span></label>
+          <label class="switch"><input type="checkbox" id="cp-entra"><span><strong>1. Entra ID (<code>avd-ops/avd-entra@3a6132c</code>)</strong><br><span class="muted">Runs <code>scripts/Deploy-AvdEntra.ps1</code> to configure AVD groups, service principals, and Conditional Access policies, emitting <code>entra-manifest.json</code>.</span></span></label>
+          <label class="switch"><input type="checkbox" id="cp-intune"><span><strong>2. Intune (<code>avd-ops/avd-intune@f64c56a</code>)</strong><br><span class="muted">Runs <code>scripts/Deploy-AvdIntune.ps1</code> consuming <code>entra-manifest.json</code> and emitting <code>intune-manifest.json</code>.</span></span></label>
+          <label class="switch"><input type="checkbox" id="cp-m365"><span><strong>3. Microsoft 365 (<code>avd-ops/avd-m365@f18b14f</code>)</strong><br><span class="muted">Runs <code>scripts/Deploy-AvdM365.ps1</code> consuming <code>entra-manifest.json</code> and emitting <code>m365-manifest.json</code>.</span></span></label>
+          <label class="switch"><input type="checkbox" id="cp-azure" checked><span><strong>4. Azure Infrastructure (<code>avd-ops/avd-azure@ac01bc4</code>)</strong><br><span class="muted">Runs <code>scripts/deploy/deploy.sh</code> consuming <code>entra-manifest.json</code> and emitting <code>azure-outputs.json</code>.</span></span></label>
+          <label class="switch"><input type="checkbox" id="cp-powerPlatform"><span><strong>5. Power Platform (<code>avd-ops/avd-power-platform@4543356</code>)</strong><br><span class="muted">Runs <code>scripts/Deploy-AvdPowerPlatform.ps1</code> consuming <code>entra-manifest.json</code> and <code>azure-outputs.json</code>, emitting <code>power-platform-manifest.json</code>.</span></span></label>
         </div>
       </details>
 
