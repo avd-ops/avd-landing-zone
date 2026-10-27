@@ -318,22 +318,108 @@
       <details class="more"><summary>How regions are rated</summary><p>Round-trip time from this browser, so run it where your users work, not from Cloud Shell or over a VPN. Under 100&nbsp;ms is good for AVD, 100 to 150&nbsp;ms is usable, above 150&nbsp;ms feels sluggish. Each region gets a warm-up request and 5 timed ones; the median counts.</p></details>
     </section>
     <section class="slide wz-stage" id="size-panel" data-step="size" aria-label="Size the host pool">
-      <h2><span class="n"></span>Size the host pool <span class="muted" style="font-weight:400"><span class="sr-only">, </span><span id="size-summary"></span></span></h2>
-      <p class="purpose">Choose how many session hosts to run. One host and a 100&nbsp;GiB profile share is enough to start.</p>
+      <h2><span class="n"></span>Topology &amp; sizing <span class="muted" style="font-weight:400"><span class="sr-only">, </span><span id="size-summary"></span></span></h2>
+      <p class="purpose">Configure host pools, setting templates, workspaces, application groups, Private Link and Private DNS zones. One host and a 100&nbsp;GiB profile share is enough to start.</p>
+
+      <div class="pool" id="template-bar">
+        <div class="headline">
+          <h3 style="margin:0">Setting templates</h3>
+          <span class="status" id="template-status" role="status">Apply a preset to all host pools or only selected ones.</span>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <label class="field" style="flex:2 1 260px"><span>Template preset</span>
+            <select id="template-select"></select>
+          </label>
+          <button type="button" class="secondary" id="template-apply-all">Apply to all pools</button>
+          <button type="button" class="secondary" id="template-apply-selected">Apply to selected pools</button>
+        </div>
+        <p class="status" id="template-desc" style="margin:8px 0 0"></p>
+        <details class="more" style="margin-top:8px"><summary>Save a custom setting template from a host pool</summary>
+          <div class="row" style="margin-top:8px">
+            <label class="field" style="flex:1 1 180px"><span>Template name</span><input type="text" id="template-custom-name" autocomplete="off" placeholder="e.g. Finance locked-down"></label>
+            <label class="field" style="flex:1 1 160px"><span>Copy settings from</span><select id="template-source-pool"></select></label>
+            <button type="button" class="secondary" id="template-save-custom">Save template</button>
+            <button type="button" class="secondary hidden" id="template-delete-custom">Delete custom template</button>
+          </div>
+        </details>
+      </div>
+
       <div id="pools"></div>
+      <div class="row" style="margin:8px 0 16px">
+        <button type="button" class="secondary" id="add-pool">+ Add a host pool</button>
+        <span class="status" id="pools-count-status">Configure each pool's sizing, load balancing, RDP, autoscale, Intune and Private Link settings.</span>
+      </div>
+
+      <details class="panel" id="workspaces-panel">
+        <summary>Workspaces &amp; application groups (<span id="ws-ag-summary">1 workspace, 1 application group</span>)</summary>
+        <p class="status">Group Desktop and RemoteApp application groups into one or more workspaces and associate each application group with a host pool.</p>
+        <h3 style="margin:12px 0 8px">Workspaces</h3>
+        <div id="workspaces"></div>
+        <div class="row" style="margin:8px 0 16px">
+          <button type="button" class="secondary" id="add-workspace">+ Add a workspace</button>
+          <span class="status" id="workspaces-status">Each workspace can expose its own feed and Private Link endpoint.</span>
+        </div>
+        <h3 style="margin:12px 0 8px">Application groups</h3>
+        <div id="app-groups"></div>
+        <div class="row" style="margin:8px 0 4px">
+          <button type="button" class="secondary" id="add-app-group">+ Add an application group</button>
+          <span class="status" id="app-groups-status">Each host pool supports one Desktop application group and multiple RemoteApp groups.</span>
+        </div>
+      </details>
+
+      <details class="panel" id="privatelink-panel">
+        <summary>Private Link &amp; Private DNS zones (<span id="pl-dns-summary">Private endpoints on, new DNS zones</span>)</summary>
+        <p class="status">Control AVD Private Link endpoints (<code>connection</code> on host pools, <code>feed</code> and <code>global</code> on workspaces) and choose whether each Private DNS zone is created by the landing zone or linked to an existing zone in your hub or connectivity subscription.</p>
+        <div class="pool" style="margin-top:10px">
+          <h3>AVD Private Link &amp; network access defaults</h3>
+          <div class="row">
+            <label class="field"><span>Host pool public network access (default)</span>
+              <select id="pl-hp-public">
+                <option value="EnabledForClientsOnly">EnabledForClientsOnly (clients public, session hosts private)</option>
+                <option value="Enabled">Enabled (public clients and session hosts)</option>
+                <option value="EnabledForSessionHostsOnly">EnabledForSessionHostsOnly (private clients, public hosts)</option>
+                <option value="Disabled">Disabled (Private Link only for clients and hosts)</option>
+              </select>
+            </label>
+            <label class="field"><span>Workspace public network access (default)</span>
+              <select id="pl-ws-public">
+                <option value="Enabled">Enabled (public feed discovery)</option>
+                <option value="EnabledForClientsOnly">EnabledForClientsOnly</option>
+                <option value="EnabledForSessionHostsOnly">EnabledForSessionHostsOnly</option>
+                <option value="Disabled">Disabled (Private Link feed only)</option>
+              </select>
+            </label>
+          </div>
+          <div style="margin-top:12px">
+            <label class="switch"><input type="checkbox" id="pl-conn" checked><span><strong>Host pool connection Private Endpoints (<code>connection</code>)</strong><br><span class="muted">Deploys a Private Endpoint for each host pool into <code>snet-private-endpoints</code> and registers it in <code>privatelink.wvd.microsoft.com</code>. Can also be overridden per host pool.</span></span></label>
+            <label class="switch"><input type="checkbox" id="pl-feed"><span><strong>Workspace feed Private Endpoints (<code>feed</code>)</strong><br><span class="muted">Deploys a Private Endpoint for each workspace so clients on private networks discover feeds over Private Link (<code>privatelink.wvd.microsoft.com</code>).</span></span></label>
+            <label class="switch"><input type="checkbox" id="pl-global"><span><strong>Workspace global discovery Private Endpoint (<code>global</code>)</strong><br><span class="muted">Deploys the global AVD discovery Private Endpoint (<code>privatelink-global.wvd.microsoft.com</code>) on the primary workspace (one per deployment).</span></span></label>
+          </div>
+        </div>
+        <div class="pool" style="margin-top:10px">
+          <h3>Private DNS zones (new or existing per zone)</h3>
+          <p class="status">Choose <strong>Create new zone</strong> for standalone deployments or <strong>Use existing DNS zone</strong> to link to hub Private DNS zones.</p>
+          <div id="dns-zones"></div>
+        </div>
+      </details>
+
       <div class="table-wrap" style="margin-top:12px"><table class="kv"><tbody id="size-result"></tbody></table></div>
       <ul class="notes" id="size-notes"></ul>
       <div class="row" style="margin-top:12px">
-        <button id="size-apply">Use this sizing</button>
+        <button id="size-apply">Use this sizing &amp; topology</button>
         <button class="secondary" id="size-clear">Use the parameter file's values</button>
         <span class="status" id="size-status" role="status"></span>
       </div>
-      <details class="more"><summary>How sizing works</summary>
-        <p>It starts from the minimum viable kit: one memory-optimized E4as_v5 host and a 100&nbsp;GiB profile share. Automatic sizes the hosts from how many people use them and how they work (Microsoft's multi-session guidance: light 6, medium 4, heavy 2, power 1 user per vCPU). It suggests memory-optimized E-series sizes, because hosts shared by many users run out of memory before CPU, and every host gets a Premium SSD OS disk.</p>
-        <p>Once you apply a sizing, the commands carry it: the pre-deployment preflight checks quota and availability for it, and <code>deploy.sh</code> deploys it. The next step prices it.</p>
-        <div class="row">
-          <button type="button" class="secondary" id="add-pool" disabled title="The landing zone deploys one host pool today">Add a host pool</button>
-          <span class="status">One pooled host pool for now; the sizing is kept per host pool so more can be added later.</span>
+      <details class="more" id="manifest-details"><summary>Topology manifest JSON &amp; how sizing works</summary>
+        <p>It starts from the minimum viable kit: one memory-optimized E4as_v5 host and a 100&nbsp;GiB profile share. Automatic sizes pooled hosts from how many people use them and how they work (Microsoft's multi-session guidance: light 6, medium 4, heavy 2, power 1 user per vCPU). Personal pools assign one dedicated host per user.</p>
+        <p>Once you apply a sizing and topology, the commands carry it: the pre-deployment preflight checks quota, capacity and existing Private DNS zones, and <code>deploy.sh --topology</code> deploys every workspace, application group, host pool, Private Endpoint and Private DNS zone.</p>
+        <label class="field" style="margin-top:8px"><span>Topology manifest JSON (passed to <code>-Topology</code> / <code>--topology</code> when multi-pool or custom settings are active)</span>
+          <textarea id="manifest-json" rows="6" spellcheck="false" style="min-height:110px"></textarea>
+        </label>
+        <div class="row" style="margin-top:8px">
+          <button type="button" class="secondary" id="manifest-copy">Copy manifest JSON</button>
+          <button type="button" class="secondary" id="manifest-import">Import manifest JSON</button>
+          <span class="status" id="manifest-status" role="status"></span>
         </div>
       </details>
     </section>

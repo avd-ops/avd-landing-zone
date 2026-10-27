@@ -294,6 +294,9 @@ param recoveryLocation string = ''
 @description('Allowed regions for resources and resource groups when policy guardrails are on. The default is location plus recoveryLocation when set.')
 param allowedLocations string[] = union([location], empty(recoveryLocation) ? [] : [recoveryLocation])
 
+@description('Optional multi-pool, multi-workspace, multi-app-group, Private Link and Private DNS topology manifest (JSON object). Empty = single host pool, app group and workspace using the top-level parameters.')
+param topology object = {}
+
 // =====================================================================
 // Derived values
 // =====================================================================
@@ -353,6 +356,108 @@ var rotationTagNames = [
 ]
 var keptHostPoolStateTags = toObject(filter(items(hostPoolStateTags), t => contains(rotationTagNames, t.key) && !empty(t.value)), t => t.key, t => string(t.value))
 var useCentralDns = !empty(centralPrivateDnsZoneResourceIds)
+
+// ---------- Topology & Private Link / DNS normalization ----------
+var plConfig = topology.?privateLink ?? {}
+var dnsConfig = plConfig.?dnsZones ?? {}
+var existingFileZoneId = !empty(centralPrivateDnsZoneResourceIds.?file ?? '')
+  ? string(centralPrivateDnsZoneResourceIds.file)
+  : (string(dnsConfig.?file.?mode ?? '') == 'existing' && !empty(dnsConfig.?file.?resourceId ?? '') ? string(dnsConfig.file.resourceId) : '')
+var existingKeyVaultZoneId = !empty(centralPrivateDnsZoneResourceIds.?keyVault ?? '')
+  ? string(centralPrivateDnsZoneResourceIds.keyVault)
+  : (string(dnsConfig.?keyVault.?mode ?? '') == 'existing' && !empty(dnsConfig.?keyVault.?resourceId ?? '') ? string(dnsConfig.keyVault.resourceId) : '')
+var existingAvdZoneId = !empty(centralPrivateDnsZoneResourceIds.?avd ?? '')
+  ? string(centralPrivateDnsZoneResourceIds.avd)
+  : (string(dnsConfig.?avd.?mode ?? '') == 'existing' && !empty(dnsConfig.?avd.?resourceId ?? '') ? string(dnsConfig.avd.resourceId) : '')
+var existingAvdGlobalZoneId = !empty(centralPrivateDnsZoneResourceIds.?avdGlobal ?? '')
+  ? string(centralPrivateDnsZoneResourceIds.avdGlobal)
+  : (string(dnsConfig.?avdGlobal.?mode ?? '') == 'existing' && !empty(dnsConfig.?avdGlobal.?resourceId ?? '') ? string(dnsConfig.avdGlobal.resourceId) : '')
+
+var enableAvdConnectionPl = bool(plConfig.?enableConnectionPrivateEndpoint ?? enableAvdPrivateLink)
+var enableAvdFeedPl = bool(plConfig.?enableFeedPrivateEndpoint ?? false)
+var enableAvdGlobalPl = bool(plConfig.?enableGlobalPrivateEndpoint ?? false)
+var defaultHpPublicNetworkAccess = string(plConfig.?hostPoolPublicNetworkAccess ?? (enableAvdConnectionPl ? 'EnabledForClientsOnly' : 'Enabled'))
+var defaultWsPublicNetworkAccess = string(plConfig.?workspacePublicNetworkAccess ?? (enableAvdFeedPl ? 'Disabled' : 'Enabled'))
+
+var rawWorkspaces = topology.?workspaces ?? []
+var rawHostPools = topology.?hostPools ?? []
+var rawAppGroups = topology.?appGroups ?? []
+
+var anyWorkspaceGlobalPl = enableAvdGlobalPl || !empty(filter(rawWorkspaces, ws => bool(ws.?enableGlobalPrivateEndpoint ?? false)))
+var deployFileZone = empty(existingFileZoneId)
+var deployKeyVaultZone = empty(existingKeyVaultZoneId)
+var deployAvdZone = empty(existingAvdZoneId) && (!useCentralDns || enableAvdConnectionPl || enableAvdFeedPl)
+var deployAvdGlobalZone = empty(existingAvdGlobalZoneId) && anyWorkspaceGlobalPl
+var deployAnyLocalDns = deployFileZone || deployKeyVaultZone || deployAvdZone || deployAvdGlobalZone
+
+var primaryPool = !empty(rawHostPools) ? rawHostPools[0] : {}
+var extraHostPools = length(rawHostPools) > 1 ? skip(rawHostPools, 1) : []
+var primaryHostPoolName = !empty(primaryPool.?name ?? '')
+  ? (startsWith(string(primaryPool.name), 'vdpool-') ? string(primaryPool.name) : 'vdpool-${baseName}-${primaryPool.name}')
+  : names.hostPool
+var primaryScalingPlanName = !empty(primaryPool.?name ?? '')
+  ? (startsWith(string(primaryPool.name), 'vdpool-') ? replace(string(primaryPool.name), 'vdpool-', 'vdscaling-') : 'vdscaling-${baseName}-${primaryPool.name}')
+  : names.scalingPlan
+
+var primaryWorkspace = !empty(rawWorkspaces) ? rawWorkspaces[0] : {}
+var extraWorkspacesRaw = length(rawWorkspaces) > 1 ? skip(rawWorkspaces, 1) : []
+var primaryWorkspaceName = !empty(primaryWorkspace.?name ?? '')
+  ? (startsWith(string(primaryWorkspace.name), 'vdws-') ? string(primaryWorkspace.name) : 'vdws-${baseName}-${primaryWorkspace.name}')
+  : names.workspace
+
+var primaryAppGroup = !empty(rawAppGroups) ? rawAppGroups[0] : {}
+var primaryAppGroupName = !empty(primaryAppGroup.?name ?? '')
+  ? (startsWith(string(primaryAppGroup.name), 'vdag-') ? string(primaryAppGroup.name) : 'vdag-${baseName}-${primaryAppGroup.name}')
+  : names.appGroup
+var extraAppGroupsExplicit = [
+  for (ag, i) in (length(rawAppGroups) > 1 ? skip(rawAppGroups, 1) : []): {
+    name: startsWith(string(ag.?name ?? 'ag-${i + 2}'), 'vdag-') ? string(ag.name) : 'vdag-${baseName}-${ag.?name ?? 'ag-${i + 2}'}'
+    friendlyName: string(ag.?friendlyName ?? ag.?name ?? 'Desktop ${i + 2}')
+    applicationGroupType: string(ag.?applicationGroupType ?? 'Desktop')
+    hostPoolName: !empty(ag.?hostPoolName ?? '')
+      ? (startsWith(string(ag.hostPoolName), 'vdpool-') ? string(ag.hostPoolName) : 'vdpool-${baseName}-${ag.hostPoolName}')
+      : primaryHostPoolName
+    workspaceName: !empty(ag.?workspaceName ?? '')
+      ? (startsWith(string(ag.workspaceName), 'vdws-') ? string(ag.workspaceName) : 'vdws-${baseName}-${ag.workspaceName}')
+      : primaryWorkspaceName
+    usersGroupObjectId: string(ag.?usersGroupObjectId ?? '')
+  }
+]
+var extraAppGroupsImplicit = [
+  for (pool, i) in extraHostPools: {
+    name: startsWith(string(pool.?name ?? 'pool-${i + 2}'), 'vdpool-')
+      ? '${replace(string(pool.name), 'vdpool-', 'vdag-')}-desktop'
+      : 'vdag-${baseName}-${pool.?name ?? 'pool-${i + 2}'}-desktop'
+    friendlyName: string(pool.?friendlyName ?? pool.?name ?? 'Desktop ${i + 2}')
+    applicationGroupType: 'Desktop'
+    hostPoolName: startsWith(string(pool.?name ?? 'pool-${i + 2}'), 'vdpool-')
+      ? string(pool.name)
+      : 'vdpool-${baseName}-${pool.?name ?? 'pool-${i + 2}'}'
+    workspaceName: primaryWorkspaceName
+    usersGroupObjectId: ''
+  }
+]
+var effectiveExtraAppGroups = !empty(rawAppGroups) ? extraAppGroupsExplicit : extraAppGroupsImplicit
+var primaryWorkspaceExtraAgNames = map(
+  filter(effectiveExtraAppGroups, a => a.workspaceName == primaryWorkspaceName),
+  ag => ag.name
+)
+var effectiveExtraWorkspaces = [
+  for (ws, i) in extraWorkspacesRaw: {
+    name: startsWith(string(ws.?name ?? 'ws-${i + 2}'), 'vdws-') ? string(ws.name) : 'vdws-${baseName}-${ws.?name ?? 'ws-${i + 2}'}'
+    friendlyName: string(ws.?friendlyName ?? ws.?name ?? 'Workspace ${i + 2}')
+    publicNetworkAccess: string(ws.?publicNetworkAccess ?? defaultWsPublicNetworkAccess)
+    enableFeedPrivateEndpoint: bool(ws.?enableFeedPrivateEndpoint ?? enableAvdFeedPl)
+    enableGlobalPrivateEndpoint: bool(ws.?enableGlobalPrivateEndpoint ?? false)
+    appGroupNames: map(
+      filter(
+        effectiveExtraAppGroups,
+        a => a.workspaceName == (startsWith(string(ws.?name ?? 'ws-${i + 2}'), 'vdws-') ? string(ws.name) : 'vdws-${baseName}-${ws.?name ?? 'ws-${i + 2}'}')
+      ),
+      ag => ag.name
+    )
+  }
+]
 
 // =====================================================================
 // 0. RESOURCE GROUPS — one per lifecycle
@@ -459,19 +564,24 @@ module network 'modules/network.bicep' = {
   }
 }
 
-module privateDns 'modules/privateDns.bicep' = if (!useCentralDns) {
+module privateDns 'modules/privateDns.bicep' = if (deployAnyLocalDns) {
   name: 'avdlz-private-dns'
   scope: rgNetwork
   params: {
     tags: allTags
     vnetResourceId: network.outputs.vnetResourceId
+    deployFileZone: deployFileZone
+    deployKeyVaultZone: deployKeyVaultZone
+    deployAvdZone: deployAvdZone
+    deployAvdGlobalZone: deployAvdGlobalZone
   }
 }
 
 var dnsZoneIds = {
-  file: useCentralDns ? centralPrivateDnsZoneResourceIds.file : privateDns!.outputs.fileZoneResourceId
-  keyVault: useCentralDns ? centralPrivateDnsZoneResourceIds.keyVault : privateDns!.outputs.keyVaultZoneResourceId
-  avd: useCentralDns ? (centralPrivateDnsZoneResourceIds.?avd ?? '') : privateDns!.outputs.avdZoneResourceId
+  file: !empty(existingFileZoneId) ? existingFileZoneId : privateDns!.outputs.fileZoneResourceId
+  keyVault: !empty(existingKeyVaultZoneId) ? existingKeyVaultZoneId : privateDns!.outputs.keyVaultZoneResourceId
+  avd: !empty(existingAvdZoneId) ? existingAvdZoneId : (deployAvdZone ? privateDns!.outputs.avdZoneResourceId : '')
+  avdGlobal: !empty(existingAvdGlobalZoneId) ? existingAvdGlobalZoneId : (deployAvdGlobalZone ? privateDns!.outputs.avdGlobalZoneResourceId : '')
 }
 
 // =====================================================================
@@ -532,22 +642,48 @@ module backup 'modules/backup.bicep' = if (enableProfileBackup) {
 }
 
 // =====================================================================
-// 6. AVD CONTROL PLANE — host pool, app group, workspace, autoscale
+// 6. AVD CONTROL PLANE — host pool(s), app group(s), workspace(s), autoscale
 // =====================================================================
+module additionalControlPlanePools 'modules/additionalPool.bicep' = [
+  for (pool, i) in extraHostPools: {
+    name: take('avdlz-control-plane-pool-${i + 2}', 64)
+    scope: rgControlPlane
+    params: {
+      location: location
+      tags: allTags
+      baseName: baseName
+      pool: pool
+      defaultMaxSessionLimit: maxSessionLimit
+      defaultRdpProperties: rdpProperties
+      defaultValidationEnvironment: validationEnvironment
+      defaultStartVmOnConnect: startVmOnConnect
+      defaultScalingTimeZone: scalingTimeZone
+      defaultEnableAvdPrivateLink: enableAvdConnectionPl
+      defaultPublicNetworkAccess: defaultHpPublicNetworkAccess
+      privateEndpointSubnetResourceId: network.outputs.privateEndpointSubnetResourceId
+      avdPrivateDnsZoneResourceId: dnsZoneIds.avd
+      logAnalyticsWorkspaceResourceId: monitoring.outputs.logAnalyticsWorkspaceResourceId
+    }
+  }
+]
+
 module controlPlane 'modules/controlPlane.bicep' = {
   name: 'avdlz-control-plane'
   scope: rgControlPlane
+  dependsOn: [
+    additionalControlPlanePools
+  ]
   params: {
     location: location
     tags: allTags
-    hostPoolName: names.hostPool
-    appGroupName: names.appGroup
-    workspaceName: names.workspace
-    scalingPlanName: names.scalingPlan
+    hostPoolName: primaryHostPoolName
+    appGroupName: primaryAppGroupName
+    workspaceName: primaryWorkspaceName
+    scalingPlanName: primaryScalingPlanName
     maxSessionLimit: maxSessionLimit
     rdpProperties: rdpProperties
     validationEnvironment: validationEnvironment
-    enableAvdPrivateLink: enableAvdPrivateLink
+    enableAvdPrivateLink: enableAvdConnectionPl
     privateEndpointSubnetResourceId: network.outputs.privateEndpointSubnetResourceId
     avdPrivateDnsZoneResourceId: dnsZoneIds.avd
     scalingTimeZone: scalingTimeZone
@@ -556,6 +692,17 @@ module controlPlane 'modules/controlPlane.bicep' = {
     logAnalyticsWorkspaceResourceId: monitoring.outputs.logAnalyticsWorkspaceResourceId
     usersGroupObjectId: avdUsersGroupObjectId
     avdServicePrincipalObjectId: avdServicePrincipalObjectId
+    primaryPool: primaryPool
+    primaryAppGroup: primaryAppGroup
+    primaryWorkspace: primaryWorkspace
+    defaultHostPoolPublicNetworkAccess: defaultHpPublicNetworkAccess
+    defaultWorkspacePublicNetworkAccess: defaultWsPublicNetworkAccess
+    enableAvdFeedPrivateLink: enableAvdFeedPl
+    enableAvdGlobalPrivateLink: enableAvdGlobalPl
+    avdGlobalPrivateDnsZoneResourceId: dnsZoneIds.avdGlobal
+    additionalAppGroups: effectiveExtraAppGroups
+    additionalWorkspaces: effectiveExtraWorkspaces
+    primaryWorkspaceExtraAppGroupNames: primaryWorkspaceExtraAgNames
   }
 }
 
@@ -569,25 +716,61 @@ module sessionHosts 'modules/sessionHosts.bicep' = {
   params: {
     location: location
     tags: allTags
-    count: sessionHostCount
+    count: int(primaryPool.?sessionHostCount ?? sessionHostCount)
     namePrefix: hostNamePrefix
-    vmSize: sessionHostVmSize
-    availabilityZones: availabilityZones
+    vmSize: string(primaryPool.?sessionHostVmSize ?? sessionHostVmSize)
+    availabilityZones: primaryPool.?availabilityZones ?? availabilityZones
     imageReference: hostImageReference
-    encryptionAtHost: encryptionAtHost
+    encryptionAtHost: bool(primaryPool.?encryptionAtHost ?? encryptionAtHost)
     subnetResourceId: network.outputs.sessionHostSubnetResourceId
-    enrollInIntune: enrollInIntune
+    enrollInIntune: bool(primaryPool.?enrollInIntune ?? enrollInIntune)
     localAdminUsername: localAdminUsername
     localAdminPassword: localAdminPassword
     hostPoolRegistrationToken: controlPlane.outputs.registrationToken
     dataCollectionRuleResourceId: monitoring.outputs.avdInsightsDataCollectionRuleResourceId
     profileShareUncPath: storage.outputs.profileShareUncPath
-    fslogixProfileSizeMiB: fslogixProfileSizeMiB
+    fslogixProfileSizeMiB: int(primaryPool.?fslogixProfileSizeMiB ?? fslogixProfileSizeMiB)
     usersGroupObjectId: avdUsersGroupObjectId
     adminsGroupObjectId: avdAdminsGroupObjectId
     avdServicePrincipalObjectId: avdServicePrincipalObjectId
   }
 }
+
+module additionalSessionHosts 'modules/sessionHosts.bicep' = [
+  for (pool, i) in extraHostPools: {
+    name: take('avdlz-session-hosts-${i + 2}', 64)
+    scope: rgHosts
+    dependsOn: [
+      sessionHosts
+    ]
+    params: {
+      location: location
+      tags: allTags
+      count: int(pool.?sessionHostCount ?? sessionHostCount)
+      namePrefix: !empty(pool.?sessionHostNamePrefix ?? '')
+        ? take(string(pool.sessionHostNamePrefix), 11)
+        : take('${cleanPrefix}${take(environmentName, 1)}p${i + 2}sh', 11)
+      vmSize: string(pool.?sessionHostVmSize ?? sessionHostVmSize)
+      availabilityZones: pool.?availabilityZones ?? availabilityZones
+      imageReference: !empty(pool.?sessionHostImageId ?? '')
+        ? { id: string(pool.sessionHostImageId) }
+        : (pool.?sessionHostImage ?? hostImageReference)
+      encryptionAtHost: bool(pool.?encryptionAtHost ?? encryptionAtHost)
+      subnetResourceId: network.outputs.sessionHostSubnetResourceId
+      enrollInIntune: bool(pool.?enrollInIntune ?? enrollInIntune)
+      localAdminUsername: localAdminUsername
+      localAdminPassword: localAdminPassword
+      hostPoolRegistrationToken: additionalControlPlanePools[i].outputs.registrationToken
+      dataCollectionRuleResourceId: monitoring.outputs.avdInsightsDataCollectionRuleResourceId
+      profileShareUncPath: storage.outputs.profileShareUncPath
+      fslogixProfileSizeMiB: int(pool.?fslogixProfileSizeMiB ?? fslogixProfileSizeMiB)
+      usersGroupObjectId: avdUsersGroupObjectId
+      adminsGroupObjectId: avdAdminsGroupObjectId
+      avdServicePrincipalObjectId: avdServicePrincipalObjectId
+      deployRoleAssignments: false
+    }
+  }
+]
 
 // =====================================================================
 // 8. AUTO SHUTDOWN — runbook, schedule and budget triggers (decision 0011)

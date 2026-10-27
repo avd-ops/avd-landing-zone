@@ -34,6 +34,9 @@ param avdServicePrincipalObjectId string
 param autoShutdownTime string = ''
 param autoShutdownTimeZone string = 'UTC'
 
+@description('Create the resource-group role assignments for VM sign-in and power management. Set to false on additional pool modules targeting the same resource group.')
+param deployRoleAssignments bool = true
+
 var roles = {
   vmUserLogin: 'fb879df8-f326-4884-b1cf-06f3ad86be52'
   vmAdminLogin: '1c0163c0-47e6-4577-8991-ea5c82e286e4'
@@ -187,7 +190,7 @@ resource registerAgent 'Microsoft.Compute/virtualMachines/runCommands@2024-07-01
 
 // ---------- Access to the hosts ----------
 // Entra ID sign-in to the VMs requires these, in addition to the app group assignment.
-resource usersLogin 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource usersLogin 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
   name: guid(resourceGroup().id, usersGroupObjectId, roles.vmUserLogin)
   properties: {
     principalId: usersGroupObjectId
@@ -196,7 +199,7 @@ resource usersLogin 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   }
 }
 
-resource adminsLogin 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource adminsLogin 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
   name: guid(resourceGroup().id, adminsGroupObjectId, roles.vmAdminLogin)
   properties: {
     principalId: adminsGroupObjectId
@@ -206,7 +209,7 @@ resource adminsLogin 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 }
 
 // Autoscale and Start VM on Connect start/stop the VMs in this resource group.
-resource powerOnOff 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+resource powerOnOff 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (deployRoleAssignments) {
   name: guid(resourceGroup().id, avdServicePrincipalObjectId, roles.powerOnOffContributor)
   properties: {
     principalId: avdServicePrincipalObjectId

@@ -23,7 +23,7 @@ args=(--subscription-id "$zero" --tenant-id "$zero" --location northcentralus --
 work="$(mktemp -d)"
 mkdir -p "$work/kept"
 # A snapshot an operator already has beside a parameter file is set aside and put back on exit.
-# shellcheck disable=SC2317 # called by the EXIT trap
+# shellcheck disable=SC2317,SC2329 # called by the EXIT trap
 cleanup() {
   for k in "$work"/kept/*.snapshot.json; do [ -e "$k" ] && mv -f "$k" "$repo/parameters/"; done
   git -C "$repo" worktree remove --force "$work/base" >/dev/null 2>&1

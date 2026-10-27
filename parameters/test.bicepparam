@@ -85,3 +85,6 @@ param autoShutdownRunbookUri = empty(readEnvironmentVariable('AVD_RUNBOOK_URI', 
 param autoShutdownTime = empty(readEnvironmentVariable('AVD_AUTO_SHUTDOWN_TIME', '')) ? '20:00' : (readEnvironmentVariable('AVD_AUTO_SHUTDOWN_TIME', '') == 'none' ? '' : readEnvironmentVariable('AVD_AUTO_SHUTDOWN_TIME', ''))
 param startVmOnConnect = empty(readEnvironmentVariable('AVD_START_VM_ON_CONNECT', '')) ? true : bool(readEnvironmentVariable('AVD_START_VM_ON_CONNECT', ''))
 param autoShutdownTimeZone = 'Central Standard Time'
+
+// ---- Multi-pool, workspaces, app groups, Private Link & DNS topology (optional) ----
+param topology = json(empty(readEnvironmentVariable('AVD_TOPOLOGY_JSON', '')) ? '{}' : readEnvironmentVariable('AVD_TOPOLOGY_JSON', ''))

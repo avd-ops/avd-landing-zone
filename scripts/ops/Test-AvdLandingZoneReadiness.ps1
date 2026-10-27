@@ -109,6 +109,8 @@ param(
   [Parameter(ParameterSetName = 'PreDeployment')][switch] $Jumpbox,
   [Parameter(ParameterSetName = 'PreDeployment')][ValidateSet('Linux', 'Windows')][string] $JumpboxOs,
   [Parameter(ParameterSetName = 'PreDeployment')][ValidatePattern('^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z$')][string] $JumpboxKeepRunningUntil,
+  # Multi-pool, workspace, app group, Private Link and Private DNS topology manifest (JSON string or path to a JSON file).
+  [Parameter(ParameterSetName = 'PreDeployment')][string] $Topology,
 
   # ---- Post-deployment ----
   [Parameter(Mandatory, ParameterSetName = 'PostDeployment')][ValidateLength(2, 8)][string] $NamePrefix,
@@ -159,6 +161,9 @@ if ($PreDeployment) {
   if ($Jumpbox) { $sizing.jumpbox = 'true' }
   if ($JumpboxOs) { $sizing.jumpbox = 'true'; $sizing.jumpboxOs = $JumpboxOs }
   if ($JumpboxKeepRunningUntil) { $sizing.jumpbox = 'true'; $sizing.jumpboxKeepRunningUntil = $JumpboxKeepRunningUntil }
+  if ($Topology) {
+    $sizing.topology = if (Test-Path -LiteralPath $Topology -PathType Leaf) { (Get-Content -LiteralPath $Topology -Raw).Trim() } else { $Topology.Trim() }
+  }
   $pre = @{ ParameterFile = $ParameterFile; UsersGroup = $UsersGroup; AdminsGroup = $AdminsGroup; Location = $Location; Fix = $Fix; AddMeToGroups = $AddMeToGroups; SkipTenant = $SkipTenant; WhatIf = $WhatIfPreference; Sizing = $sizing; ActiveHoursPerWeek = $ActiveHoursPerWeek; RecoveryLocation = $RecoveryLocation }
   if ($Force) { $pre.Confirm = $false }
   $outcome = Test-AvdPreDeployment @pre
@@ -201,8 +206,11 @@ if ($PreDeployment) {
     environment   = $(if ($plan) { $plan.environmentName } else { $null })
   }
   # The sizing that was validated (when the command set it), and the estimate, for the portal.
-  if ($plan -and @($sizing.Keys | Where-Object { $_ -notin 'autoShutdownTime', 'startVmOnConnect' }).Count) {
+  if ($plan -and @($sizing.Keys | Where-Object { $_ -notin 'autoShutdownTime', 'startVmOnConnect', 'topology' }).Count) {
     $portalContext.sizing = [ordered]@{ hosts = [int]$plan.sessionHostCount; vmSize = $plan.sessionHostVmSize; maxSessions = [int]$plan.maxSessionLimit; profileQuotaGiB = [int]$plan.profileShareQuotaGiB; activeHoursPerWeek = $ActiveHoursPerWeek }
+  }
+  if ($plan -and $plan.topology -and $plan.topology.Count) {
+    $portalContext.topology = $plan.topology
   }
   # The power settings that were priced (when the command set them).
   if ($plan -and ($sizing.ContainsKey('autoShutdownTime') -or $sizing.ContainsKey('startVmOnConnect'))) {

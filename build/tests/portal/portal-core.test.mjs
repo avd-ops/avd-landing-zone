@@ -387,10 +387,107 @@ test('sizing: falls back from an unknown size to the suggested one', () => {
   assert.match(r.notes[0], /Unknown size/);
 });
 
-test('sizing: every size and workload the portal offers is well formed; one host pool for now', () => {
+test('sizing: every size and workload the portal offers is well formed; supports multiple host pools, workspaces and app groups', () => {
   for (const [k, v] of Object.entries(P.VM_SIZES)) { assert.match(k, /^Standard_[A-Za-z0-9_]+$/); assert.ok(v.vcpu > 0 && v.ramGiB > 0, k); }
   for (const w of Object.values(P.WORKLOADS)) assert.ok(P.VM_SIZES[w.suggestedSize], w.suggestedSize);
-  assert.equal(P.MAX_HOST_POOLS, 1);
+  assert.equal(P.MAX_HOST_POOLS, 20);
+  assert.equal(P.MAX_WORKSPACES, 20);
+  assert.equal(P.MAX_APP_GROUPS, 40);
+});
+
+test('topology: setting templates apply to all host pools or a selected subset of pools', () => {
+  const initial = [
+    { ...P.HOST_POOL_DEFAULTS, poolKey: 'general', name: 'General' },
+    { ...P.HOST_POOL_DEFAULTS, poolKey: 'devs', name: 'Developers' },
+    { ...P.HOST_POOL_DEFAULTS, poolKey: 'execs', name: 'Executives' }
+  ];
+  const allPower = P.applyPoolTemplate(initial, 'power', 'all');
+  assert.equal(allPower.length, 3);
+  for (const p of allPower) {
+    assert.equal(p.workload, 'power');
+    assert.equal(p.vmSize, 'Standard_E16as_v5');
+    assert.equal(p.loadBalancerType, 'BreadthFirst');
+    assert.equal(p.encryptionAtHost, true);
+  }
+  assert.equal(allPower[1].poolKey, 'devs', 'preserves pool identity when applying template');
+  const subsetPersonal = P.applyPoolTemplate(allPower, 'personal', [2]);
+  assert.equal(subsetPersonal[0].hostPoolType, 'Pooled');
+  assert.equal(subsetPersonal[1].hostPoolType, 'Pooled');
+  assert.equal(subsetPersonal[2].hostPoolType, 'Personal');
+  assert.equal(subsetPersonal[2].loadBalancerType, 'Persistent');
+  const subsetLocked = P.applyPoolTemplate(subsetPersonal, 'locked-down', [0, 1]);
+  assert.equal(subsetLocked[0].publicNetworkAccess, 'Disabled');
+  assert.equal(subsetLocked[0].rdpProperties, P.LOCKED_DOWN_RDP_PROPERTIES);
+  assert.equal(subsetLocked[2].publicNetworkAccess, 'EnabledForClientsOnly');
+});
+
+test('topology: computes multi-pool, multi-workspace, multi-app-group, Private Link and new/existing DNS zones', () => {
+  const existingAvdDns = '/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-hub-dns/providers/Microsoft.Network/privateDnsZones/privatelink.wvd.microsoft.com';
+  const comp = P.computeTopology({
+    hostPools: [
+      { ...P.HOST_POOL_DEFAULTS, poolKey: 'general', name: 'General Pool', users: 40, workload: 'medium', hostCount: 2 },
+      { ...P.HOST_POOL_DEFAULTS, poolKey: 'vip', name: 'VIP Personal', hostPoolType: 'Personal', users: 5, hostCount: 'auto', vmSize: 'Standard_D4as_v5', publicNetworkAccess: 'Disabled' }
+    ],
+    workspaces: [
+      { name: 'default', friendlyName: 'Staff Workspace', publicNetworkAccess: 'Disabled', enableFeedPrivateEndpoint: true },
+      { name: 'vip-ws', friendlyName: 'VIP Workspace', publicNetworkAccess: 'Disabled', enableFeedPrivateEndpoint: true }
+    ],
+    appGroups: [
+      { name: 'general-desktop', friendlyName: 'General Desktop', applicationGroupType: 'Desktop', hostPool: 'general', workspace: 'default' },
+      { name: 'general-apps', friendlyName: 'Finance RemoteApps', applicationGroupType: 'RemoteApp', hostPool: 'general', workspace: 'default' },
+      { name: 'vip-desktop', friendlyName: 'VIP Desktop', applicationGroupType: 'Desktop', hostPool: 'vip', workspace: 'vip-ws' }
+    ],
+    privateLink: {
+      enableAvdConnectionPrivateLink: true,
+      enableAvdFeedPrivateLink: true,
+      enableAvdGlobalPrivateLink: true,
+      hostPoolPublicNetworkAccess: 'Disabled',
+      workspacePublicNetworkAccess: 'Disabled',
+      dnsZones: {
+        file: { mode: 'new', existingResourceId: '' },
+        keyVault: { mode: 'new', existingResourceId: '' },
+        avd: { mode: 'existing', existingResourceId: existingAvdDns },
+        avdGlobal: { mode: 'new', existingResourceId: '' }
+      }
+    }
+  }, 'prod');
+  assert.equal(comp.pools.length, 2);
+  assert.equal(comp.pools[1].hostPoolType, 'Personal');
+  assert.equal(comp.pools[1].hosts, 5);
+  assert.equal(comp.pools[1].sessionsPerHost, 1);
+  assert.equal(comp.totals.hosts, 7);
+  assert.equal(comp.workspaces.length, 2);
+  assert.equal(comp.appGroups.length, 3);
+  assert.equal(comp.privateLink.enableAvdGlobalPrivateLink, true);
+  assert.equal(comp.privateLink.dnsZones.avd.mode, 'existing');
+  assert.equal(comp.privateLink.dnsZones.avd.existingResourceId, existingAvdDns);
+  assert.equal(comp.privateLink.dnsZones.avd.deployNew, false);
+  assert.equal(comp.privateLink.dnsZones.file.deployNew, true);
+  assert.equal(comp.privateLink.dnsZones.avdGlobal.deployNew, true);
+
+  const valid = P.validTopology({
+    workspaces: comp.workspaces,
+    hostPools: comp.pools.map((p) => ({ ...p, name: p.poolKey, friendlyName: p.name, sessionHostCount: p.hosts, sessionHostVmSize: p.vmSize, maxSessionLimit: p.sessionsPerHost })),
+    appGroups: comp.appGroups.map((g) => ({ ...g, hostPoolName: g.hostPool, workspaceName: g.workspace })),
+    privateLink: {
+      enableConnectionPrivateEndpoint: true,
+      enableFeedPrivateEndpoint: true,
+      enableGlobalPrivateEndpoint: true,
+      hostPoolPublicNetworkAccess: 'Disabled',
+      workspacePublicNetworkAccess: 'Disabled',
+      dnsZones: {
+        avd: { mode: 'existing', resourceId: existingAvdDns },
+        file: { mode: 'new', resourceId: '' }
+      }
+    }
+  });
+  assert.ok(valid, 'validTopology accepts well-formed multi-pool topology');
+  assert.equal(P.hasCustomTopology({ topology: valid }), true);
+  const cfg = { ...P.DEFAULTS, sizing: P.toSizing(comp), topology: valid };
+  assert.match(last(P.commands.predeploy(cfg, false)), / -Topology '\{.*"hostPools":\[.*\}\'/);
+  assert.match(last(P.commands.deploy(cfg)), / --topology '\{.*"hostPools":\[.*\}\'/);
+  // Rejects invalid DNS zone resource ID
+  assert.equal(P.validTopology({ privateLink: { dnsZones: { avd: { mode: 'existing', resourceId: 'not-a-resource-id' } } } }), null);
 });
 
 test('sizing: commands carry it only once it is set', () => {

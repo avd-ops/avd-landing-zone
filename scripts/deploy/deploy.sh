@@ -7,6 +7,7 @@
 #       --users-group "AVD Users" --admins-group "AVD Admins" [-s <subscription>] [--what-if] \
 #       [--hosts 3 --vm-size Standard_D8as_v5 --max-sessions 16 --profile-quota 600] \
 #       [--auto-shutdown 20:00|none --start-vm-on-connect true|false] [--unlock] \
+#       [--topology <json-or-file>] \
 #       [--image-id <gallery image version ID> [--generation a|b]] \
 #       [--jumpbox [--jumpbox-os linux|windows] [--jumpbox-keep-running <yyyy-MM-ddTHH:mmZ>]]
 #
@@ -65,6 +66,7 @@ DEPLOY_NAME=""
 JUMPBOX=false
 JUMPBOX_KEEP_RUNNING=""
 JUMPBOX_OS="${AVD_JUMPBOX_OS:-}"
+TOPOLOGY="${AVD_TOPOLOGY_JSON:-}"
 AVD_APP_ID="9cdead84-a844-4324-93f2-b2e6bb768d07"   # Azure Virtual Desktop first-party app
 
 usage() {
@@ -94,6 +96,7 @@ while [[ $# -gt 0 ]]; do
     --jumpbox) JUMPBOX=true; shift ;;
     --jumpbox-keep-running) JUMPBOX_KEEP_RUNNING="$2"; shift 2 ;;
     --jumpbox-os) JUMPBOX_OS="$2"; shift 2 ;;
+    --topology) TOPOLOGY="$2"; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -107,6 +110,10 @@ done
 [[ -z "$VM_SIZE" || "$VM_SIZE" =~ ^Standard_[A-Za-z0-9_]+$ ]] || { echo "Not a VM size: '$VM_SIZE'"; exit 1; }
 [[ -z "$AUTO_SHUTDOWN" || "$AUTO_SHUTDOWN" == none || "$AUTO_SHUTDOWN" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]] || { echo "--auto-shutdown takes HH:mm or none: '$AUTO_SHUTDOWN'"; exit 1; }
 [[ -z "$START_ON_CONNECT" || "$START_ON_CONNECT" == true || "$START_ON_CONNECT" == false ]] || { echo "--start-vm-on-connect takes true or false: '$START_ON_CONNECT'"; exit 1; }
+if [[ -n "$TOPOLOGY" && -f "$TOPOLOGY" ]]; then
+  TOPOLOGY=$(tr -d '\r\n' < "$TOPOLOGY")
+fi
+[[ -z "$TOPOLOGY" || "$TOPOLOGY" =~ ^\{.*\}$ ]] || { echo "--topology takes a JSON object or path to a JSON file: '$TOPOLOGY'"; exit 1; }
 [[ -z "$GENERATION" || "$GENERATION" == a || "$GENERATION" == b ]] || { echo "--generation takes a or b: '$GENERATION'"; exit 1; }
 # A gallery image version, never a definition or latest (image pipeline spec section 6.1).
 [[ -z "$IMAGE_ID" || "$IMAGE_ID" =~ ^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.Compute/galleries/[^/]+/images/[^/]+/versions/[0-9]+\.[0-9]+\.[0-9]+$ ]] \
@@ -277,10 +284,13 @@ if [[ -n "$HOSTS$VM_SIZE$MAX_SESSIONS$PROFILE_QUOTA" ]]; then
 fi
 
 # Power overrides from the portal's Cost step (empty = the parameter file's values; none = no scheduled stop).
-AVD_AUTO_SHUTDOWN_TIME="$AUTO_SHUTDOWN" AVD_START_VM_ON_CONNECT="$START_ON_CONNECT"
-export AVD_AUTO_SHUTDOWN_TIME AVD_START_VM_ON_CONNECT
+AVD_AUTO_SHUTDOWN_TIME="$AUTO_SHUTDOWN" AVD_START_VM_ON_CONNECT="$START_ON_CONNECT" AVD_TOPOLOGY_JSON="$TOPOLOGY"
+export AVD_AUTO_SHUTDOWN_TIME AVD_START_VM_ON_CONNECT AVD_TOPOLOGY_JSON
 if [[ -n "$AUTO_SHUTDOWN$START_ON_CONNECT" ]]; then
   echo "    Power: scheduled stop ${AUTO_SHUTDOWN:-file}, Start VM on Connect ${START_ON_CONNECT:-file}"
+fi
+if [[ -n "$TOPOLOGY" ]]; then
+  echo "    Topology: custom manifest configured (AVD_TOPOLOGY_JSON)"
 fi
 
 DEPLOY_NAME="${DEPLOY_NAME:-avdlz-$(basename "$PARAM_FILE" .bicepparam)-$(date +%Y%m%d-%H%M%S)}"
@@ -306,6 +316,9 @@ portal_state() {
   fi
   if [[ -n "$AUTO_SHUTDOWN$START_ON_CONNECT" ]]; then
     sizing="$sizing,\"power\":{\"autoShutdownTime\":$( [[ -n "$AUTO_SHUTDOWN" ]] && json_str "$AUTO_SHUTDOWN" || printf null ),\"startVmOnConnect\":${START_ON_CONNECT:-null}}"
+  fi
+  if [[ -n "$TOPOLOGY" ]]; then
+    sizing="$sizing,\"topology\":$TOPOLOGY"
   fi
   local commit=""
   [[ -n "$PORTAL_COMMIT" ]] && commit=",\"commit\":$(json_str "$PORTAL_COMMIT")"

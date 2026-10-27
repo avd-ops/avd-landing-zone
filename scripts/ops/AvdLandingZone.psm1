@@ -611,8 +611,11 @@ function Get-AvdLandingZone {
     if ($dcr) { $lz.DataCollectionRuleId = $dcr.ResourceId }
   }
   if ($rgExists.ControlPlane) {
-    $lz.HostPool = Get-AzResource -ResourceGroupName $rg.ControlPlane -ResourceType Microsoft.DesktopVirtualization/hostPools -ErrorAction SilentlyContinue | Select-Object -First 1
-    $lz.AppGroup = Get-AzResource -ResourceGroupName $rg.ControlPlane -ResourceType Microsoft.DesktopVirtualization/applicationGroups -ErrorAction SilentlyContinue | Select-Object -First 1
+    $lz.HostPools = @(Get-AzResource -ResourceGroupName $rg.ControlPlane -ResourceType Microsoft.DesktopVirtualization/hostPools -ErrorAction SilentlyContinue)
+    $lz.AppGroups = @(Get-AzResource -ResourceGroupName $rg.ControlPlane -ResourceType Microsoft.DesktopVirtualization/applicationGroups -ErrorAction SilentlyContinue)
+    $lz.Workspaces = @(Get-AzResource -ResourceGroupName $rg.ControlPlane -ResourceType Microsoft.DesktopVirtualization/workspaces -ErrorAction SilentlyContinue)
+    $lz.HostPool = $lz.HostPools | Select-Object -First 1
+    $lz.AppGroup = $lz.AppGroups | Select-Object -First 1
     if ($lz.AppGroup) { $lz.UsersGroupId = Get-AvdRoleAssigneeId -Scope $lz.AppGroup.ResourceId -RoleName 'Desktop Virtualization User' -ObjectType Group }
     $lz.AvdServicePrincipalId = Get-AvdRoleAssigneeId -Scope $lz.ResourceGroupIds.ControlPlane -RoleName 'Desktop Virtualization Power On Off Contributor'
     if ($lz.HostPool) {
@@ -1206,11 +1209,14 @@ function Test-AvdLandingZoneResource {
         -Remediation "Resume when the cost is dealt with: ./scripts/automation/Invoke-AvdPowerAction.ps1 -Action Resume -NamePrefix $($Lz.NamePrefix) -Environment $($Lz.Environment)"
     }
     $hpAccess = $hpResource.Properties.publicNetworkAccess
-    if ($hpAccess -eq 'EnabledForClientsOnly' -and -not $Lz.AvdDnsZoneId) {
+    if ($hpAccess -in @('EnabledForClientsOnly', 'Disabled') -and -not $Lz.AvdDnsZoneId) {
       Add-AvdCheckResult $area 'AVD Private Link DNS zone' 'Fail' -Detail 'Host pool is private for session hosts but its endpoint has no DNS zone.' -Remediation 'Link privatelink.wvd.microsoft.com to the spoke or pass central zones.'
     }
     elseif ($Lz.AvdDnsZoneId) { Add-AvdCheckResult $area 'AVD Private Link DNS zone' 'Pass' -Detail ($Lz.AvdDnsZoneId -split '/')[-1] }
     else { Add-AvdCheckResult $area 'AVD Private Link' 'Pass' -Detail 'Not in use (host pool public).' }
+    if ($Lz.HostPools -and ($Lz.HostPools.Count -gt 1 -or ($Lz.Workspaces -and $Lz.Workspaces.Count -gt 1) -or ($Lz.AppGroups -and $Lz.AppGroups.Count -gt 1))) {
+      Add-AvdCheckResult $area 'Control-plane topology' 'Pass' -Detail "$($Lz.HostPools.Count) host pool(s), $($Lz.AppGroups.Count) application group(s), $($Lz.Workspaces.Count) workspace(s)"
+    }
   }
 }
 
@@ -2268,7 +2274,7 @@ function Get-AvdDeploymentPlan {
   if ($RecoveryLocation) { $vars.AVD_RECOVERY_LOCATION = $RecoveryLocation }
   $sizingVars = @{ hosts = 'AVD_SESSION_HOST_COUNT'; vmSize = 'AVD_SESSION_HOST_VM_SIZE'; maxSessions = 'AVD_MAX_SESSION_LIMIT'; profileQuotaGiB = 'AVD_PROFILE_QUOTA_GIB'
     autoShutdownTime = 'AVD_AUTO_SHUTDOWN_TIME'; startVmOnConnect = 'AVD_START_VM_ON_CONNECT'
-    jumpbox = 'AVD_DEPLOY_JUMPBOX'; jumpboxKeepRunningUntil = 'AVD_JUMPBOX_KEEP_RUNNING_UNTIL'; jumpboxOs = 'AVD_JUMPBOX_OS' }
+    jumpbox = 'AVD_DEPLOY_JUMPBOX'; jumpboxKeepRunningUntil = 'AVD_JUMPBOX_KEEP_RUNNING_UNTIL'; jumpboxOs = 'AVD_JUMPBOX_OS'; topology = 'AVD_TOPOLOGY_JSON' }
   foreach ($k in $sizingVars.Keys) { $vars[$sizingVars[$k]] = $(if ($Sizing[$k]) { [string]$Sizing[$k] } else { '' }) }
   $saved = @{}
   foreach ($k in $vars.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k); [Environment]::SetEnvironmentVariable($k, $vars[$k]) }
@@ -2422,8 +2428,35 @@ function Get-AvdCostEstimate {
   $size = $Plan.sessionHostVmSize
   $quota = [int]$Plan.profileShareQuotaGiB
   $fileSku = ([string]$Plan.profileStorageSku) -replace '_', ' '
+  $topo = if ($Plan.topology -is [System.Collections.IDictionary]) { $Plan.topology } else { @{} }
+  $topoPools = if ($topo.ContainsKey('hostPools') -and $topo.hostPools) { @($topo.hostPools) } else { @() }
+  $topoWorkspaces = if ($topo.ContainsKey('workspaces') -and $topo.workspaces) { @($topo.workspaces) } else { @() }
+  $plCfg = if ($topo.ContainsKey('privateLink') -and $topo.privateLink) { $topo.privateLink } else { @{} }
+  if ($topoPools.Count -ge 1) {
+    if ($null -ne $topoPools[0].sessionHostCount) { $hosts = [int]$topoPools[0].sessionHostCount }
+    if ($topoPools[0].sessionHostVmSize) { $size = [string]$topoPools[0].sessionHostVmSize }
+  }
+  $totalDiskCount = $hosts
+  if ($topoPools.Count -gt 1) {
+    foreach ($ep in ($topoPools | Select-Object -Skip 1)) {
+      $totalDiskCount += $(if ($null -ne $ep.sessionHostCount) { [int]$ep.sessionHostCount } else { [int]$Plan.sessionHostCount })
+    }
+  }
   $activeHours = [math]::Round($hosts * $ActiveHoursPerWeek * 52 / 12, 1)
-  $pe = 2 + $(if ($Plan.enableAvdPrivateLink -ne $false) { 1 } else { 0 })   # storage, Key Vault, host pool
+  $defaultConnPe = if ($null -ne $plCfg.enableConnectionPrivateLink) { [bool]$plCfg.enableConnectionPrivateLink } elseif ($null -ne $plCfg.enableConnectionPrivateEndpoint) { [bool]$plCfg.enableConnectionPrivateEndpoint } else { $Plan.enableAvdPrivateLink -ne $false }
+  $defaultFeedPe = [bool]($plCfg.enableFeedPrivateLink -or $plCfg.enableFeedPrivateEndpoint)
+  $defaultGlobalPe = [bool]($plCfg.enableGlobalPrivateLink -or $plCfg.enableGlobalPrivateEndpoint)
+  $hpPeCount = if ($topoPools.Count) {
+    @($topoPools | Where-Object { if ($null -ne $_.enablePrivateLink) { [bool]$_.enablePrivateLink } elseif ($null -ne $_.enablePrivateEndpoint) { [bool]$_.enablePrivateEndpoint } else { $defaultConnPe } }).Count
+  } else { $(if ($defaultConnPe) { 1 } else { 0 }) }
+  $wsFeedPeCount = if ($topoWorkspaces.Count) {
+    @($topoWorkspaces | Where-Object { if ($null -ne $_.enableFeedPrivateLink) { [bool]$_.enableFeedPrivateLink } elseif ($null -ne $_.enableFeedPrivateEndpoint) { [bool]$_.enableFeedPrivateEndpoint } else { $defaultFeedPe } }).Count
+  } else { $(if ($defaultFeedPe) { 1 } else { 0 }) }
+  $wsGlobalPeCount = if ($topoWorkspaces.Count) {
+    @($topoWorkspaces | Where-Object { [bool]($_.enableGlobalPrivateLink -or $_.enableGlobalPrivateEndpoint) }).Count
+  } else { $(if ($defaultGlobalPe) { 1 } else { 0 }) }
+  if (-not $wsGlobalPeCount -and $defaultGlobalPe) { $wsGlobalPeCount = 1 }
+  $pe = 2 + $hpPeCount + $wsFeedPeCount + $wsGlobalPeCount   # storage, Key Vault, host pool(s), workspace feed/global
   # What stops and starts the hosts, so the hours can be read against the plan.
   $power = @(
     $(if ($Plan.startVmOnConnect -ne $false) { 'Start VM on Connect starts hosts on demand' } else { 'no Start VM on Connect: hosts stay up through the working day' })
@@ -2436,7 +2469,7 @@ function Get-AvdCostEstimate {
       # Windows client multi-session is licensed per user (Microsoft 365 / Windows E3+), so hosts pay the base compute rate.
       # Only 'Virtual Machines ...' products: '<series> CloudServices' shares the SKU name at the Windows rate (lesson 0025).
       pick = { $_.productName -match '^Virtual Machines ' -and $_.productName -notmatch 'Windows' -and $_.skuName -notmatch 'Spot|Low Priority' -and $_.unitOfMeasure -eq '1 Hour' } }
-    @{ key = 'osdisk'; item = "OS disks ($hosts x Premium SSD P10)"; quantity = $hosts; unit = 'disks'
+    @{ key = 'osdisk'; item = "OS disks ($totalDiskCount x Premium SSD P10)"; quantity = $totalDiskCount; unit = 'disks'
       filter = "serviceName eq 'Storage' and armRegionName eq '$loc' and skuName eq 'P10 LRS' and priceType eq 'Consumption'"
       # 'Premium Page Blob' has a 'P10 LRS Disk' meter too (lesson 0025).
       pick = { $_.productName -eq 'Premium SSD Managed Disks' -and $_.meterName -eq 'P10 LRS Disk' -and $_.unitOfMeasure -match 'Month' } }
@@ -2448,6 +2481,22 @@ function Get-AvdCostEstimate {
       filter = "productName eq 'Virtual Network Private Link' and armRegionName eq 'Global' and priceType eq 'Consumption'"
       pick = { $_.skuName -eq 'Standard' -and $_.meterName -eq 'Standard Private Endpoint' -and $_.unitOfMeasure -eq '1 Hour' } }
   )
+  if ($topoPools.Count -gt 1) {
+    $poolIdx = 1
+    foreach ($ep in ($topoPools | Select-Object -Skip 1)) {
+      $poolIdx++
+      $epHosts = if ($null -ne $ep.sessionHostCount) { [int]$ep.sessionHostCount } else { [int]$Plan.sessionHostCount }
+      $epSize = if ($ep.sessionHostVmSize) { [string]$ep.sessionHostVmSize } else { [string]$Plan.sessionHostVmSize }
+      $epName = if ($ep.name) { [string]$ep.name } else { "pool-$poolIdx" }
+      if ($epHosts -gt 0) {
+        $epHours = [math]::Round($epHosts * $ActiveHoursPerWeek * 52 / 12, 1)
+        $specs += @{ key = "compute-$poolIdx"; item = "Host pool '$epName' ($epHosts x $epSize)"; quantity = $epHours; unit = 'host-hours'
+          note = "$ActiveHoursPerWeek h/week each"
+          filter = "serviceName eq 'Virtual Machines' and armRegionName eq '$loc' and armSkuName eq '$epSize' and priceType eq 'Consumption'"
+          pick = { $_.productName -match '^Virtual Machines ' -and $_.productName -notmatch 'Windows' -and $_.skuName -notmatch 'Spot|Low Priority' -and $_.unitOfMeasure -eq '1 Hour' } }
+      }
+    }
+  }
   if ($Plan.connectivityMode -ne 'HubPeered') {
     $specs += @{ key = 'natgateway'; item = 'NAT Gateway'; quantity = $script:HoursPerMonth; unit = 'hours'
       # Global, like Private Link (lesson 0025). StandardV2 has its own meters.
@@ -2700,6 +2749,27 @@ function Test-AvdPreDeployment {
   $capacity = $null
   if ($plan.sessionHostCount -gt 0) {
     $capacity = Test-AvdVmCapacity -Location $plan.location -VmSize $plan.sessionHostVmSize -Count $plan.sessionHostCount -Zones $zones -DeployedSizes @(Get-AvdDeployedHostSize -Lz $lz) | Select-Object -Last 1
+  }
+  if ($plan.topology -is [System.Collections.IDictionary] -and $plan.topology.hostPools -and @($plan.topology.hostPools).Count -gt 1) {
+    foreach ($ep in (@($plan.topology.hostPools) | Select-Object -Skip 1)) {
+      $epCount = if ($null -ne $ep.sessionHostCount) { [int]$ep.sessionHostCount } else { [int]$plan.sessionHostCount }
+      $epSize = if ($ep.sessionHostVmSize) { [string]$ep.sessionHostVmSize } else { [string]$plan.sessionHostVmSize }
+      $epZones = if ($null -ne $ep.availabilityZones) { @($ep.availabilityZones | ForEach-Object { [int]$_ }) } else { $zones }
+      if ($epCount -gt 0) {
+        Test-AvdVmCapacity -Location $plan.location -VmSize $epSize -Count $epCount -Zones $epZones | Out-Null
+      }
+    }
+  }
+  if ($plan.topology -is [System.Collections.IDictionary] -and $plan.topology.privateLink -and $plan.topology.privateLink.dnsZones) {
+    $dnsZones = $plan.topology.privateLink.dnsZones
+    foreach ($zKey in @('file', 'keyVault', 'avd', 'avdGlobal')) {
+      $zCfg = $dnsZones[$zKey]
+      if ($zCfg -and $zCfg.mode -eq 'existing' -and $zCfg.resourceId) {
+        $zRes = Get-AzResource -ResourceId $zCfg.resourceId -ErrorAction SilentlyContinue
+        if ($zRes) { Add-AvdCheckResult 'Network' "Existing Private DNS zone '$zKey'" 'Pass' -Detail $zRes.Name }
+        else { Add-AvdCheckResult 'Network' "Existing Private DNS zone '$zKey'" 'Fail' -Detail "Resource ID: '$($zCfg.resourceId)'" -Remediation 'Verify the Private DNS zone Resource ID and reader permissions, or switch the zone to Create new.' }
+      }
+    }
   }
   if (-not $plan.encryptionAtHost) { Add-AvdCheckResult 'Subscription' 'EncryptionAtHost not required (encryptionAtHost = false)' 'Pass' }
 
