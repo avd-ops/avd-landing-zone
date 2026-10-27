@@ -160,6 +160,11 @@
       if (topo) checked.settings.topology = topo;
       else checked.rejected.push('topology');
     }
+    if (present(context, 'controlPlanes')) {
+      var cp = validControlPlanes(context.controlPlanes);
+      if (cp) checked.settings.controlPlanes = cp;
+      else checked.rejected.push('controlPlanes');
+    }
     return checked;
   }
   // Values from a state line's other fields that go into a command, checked where they are read.
@@ -352,6 +357,137 @@
       avdGlobal: { mode: 'new', resourceId: '' }
     }
   };
+
+  // ---------------------------------------------------------------- five control planes (decision 0009)
+  // Pinned commits match contracts/PINS.json. Each stage clones its control-plane repo at its pinned commit
+  // and passes the handoff manifests in sequence: entra-manifest.json -> azure-outputs.json -> power-platform-manifest.json.
+  var CONTROL_PLANE_ORDER = ['entra', 'intune', 'm365', 'azure', 'powerPlatform'];
+  var CONTROL_PLANES = {
+    entra: {
+      id: 'entra',
+      stage: 1,
+      label: 'Entra ID',
+      repo: 'avd-ops/avd-entra',
+      repoUrl: 'https://github.com/avd-ops/avd-entra',
+      dir: '~/avd-entra',
+      commit: '3a6132c2146a58a7c5feb44cbeab3581d750d3fc',
+      schema: 'contracts/schemas/entra-manifest.schema.json',
+      inputs: [],
+      output: 'entra-manifest.json',
+      description: 'Creates AVD security groups, service principals, and Conditional Access exclusions, emitting entra-manifest.json.'
+    },
+    intune: {
+      id: 'intune',
+      stage: 2,
+      label: 'Intune',
+      repo: 'avd-ops/avd-intune',
+      repoUrl: 'https://github.com/avd-ops/avd-intune',
+      dir: '~/avd-intune',
+      commit: 'f64c56a84f7f53bcb7aeb398a456e0853d877633',
+      schema: 'contracts/schemas/intune-manifest.schema.json',
+      inputs: ['entra-manifest.json'],
+      output: 'intune-manifest.json',
+      description: 'Configures AVD Settings Catalog device baselines, compliance policies, and group assignments from entra-manifest.json.'
+    },
+    m365: {
+      id: 'm365',
+      stage: 3,
+      label: 'Microsoft 365',
+      repo: 'avd-ops/avd-m365',
+      repoUrl: 'https://github.com/avd-ops/avd-m365',
+      dir: '~/avd-m365',
+      commit: 'f18b14f9866cce604b92738c92afa390e14ee7fc',
+      schema: 'contracts/schemas/m365-manifest.schema.json',
+      inputs: ['entra-manifest.json'],
+      output: 'm365-manifest.json',
+      description: 'Configures Microsoft 365 Apps for Enterprise shared computer activation and OneDrive Known Folder Move policies from entra-manifest.json.'
+    },
+    azure: {
+      id: 'azure',
+      stage: 4,
+      label: 'Azure Infrastructure',
+      repo: 'avd-ops/avd-azure',
+      repoUrl: 'https://github.com/avd-ops/avd-azure',
+      dir: '~/avd-azure',
+      commit: 'ac01bc41b1e60d04bdfc01f77fe7832255d6644c',
+      schema: 'contracts/schemas/azure-outputs.schema.json',
+      inputs: ['entra-manifest.json'],
+      output: 'azure-outputs.json',
+      description: 'Deploys subscription Bicep resource groups, VNet, FSLogix Azure Files, Key Vault, host pools, workspaces, and session hosts, emitting azure-outputs.json.'
+    },
+    powerPlatform: {
+      id: 'powerPlatform',
+      stage: 5,
+      label: 'Power Platform',
+      repo: 'avd-ops/avd-power-platform',
+      repoUrl: 'https://github.com/avd-ops/avd-power-platform',
+      dir: '~/avd-power-platform',
+      commit: '454335695e8db154dd71550788e1ce3694b59e7e',
+      schema: 'contracts/schemas/power-platform-manifest.schema.json',
+      inputs: ['entra-manifest.json', 'azure-outputs.json'],
+      output: 'power-platform-manifest.json',
+      description: 'Configures Power Platform environment, DLP policies, and VNet data integration against entra-manifest.json and azure-outputs.json.'
+    }
+  };
+
+  var CONTROL_PLANE_DEFAULTS = {
+    entra: false,
+    intune: false,
+    m365: false,
+    azure: true,
+    powerPlatform: false
+  };
+
+  var CONTROL_PLANE_PRESETS = {
+    greenfield: {
+      id: 'greenfield',
+      label: 'Full Greenfield',
+      description: 'All five control planes in sequence: Entra ID -> Intune + Microsoft 365 -> Azure -> Power Platform.',
+      planes: { entra: true, intune: true, m365: true, azure: true, powerPlatform: true }
+    },
+    'brownfield-azure-intune': {
+      id: 'brownfield-azure-intune',
+      label: 'Brownfield Azure + Intune',
+      description: 'Entra ID groups, Intune device baselines, and Azure AVD infrastructure (skips Microsoft 365 and Power Platform).',
+      planes: { entra: true, intune: true, m365: false, azure: true, powerPlatform: false }
+    },
+    'azure-only': {
+      id: 'azure-only',
+      label: 'Azure Only',
+      description: 'Azure AVD infrastructure only, using existing Entra ID groups.',
+      planes: { entra: false, intune: false, m365: false, azure: true, powerPlatform: false }
+    }
+  };
+
+  function validControlPlanes(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    var out = merge(CONTROL_PLANE_DEFAULTS, {}), seen = 0, anyEnabled = false;
+    for (var i = 0; i < CONTROL_PLANE_ORDER.length; i++) {
+      var k = CONTROL_PLANE_ORDER[i], v = raw[k];
+      if (v === undefined || v === null) continue;
+      if (v === true || v === 'true') { out[k] = true; seen++; }
+      else if (v === false || v === 'false') { out[k] = false; seen++; }
+      else return null;
+    }
+    if (!seen) return null;
+    CONTROL_PLANE_ORDER.forEach(function (k) { if (out[k]) anyEnabled = true; });
+    if (!anyEnabled) out.azure = true;
+    return out;
+  }
+
+  function applyControlPlanePreset(presetId) {
+    var key = String(presetId || '').trim().toLowerCase();
+    if (key === 'full-greenfield' || key === 'full greenfield') key = 'greenfield';
+    else if (key === 'brownfield' || key === 'brownfield azure + intune') key = 'brownfield-azure-intune';
+    else if (key === 'azure' || key === 'azure only') key = 'azure-only';
+    var preset = CONTROL_PLANE_PRESETS[key];
+    return preset ? merge(preset.planes, {}) : merge(CONTROL_PLANE_DEFAULTS, {});
+  }
+
+  function enabledControlPlanes(cfg) {
+    var cp = (cfg && validControlPlanes(cfg.controlPlanes)) || CONTROL_PLANE_DEFAULTS;
+    return CONTROL_PLANE_ORDER.filter(function (k) { return !!cp[k]; });
+  }
 
   // Applies a built-in template ID or custom template object to all pools (when targetIndices is null/empty/'all')
   // or only to the specified pool indices, preserving each pool's identity (name, poolKey, users, hostCount).
@@ -946,8 +1082,90 @@
     },
     graphReset: function (cfg, rerun) {
       return ['Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null'].concat(rerun ? [rerun] : []).join('\n');
+    },
+    controlPlane: function (cfg, planeId) {
+      var c = merge(DEFAULTS, cfg);
+      var lines = controlPlaneStageLines(c, planeId);
+      return lines.length ? block(c, lines) : '';
+    },
+    controlPlaneSequence: function (cfg) {
+      var c = merge(DEFAULTS, cfg);
+      var enabled = enabledControlPlanes(c), lines = [];
+      enabled.forEach(function (planeId) {
+        lines = lines.concat(controlPlaneStageLines(c, planeId));
+      });
+      return lines.length ? block(c, lines) : '';
     }
   };
+
+  function clonePlaneLines(planeId) {
+    var p = CONTROL_PLANES[planeId];
+    if (!p) return [];
+    var gitUrl = p.repoUrl + '.git';
+    return [
+      'if (-not (Test-Path ' + p.dir + ')) { git clone ' + gitUrl + ' ' + p.dir + ' }',
+      'git -C ' + p.dir + ' remote set-url origin ' + gitUrl + '; git -C ' + p.dir + ' fetch -q origin; git -C ' + p.dir + ' checkout -q ' + psQuote(p.commit)
+    ];
+  }
+
+  function controlPlaneStageLines(cfg, planeId) {
+    var c = merge(DEFAULTS, cfg), p = CONTROL_PLANES[planeId];
+    if (!p) return [];
+    var clone = clonePlaneLines(planeId);
+    if (planeId === 'entra') {
+      return clone.concat([
+        'bash ~/avd-entra/scripts/deploy-entra.sh ' + psQuote(c.namePrefix) + ' ' + psQuote(c.environment) + ' ~/avd-landing-zone/entra-manifest.json'
+      ]);
+    }
+    if (planeId === 'intune') {
+      return clone.concat([
+        'bash ~/avd-intune/scripts/deploy-intune.sh ~/avd-landing-zone/entra-manifest.json ~/avd-landing-zone/intune-manifest.json'
+      ]);
+    }
+    if (planeId === 'm365') {
+      return clone.concat([
+        'bash ~/avd-m365/scripts/deploy-m365.sh ~/avd-landing-zone/entra-manifest.json ~/avd-landing-zone/m365-manifest.json'
+      ]);
+    }
+    if (planeId === 'azure') {
+      var base = c.namePrefix + '-' + c.environment;
+      return clone.concat([
+        'if (Test-Path ~/avd-landing-zone/entra-manifest.json) { $em = Get-Content ~/avd-landing-zone/entra-manifest.json -Raw | ConvertFrom-Json; $env:AVD_USERS_GROUP_ID = $em.groups.usersGroupId; $env:AVD_ADMINS_GROUP_ID = $em.groups.adminsGroupId; $env:AVD_SERVICE_PRINCIPAL_ID = $em.servicePrincipals.avdServicePrincipalId }',
+        'Set-Location ~/avd-azure; bash ./scripts/deploy/deploy.sh -p ' + c.parameterFile + ' -l ' + c.location +
+          ' --users-group ' + psQuote(c.usersGroup) + ' --admins-group ' + psQuote(c.adminsGroup) + sizeArgs.deploy(c),
+        '$subId = (az account show --query id -o tsv); $depName = (az deployment sub list --query "sort_by([?starts_with(name,\'avdlz-\')], &properties.timestamp)[-1].name" -o tsv); $out = (az deployment sub show -n $depName --query properties.outputs -o json | ConvertFrom-Json); @{ version = 1; subscriptionId = $subId; location = ' + psQuote(c.location) + '; resourceGroups = @{ network = $out.resourceGroups.value.network; management = $out.resourceGroups.value.management; storage = $out.resourceGroups.value.storage; controlPlane = $out.resourceGroups.value.controlPlane; hosts = $out.resourceGroups.value.hosts }; vnetId = "/subscriptions/$subId/resourceGroups/$($out.resourceGroups.value.network)/providers/Microsoft.Network/virtualNetworks/vnet-' + base + '"; storageAccountName = $out.storageAccountName.value; profileShareName = \'profiles\'; keyVaultName = $out.keyVaultName.value; logAnalyticsWorkspaceId = $out.logAnalyticsWorkspaceResourceId.value; hostPoolName = ($out.hostPoolResourceId.value -split \'/\')[-1]; appGroupName = \'vdag-' + base + '-desktop\'; workspaceName = ($out.workspaceResourceId.value -split \'/\')[-1] } | ConvertTo-Json -Depth 5 | Set-Content -Path ~/avd-landing-zone/azure-outputs.json -Encoding utf8',
+        'Set-Location ~/avd-landing-zone'
+      ]);
+    }
+    if (planeId === 'powerPlatform') {
+      return clone.concat([
+        'bash ~/avd-power-platform/scripts/deploy-power-platform.sh ~/avd-landing-zone/entra-manifest.json ~/avd-landing-zone/azure-outputs.json ~/avd-landing-zone/power-platform-manifest.json'
+      ]);
+    }
+    return [];
+  }
+
+  function controlPlaneActions(config) {
+    var cfg = merge(DEFAULTS, config);
+    var enabled = enabledControlPlanes(cfg);
+    return enabled.map(function (planeId, idx) {
+      var p = CONTROL_PLANES[planeId];
+      var handoff = p.inputs.length
+        ? 'Reads ' + p.inputs.join(' + ') + ' and writes ' + p.output + '.'
+        : 'Writes ' + p.output + ' for downstream control planes.';
+      return {
+        id: p.id,
+        stage: idx + 1,
+        repo: p.repo,
+        commit: p.commit,
+        inputs: p.inputs.slice(),
+        output: p.output,
+        title: 'Stage ' + (idx + 1) + ' (' + p.label + '): ' + p.repo + '@' + p.commit.slice(0, 7),
+        why: p.description + ' ' + handoff,
+        command: cmd.controlPlane(cfg, planeId)
+      };
+    });
+  }
 
   // ---------------------------------------------------------------- run in (avd-ops docs/design-system.md, "Run in")
   // Where the operator runs the commands: Cloud Shell, Windows or macOS, in PowerShell or Bash. The commands
@@ -1621,8 +1839,22 @@
       case 'cost': return [{ title: 'Choose how the hosts are powered', why: 'Start VM on Connect and the scheduled stop decide how many hours the hosts run, which is most of the cost. The pre-deployment preflight prices the plan for ' + cfg.location + ' at Azure list prices; after that, changing a setting here reprices it.', command: '' },
         firstStep(cfg)];
       case 'predeploy': return [firstStep(cfg)];
-      case 'deploy': return [{ title: 'Deploy the landing zone', why: 'Run this once the pre-deployment preflight is Ready. It takes 30-45 minutes and keeps running in Azure if Cloud Shell disconnects.', command: cmd.deploy(cfg) },
-        { title: 'Already started? Check on it', why: 'Shows the latest deployment and any failed resources.', command: cmd.deployStatus(cfg) }];
+      case 'deploy': {
+        var deployActs = [{ title: 'Deploy the landing zone', why: 'Run this once the pre-deployment preflight is Ready. It takes 30-45 minutes and keeps running in Azure if Cloud Shell disconnects.', command: cmd.deploy(cfg) }];
+        if (validControlPlanes(cfg.controlPlanes)) {
+          var cpActs = controlPlaneActions(cfg);
+          if (cpActs.length > 1) {
+            deployActs.push({
+              title: 'Run all ' + cpActs.length + ' selected control planes in sequence',
+              why: 'Clones each enabled control-plane repo at its pinned commit and passes entra-manifest.json -> azure-outputs.json -> power-platform-manifest.json across stages.',
+              command: cmd.controlPlaneSequence(cfg)
+            });
+          }
+          deployActs = deployActs.concat(cpActs);
+        }
+        deployActs.push({ title: 'Already started? Check on it', why: 'Shows the latest deployment and any failed resources.', command: cmd.deployStatus(cfg) });
+        return deployActs;
+      }
       case 'postdeploy': return [{ title: 'Run the post-deployment setup', why: 'Admin consent for the storage app, the Conditional Access exclusion and the profile share permissions. It asks for a Microsoft Graph device code.', command: cmd.postdeploy(cfg, true) }];
       case 'signin': return [{ title: 'Sign in to the desktop', why: 'Open https://windows.cloud.microsoft (or the Windows App) as a member of ' + cfg.usersGroup + '. The next step, Verify access, checks this device can reach AVD.', command: '' },
         { title: 'Optional: validate sign-in with a demo host pool', why: 'Deploys a separate demo host pool and checks the host and your test user.', command: cmd.demo(cfg) },
@@ -1648,7 +1880,7 @@
     return a;
   }
 
-  return { STEPS: STEPS, newRunId: newRunId, recording: recording, recordActions: recordActions, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, isCommit: isCommit, siteConfig: siteConfig, SETTINGS: SETTINGS, SETTING_NAMES: SETTING_NAMES, validSettings: validSettings, contextSettings: contextSettings, validSizing: validSizing, validPower: validPower, validEstimate: validEstimate, validTopology: validTopology, hasCustomTopology: hasCustomTopology, buildTopologyManifest: buildTopologyManifest, versionNote: versionNote, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, DEFAULT_RDP_PROPERTIES: DEFAULT_RDP_PROPERTIES, LOCKED_DOWN_RDP_PROPERTIES: LOCKED_DOWN_RDP_PROPERTIES, POOL_TEMPLATES: POOL_TEMPLATES, WORKSPACE_DEFAULTS: WORKSPACE_DEFAULTS, APP_GROUP_DEFAULTS: APP_GROUP_DEFAULTS, DNS_ZONE_DEFINITIONS: DNS_ZONE_DEFINITIONS, PRIVATE_LINK_DEFAULTS: PRIVATE_LINK_DEFAULTS, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_WORKSPACES: MAX_WORKSPACES, MAX_APP_GROUPS: MAX_APP_GROUPS, MAX_HOSTS: MAX_HOSTS, applyPoolTemplate: applyPoolTemplate, computePool: computePool, computeTopology: computeTopology, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
+  return { STEPS: STEPS, newRunId: newRunId, recording: recording, recordActions: recordActions, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, isCommit: isCommit, siteConfig: siteConfig, SETTINGS: SETTINGS, SETTING_NAMES: SETTING_NAMES, validSettings: validSettings, contextSettings: contextSettings, validSizing: validSizing, validPower: validPower, validEstimate: validEstimate, validTopology: validTopology, hasCustomTopology: hasCustomTopology, buildTopologyManifest: buildTopologyManifest, CONTROL_PLANE_ORDER: CONTROL_PLANE_ORDER, CONTROL_PLANES: CONTROL_PLANES, CONTROL_PLANE_DEFAULTS: CONTROL_PLANE_DEFAULTS, CONTROL_PLANE_PRESETS: CONTROL_PLANE_PRESETS, validControlPlanes: validControlPlanes, applyControlPlanePreset: applyControlPlanePreset, enabledControlPlanes: enabledControlPlanes, controlPlaneActions: controlPlaneActions, versionNote: versionNote, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, DEFAULT_RDP_PROPERTIES: DEFAULT_RDP_PROPERTIES, LOCKED_DOWN_RDP_PROPERTIES: LOCKED_DOWN_RDP_PROPERTIES, POOL_TEMPLATES: POOL_TEMPLATES, WORKSPACE_DEFAULTS: WORKSPACE_DEFAULTS, APP_GROUP_DEFAULTS: APP_GROUP_DEFAULTS, DNS_ZONE_DEFINITIONS: DNS_ZONE_DEFINITIONS, PRIVATE_LINK_DEFAULTS: PRIVATE_LINK_DEFAULTS, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_WORKSPACES: MAX_WORKSPACES, MAX_APP_GROUPS: MAX_APP_GROUPS, MAX_HOSTS: MAX_HOSTS, applyPoolTemplate: applyPoolTemplate, computePool: computePool, computeTopology: computeTopology, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
     PLATFORMS: PLATFORMS, RUNIN_DEFAULT: RUNIN_DEFAULT, PLACES: PLACES, validRunIn: validRunIn, isDefaultRunIn: isDefaultRunIn, scriptsIn: scriptsIn, support: support, forRunIn: forRunIn,
     REACHABILITY_HOSTS: REACHABILITY_HOSTS, rateLatency: rateLatency, classifyReachability: classifyReachability, launchTarget: launchTarget, launchUrl: launchUrl };
 });

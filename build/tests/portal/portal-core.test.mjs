@@ -1271,3 +1271,85 @@ test('run in: Windows and macOS PowerShell sign in first; a script that does not
   assert.ok(mac.requires.includes('the Microsoft.Graph modules'));
   assert.equal(P.support(P.commands.deployStatus(runCfg), { where: 'cloudshell', shell: 'bash' }).status, 'untested', 'inline commands are proven only where they were written');
 });
+
+// ---------------------------------------------------------------- five control planes (decision 0009)
+test('control planes: pinned commits in portal-core.js match contracts/PINS.json and vendored schemas exist', () => {
+  const pins = JSON.parse(readFileSync(new URL('../../../contracts/PINS.json', import.meta.url), 'utf8'));
+  const expected = [
+    ['entra', 'avd-entra', 'avd-ops/avd-entra', 'schemas/entra-manifest.schema.json', 'entra-manifest.json'],
+    ['intune', 'avd-intune', 'avd-ops/avd-intune', 'schemas/intune-manifest.schema.json', 'intune-manifest.json'],
+    ['m365', 'avd-m365', 'avd-ops/avd-m365', 'schemas/m365-manifest.schema.json', 'm365-manifest.json'],
+    ['azure', 'avd-azure', 'avd-ops/avd-azure', 'schemas/azure-outputs.schema.json', 'azure-outputs.json'],
+    ['powerPlatform', 'avd-power-platform', 'avd-ops/avd-power-platform', 'schemas/power-platform-manifest.schema.json', 'power-platform-manifest.json']
+  ];
+  assert.deepEqual(P.CONTROL_PLANE_ORDER, expected.map((e) => e[0]));
+  for (const [id, sourceKey, repo, schemaRel, output] of expected) {
+    const plane = P.CONTROL_PLANES[id];
+    assert.ok(plane, `missing plane ${id}`);
+    assert.equal(plane.repo, repo);
+    assert.equal(plane.output, output);
+    assert.equal(plane.schema, `contracts/${schemaRel}`);
+    assert.ok(pins.sources[sourceKey], `missing source ${sourceKey} in PINS.json`);
+    assert.equal(pins.sources[sourceKey].url, `https://github.com/${repo}`);
+    assert.match(pins.sources[sourceKey].commit, /^[0-9a-f]{40}$/);
+    assert.equal(plane.commit, pins.sources[sourceKey].commit, `${id} commit matches contracts/PINS.json`);
+    assert.ok(pins.files[schemaRel], `missing file ${schemaRel} in PINS.json`);
+    const schemaJson = JSON.parse(readFileSync(new URL(`../../../contracts/${schemaRel}`, import.meta.url), 'utf8'));
+    assert.ok(schemaJson.$schema);
+  }
+});
+
+test('control planes: presets (Full Greenfield, Brownfield Azure + Intune, Azure Only) and validation', () => {
+  const greenfield = P.applyControlPlanePreset('greenfield');
+  assert.deepEqual(greenfield, { entra: true, intune: true, m365: true, azure: true, powerPlatform: true });
+  assert.deepEqual(P.enabledControlPlanes({ controlPlanes: greenfield }), ['entra', 'intune', 'm365', 'azure', 'powerPlatform']);
+
+  const brownfield = P.applyControlPlanePreset('brownfield-azure-intune');
+  assert.deepEqual(brownfield, { entra: true, intune: true, m365: false, azure: true, powerPlatform: false });
+  assert.deepEqual(P.enabledControlPlanes({ controlPlanes: brownfield }), ['entra', 'intune', 'azure']);
+
+  const azureOnly = P.applyControlPlanePreset('azure-only');
+  assert.deepEqual(azureOnly, { entra: false, intune: false, m365: false, azure: true, powerPlatform: false });
+  assert.deepEqual(P.enabledControlPlanes({ controlPlanes: azureOnly }), ['azure']);
+
+  // Validation rejects non-boolean values and ensures at least one plane is active.
+  assert.equal(P.validControlPlanes(null), null);
+  assert.equal(P.validControlPlanes({ entra: 'rm -rf /' }), null);
+  assert.deepEqual(P.validControlPlanes({ entra: false, intune: false, m365: false, azure: false, powerPlatform: false }),
+    { entra: false, intune: false, m365: false, azure: true, powerPlatform: false });
+});
+
+test('control planes: sequenced Cloud Shell command blocks clone each repo at its pinned commit and pass handoff manifests', () => {
+  const cfg = { ...P.DEFAULTS, location: 'eastus2', namePrefix: 'avdlz', environment: 'dev', controlPlanes: P.applyControlPlanePreset('greenfield') };
+  const actions = P.controlPlaneActions(cfg);
+  assert.equal(actions.length, 5);
+  assertSelfContained({ actions });
+
+  // Verify stage order and pinned commit checkouts
+  assert.deepEqual(actions.map((a) => a.id), ['entra', 'intune', 'm365', 'azure', 'powerPlatform']);
+  for (const a of actions) {
+    const plane = P.CONTROL_PLANES[a.id];
+    assert.match(a.command, new RegExp(`git clone https://github\\.com/${plane.repo}\\.git ${plane.dir}`));
+    assert.match(a.command, new RegExp(`git -C ${plane.dir} checkout -q '${plane.commit}'`));
+  }
+
+  // Verify manifest handoff chain: entra-manifest.json -> azure-outputs.json -> power-platform-manifest.json
+  assert.match(actions[0].command, /deploy-entra\.sh 'avdlz' 'dev' ~\/avd-landing-zone\/entra-manifest\.json/);
+  assert.match(actions[1].command, /deploy-intune\.sh ~\/avd-landing-zone\/entra-manifest\.json ~\/avd-landing-zone\/intune-manifest\.json/);
+  assert.match(actions[2].command, /deploy-m365\.sh ~\/avd-landing-zone\/entra-manifest\.json ~\/avd-landing-zone\/m365-manifest\.json/);
+  assert.match(actions[3].command, /entra-manifest\.json/);
+  assert.match(actions[3].command, /azure-outputs\.json/);
+  assert.match(actions[4].command, /deploy-power-platform\.sh ~\/avd-landing-zone\/entra-manifest\.json ~\/avd-landing-zone\/azure-outputs\.json ~\/avd-landing-zone\/power-platform-manifest\.json/);
+
+  // Combined sequence command block contains all 5 stages in sequence
+  const seq = P.commands.controlPlaneSequence(cfg);
+  assert.ok(seq.indexOf('deploy-entra.sh') < seq.indexOf('deploy-intune.sh'));
+  assert.ok(seq.indexOf('deploy-intune.sh') < seq.indexOf('deploy-m365.sh'));
+  assert.ok(seq.indexOf('deploy-m365.sh') < seq.indexOf('azure-outputs.json'));
+  assert.ok(seq.indexOf('azure-outputs.json') < seq.indexOf('deploy-power-platform.sh'));
+
+  // Deploy step actions include the sequenced control-plane actions when controlPlanes is configured
+  const deployStepActions = P.actionsForStep('deploy', cfg);
+  assert.ok(deployStepActions.length >= 7);
+  assertSelfContained({ actions: deployStepActions });
+});

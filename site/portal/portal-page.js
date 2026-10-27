@@ -36,7 +36,7 @@
   $('issues-link').textContent = repoSlug;
 
   // Saved settings are checked like typed ones: an old or edited value that no longer fits is dropped.
-  var cfg = Object.assign({}, P.DEFAULTS, P.validSettings(load('config', {})).settings, { repoUrl: repoUrl, ref: site.ref, sizing: P.validSizing(load('sizing', null)), topology: P.validTopology(load('topology', null)), power: P.validPower(load('power', null)), hoursWorkedPerWeek: load('hoursWorked', 50), launch: P.launchTarget(load('launch', null)), record: load('record', null) });
+  var cfg = Object.assign({}, P.DEFAULTS, P.validSettings(load('config', {})).settings, { repoUrl: repoUrl, ref: site.ref, sizing: P.validSizing(load('sizing', null)), topology: P.validTopology(load('topology', null)), controlPlanes: P.validControlPlanes(load('controlPlanes', null)), power: P.validPower(load('power', null)), hoursWorkedPerWeek: load('hoursWorked', 50), launch: P.launchTarget(load('launch', null)), record: load('record', null) });
   var step = load('step', null);
   // Furthest step reached, by id: later steps stay hidden until the deployment gets there. (Saved as an
   // index before the Cost step existed; those indexes are read against the old step list.)
@@ -59,6 +59,8 @@
     if (sizing) { cfg.sizing = sizing; save('sizing', cfg.sizing); }
     var topology = patch && P.validTopology(patch.topology);
     if (topology) { cfg.topology = topology; save('topology', cfg.topology); }
+    var controlPlanes = patch && P.validControlPlanes(patch.controlPlanes);
+    if (controlPlanes) { cfg.controlPlanes = controlPlanes; save('controlPlanes', cfg.controlPlanes); }
     // ... and which power settings it priced.
     var power = patch && P.validPower(patch.power);
     if (power) { cfg.power = power; save('power', cfg.power); }
@@ -425,15 +427,16 @@
     try { Object.keys(localStorage).filter(function (k) { return k.indexOf('avdlz.portal.') === 0; }).forEach(function (k) { localStorage.removeItem(k); }); } catch (e) { /* storage unavailable */ }
     // A shell that ran a recorded block still has the run ID: the next blocks clear it.
     var wasRecording = P.recording(cfg);
-    cfg = Object.assign({}, P.DEFAULTS, { repoUrl: repoUrl, ref: site.ref, sizing: null, topology: null, power: null, hoursWorkedPerWeek: 50, launch: null, record: wasRecording ? { mode: wasRecording.mode } : null });
+    cfg = Object.assign({}, P.DEFAULTS, { repoUrl: repoUrl, ref: site.ref, sizing: null, topology: null, controlPlanes: null, power: null, hoursWorkedPerWeek: 50, launch: null, record: wasRecording ? { mode: wasRecording.mode } : null });
     if (wasRecording) save('record', cfg.record); step = null; reached = 0; ranked = null; lastAnalysis = null; latency = [];
     pools = [Object.assign({}, P.HOST_POOL_DEFAULTS)];
     workspaces = [Object.assign({}, P.WORKSPACE_DEFAULTS)];
     appGroups = [Object.assign({}, P.APP_GROUP_DEFAULTS)];
     privateLink = JSON.parse(JSON.stringify(P.PRIVATE_LINK_DEFAULTS));
+    controlPlanes = Object.assign({}, P.CONTROL_PLANE_DEFAULTS);
     selectedPools = { 0: true };
     estimate = null;
-    renderTemplatesBar(); renderPools(); renderWorkspacesAndAppGroups(); renderPrivateLinkPanel(); renderCost();
+    renderTemplatesBar(); renderPools(); renderWorkspacesAndAppGroups(); renderPrivateLinkPanel(); renderControlPlanesPanel(); renderCost();
     reach = null; $('reach-results').classList.add('hidden'); renderReachability();
     $('results').classList.add('hidden'); $('paste').value = ''; maskedCount = 0; showMasked(); setConfig({}); render(); showStep();
   });
@@ -483,6 +486,7 @@
   var privateLink = load('privateLink', null);
   if (!privateLink || typeof privateLink !== 'object') privateLink = JSON.parse(JSON.stringify(P.PRIVATE_LINK_DEFAULTS));
   if (!privateLink.dnsZones || typeof privateLink.dnsZones !== 'object') privateLink.dnsZones = JSON.parse(JSON.stringify(P.PRIVATE_LINK_DEFAULTS.dnsZones));
+  var controlPlanes = P.validControlPlanes(load('controlPlanes', null)) || Object.assign({}, P.CONTROL_PLANE_DEFAULTS);
   var customTemplates = load('customTemplates', {}) || {};
   var selectedPools = { 0: true };
   var estimate = load('estimate', null);
@@ -1128,6 +1132,53 @@
     });
   }
 
+  function controlPlaneSummaryText(cp) {
+    var enabled = P.enabledControlPlanes({ controlPlanes: cp });
+    if (enabled.length === 5) return 'Full Greenfield (all 5 planes)';
+    if (enabled.length === 3 && cp.entra && cp.intune && cp.azure) return 'Brownfield Azure + Intune';
+    if (enabled.length === 1 && cp.azure) return 'Azure Only';
+    return enabled.map(function (k) { return P.CONTROL_PLANES[k].label; }).join(' -> ');
+  }
+
+  function renderControlPlanesPanel() {
+    if (!$('control-planes-panel')) return;
+    P.CONTROL_PLANE_ORDER.forEach(function (k) {
+      var chk = $('cp-' + k);
+      if (chk) chk.checked = !!controlPlanes[k];
+    });
+    if ($('cp-summary')) $('cp-summary').textContent = controlPlaneSummaryText(controlPlanes);
+  }
+
+  function applyControlPlanesState(nextCp, note) {
+    controlPlanes = P.validControlPlanes(nextCp) || Object.assign({}, P.CONTROL_PLANE_DEFAULTS);
+    cfg.controlPlanes = controlPlanes;
+    save('controlPlanes', controlPlanes);
+    renderControlPlanesPanel();
+    renderSizeResult();
+    lastAnalysis = null;
+    render();
+    if ($('cp-preset-status') && note !== undefined) $('cp-preset-status').textContent = note;
+  }
+
+  if ($('control-planes-panel')) {
+    [['cp-preset-greenfield', 'greenfield', 'Full Greenfield selected (all 5 control-plane repos).'],
+      ['cp-preset-brownfield', 'brownfield-azure-intune', 'Brownfield Azure + Intune selected (Entra, Intune, Azure).'],
+      ['cp-preset-azure', 'azure-only', 'Azure Only selected (avd-azure only).']
+    ].forEach(function (item) {
+      var btn = $(item[0]);
+      if (btn) btn.addEventListener('click', function () { applyControlPlanesState(P.applyControlPlanePreset(item[1]), item[2]); });
+    });
+    P.CONTROL_PLANE_ORDER.forEach(function (k) {
+      var chk = $('cp-' + k);
+      if (!chk) return;
+      chk.addEventListener('change', function () {
+        var next = Object.assign({}, controlPlanes);
+        next[k] = chk.checked;
+        applyControlPlanesState(next, '');
+      });
+    });
+  }
+
   function renderSizeResult() {
     var comp = currentTopologyComputed(), r = comp.pools[0], tb = $('size-result'); tb.textContent = '';
     var hostSummary = comp.pools.length === 1
@@ -1146,7 +1197,8 @@
       ['vCPU quota needed', comp.totals.vcpus + ' vCPUs'],
       ['Profile share', comp.totals.profileQuotaGiB + ' GiB provisioned (storage SKU from ' + cfg.parameterFile.replace(/^parameters\//, '') + ')'],
       ['Workspaces & app groups', comp.workspaces.length + ' workspace(s), ' + comp.appGroups.length + ' app group(s)'],
-      ['Private Link & DNS zones', 'AVD connection PE: ' + (comp.privateLink.enableAvdConnectionPrivateLink ? 'on' : 'off') + ', feed PE: ' + (comp.privateLink.enableAvdFeedPrivateLink ? 'on' : 'off') + ', global PE: ' + (comp.privateLink.enableAvdGlobalPrivateLink ? 'on' : 'off') + ' (' + (dnsModes || 'no DNS zones') + ')']
+      ['Private Link & DNS zones', 'AVD connection PE: ' + (comp.privateLink.enableAvdConnectionPrivateLink ? 'on' : 'off') + ', feed PE: ' + (comp.privateLink.enableAvdFeedPrivateLink ? 'on' : 'off') + ', global PE: ' + (comp.privateLink.enableAvdGlobalPrivateLink ? 'on' : 'off') + ' (' + (dnsModes || 'no DNS zones') + ')'],
+      ['Control-plane stages', controlPlaneSummaryText(controlPlanes)]
     ];
     rows.forEach(function (kv) { var tr = el('tr'); tr.appendChild(el('td', '', kv[0])); tr.appendChild(el('td', '', kv[1])); tb.appendChild(tr); });
 
@@ -1475,6 +1527,6 @@
   // ---------------------------------------------------------------- start
   if (/^#(region|size|cost)$/.test(location.hash) && stepIndex(location.hash.slice(1)) <= reached) step = location.hash.slice(1);
   setConfig({});
-  renderTemplatesBar(); renderPools(); renderWorkspacesAndAppGroups(); renderPrivateLinkPanel(); renderCost(); renderReachability();
+  renderTemplatesBar(); renderPools(); renderWorkspacesAndAppGroups(); renderPrivateLinkPanel(); renderControlPlanesPanel(); renderCost(); renderReachability();
   render(); showStep('instant');
 })();
