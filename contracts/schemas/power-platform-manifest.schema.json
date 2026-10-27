@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avd-ops.dev/contracts/power-platform-manifest.schema.json",
+  "title": "avd-power-platform handoff manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "environment",
+    "powerPlatformEnvironmentName",
+    "dlpPolicyName",
+    "activeWorkflows"
+  ],
+  "properties": {
+    "schema": {
+      "const": "avd-ops-power-platform-manifest/v1"
+    },
+    "environment": {
+      "type": "string",
+      "enum": [
+        "dev",
+        "test",
+        "prod"
+      ]
+    },
+    "powerPlatformEnvironmentName": {
+      "type": "string"
+    },
+    "dlpPolicyName": {
+      "type": "string"
+    },
+    "activeWorkflows": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

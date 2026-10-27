@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avd-ops.dev/contracts/azure-outputs.schema.json",
+  "title": "avd-azure deployment outputs handoff contract",
+  "description": "Redacted/structured Azure deployment outputs produced by avd-azure and consumed by avd-landing-zone, avd-power-platform and avd-current-state (decision 0009).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "environment",
+    "location",
+    "resourceGroups",
+    "hostPools",
+    "network"
+  ],
+  "properties": {
+    "schema": {
+      "const": "avd-ops-azure-outputs/v1"
+    },
+    "environment": {
+      "type": "string",
+      "enum": [
+        "dev",
+        "test",
+        "prod"
+      ]
+    },
+    "location": {
+      "type": "string",
+      "minLength": 2
+    },
+    "resourceGroups": {
+      "type": "object",
+      "required": [
+        "controlPlane",
+        "sessionHosts",
+        "network",
+        "storage"
+      ],
+      "properties": {
+        "controlPlane": {
+          "type": "string"
+        },
+        "sessionHosts": {
+          "type": "string"
+        },
+        "network": {
+          "type": "string"
+        },
+        "storage": {
+          "type": "string"
+        }
+      }
+    },
+    "hostPools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "type",
+          "workspace",
+          "appGroupIds"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "Pooled",
+              "Personal"
+            ]
+          },
+          "workspace": {
+            "type": "string"
+          },
+          "appGroupIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "network": {
+      "type": "object",
+      "required": [
+        "vnetName",
+        "privateLinkEnabled"
+      ],
+      "properties": {
+        "vnetName": {
+          "type": "string"
+        },
+        "privateLinkEnabled": {
+          "type": "boolean"
+        },
+        "powerPlatformDelegatedSubnetId": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

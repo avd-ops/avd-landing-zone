@@ -40,6 +40,27 @@ Describe 'Vendored contracts' {
   It 'the capabilities know the vendored fact register version' {
     (Get-Content (Join-Path $script:contracts 'fact-register.json') -Raw | ConvertFrom-Json).version | Should -BeIn $script:cap.factRegisterVersions
   }
+  It 'pins all five control-plane repos with 40-char commit SHAs and valid JSON schemas' {
+    $pins = Get-Content (Join-Path $script:contracts 'PINS.json') -Raw | ConvertFrom-Json
+    $expectedPlanes = @(
+      @{ Source = 'avd-entra'; Repo = 'avd-ops/avd-entra'; Schema = 'schemas/entra-manifest.schema.json' }
+      @{ Source = 'avd-intune'; Repo = 'avd-ops/avd-intune'; Schema = 'schemas/intune-manifest.schema.json' }
+      @{ Source = 'avd-m365'; Repo = 'avd-ops/avd-m365'; Schema = 'schemas/m365-manifest.schema.json' }
+      @{ Source = 'avd-azure'; Repo = 'avd-ops/avd-azure'; Schema = 'schemas/azure-outputs.schema.json' }
+      @{ Source = 'avd-power-platform'; Repo = 'avd-ops/avd-power-platform'; Schema = 'schemas/power-platform-manifest.schema.json' }
+    )
+    foreach ($plane in $expectedPlanes) {
+      $src = $pins.sources.($plane.Source)
+      $src | Should -Not -BeNullOrEmpty
+      $src.url | Should -Be "https://github.com/$($plane.Repo)"
+      $src.commit | Should -Match '^[0-9a-f]{40}$'
+      $schemaPath = Join-Path $script:contracts $plane.Schema
+      Test-Path $schemaPath | Should -BeTrue
+      $schemaJson = Get-Content $schemaPath -Raw | ConvertFrom-Json
+      $schemaJson.'$schema' | Should -Not -BeNullOrEmpty
+      $schemaJson.required | Should -Not -BeNullOrEmpty
+    }
+  }
 }
 
 Describe 'Get-AvdTargetStatePlan' {

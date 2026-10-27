@@ -1,5 +1,5 @@
 {
-  "description": "Vendored contracts, each byte-identical to its source repo at the pinned commit: C15 (fact register) and C17 (run records) from avd-assess, which authors them since avd-second-brain decision 0021; C14 (target state and approval) from avd-second-brain. build/tests/TargetState.Tests.ps1 checks the hashes. To update: copy the files from the source at a new commit, then update that source's commit and the hashes in the same PR.",
+  "description": "Vendored contracts, each byte-identical to its source repo at the pinned commit: C15 (fact register) and C17 (run records) from avd-assess, which authors them since avd-second-brain decision 0021; C14 (target state and approval) from avd-second-brain; and the five control-plane handoff schemas from avd-entra, avd-intune, avd-m365, avd-azure and avd-power-platform (avd-ops decision 0009). build/tests/TargetState.Tests.ps1 checks the hashes. To update: copy the files from the source at a new commit, then update that source's commit and the hashes in the same PR.",
   "sources": {
     "avd-assess": {
       "url": "https://github.com/avd-ops/avd-assess",
@@ -22,6 +22,41 @@
         "schemas/target-approval.schema.json",
         "schemas/target-state.schema.json"
       ]
+    },
+    "avd-entra": {
+      "url": "https://github.com/avd-ops/avd-entra",
+      "commit": "3a6132c2146a58a7c5feb44cbeab3581d750d3fc",
+      "files": [
+        "schemas/entra-manifest.schema.json"
+      ]
+    },
+    "avd-intune": {
+      "url": "https://github.com/avd-ops/avd-intune",
+      "commit": "f64c56a84f7f53bcb7aeb398a456e0853d877633",
+      "files": [
+        "schemas/intune-manifest.schema.json"
+      ]
+    },
+    "avd-m365": {
+      "url": "https://github.com/avd-ops/avd-m365",
+      "commit": "f18b14f9866cce604b92738c92afa390e14ee7fc",
+      "files": [
+        "schemas/m365-manifest.schema.json"
+      ]
+    },
+    "avd-azure": {
+      "url": "https://github.com/avd-ops/avd-azure",
+      "commit": "ac01bc41b1e60d04bdfc01f77fe7832255d6644c",
+      "files": [
+        "schemas/azure-outputs.schema.json"
+      ]
+    },
+    "avd-power-platform": {
+      "url": "https://github.com/avd-ops/avd-power-platform",
+      "commit": "454335695e8db154dd71550788e1ce3694b59e7e",
+      "files": [
+        "schemas/power-platform-manifest.schema.json"
+      ]
     }
   },
   "files": {
@@ -29,7 +64,12 @@
     "examples/target-state.example.json": "6f76c725a6b5e5a2b7baf95908032009d37081af537fe977a224a72488744914",
     "fact-register.json": "08049b1f60e694f9da9fc12adbc745f573ff3aef15d3b9588bd50100626252fc",
     "run-use-cases.json": "e9d981d5584df77d3d806dcb248b0a1159c250af8a349a081288ad0e29ac6714",
+    "schemas/azure-outputs.schema.json": "0c7801987eb0d9fb6d830377e38ce4e9cfe0f78a0df56fa2ad9998858c2b1635",
+    "schemas/entra-manifest.schema.json": "dbb1b97bd2650b95435b17c5f693fcbe9b0fa2c49ace5e758cd6473a69bdfaa0",
     "schemas/fact-register.schema.json": "ba7e188bcc8e252090f9645de06e1a9d315ce9331321608f3c30cc4f1c857f3a",
+    "schemas/intune-manifest.schema.json": "e68acd6d5bede75d18876e38d5a83ee736b5d66fe48714059208f30c81ea23a2",
+    "schemas/m365-manifest.schema.json": "c93b41479fe8bfd1ef47272c6a776e916a63e9ab4554d333bd8bacdf8b43b623",
+    "schemas/power-platform-manifest.schema.json": "a1c4dc4fd3f8c2ecfa9497b5c6c3c3802df5ac08bff95aab681718204c60093f",
     "schemas/run-cost.schema.json": "79a277aef8d55a7aefc70ba2fa727e561bc771efaa83cc5dbd2f70c54d51a6ab",
     "schemas/run-journal.schema.json": "f64b75331f63e659babc87994cd8fbacbd74a3d6becb445a1bbda22fde4541ac",
     "schemas/run-record.schema.json": "11538708814a62b588090974657b758a62430ddf6ed2937a4d6e77239df945cf",

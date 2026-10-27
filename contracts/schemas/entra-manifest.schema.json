@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://avd-ops.dev/contracts/entra-manifest.schema.json",
+  "title": "avd-entra handoff manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "environment",
+    "prefix",
+    "groups",
+    "conditionalAccess",
+    "entraKerberosReady"
+  ],
+  "properties": {
+    "schema": {
+      "const": "avd-ops-entra-manifest/v1"
+    },
+    "environment": {
+      "type": "string",
+      "enum": [
+        "dev",
+        "test",
+        "prod"
+      ]
+    },
+    "prefix": {
+      "type": "string",
+      "minLength": 2
+    },
+    "groups": {
+      "type": "object",
+      "required": [
+        "avdUsersGroupId",
+        "avdAdminsGroupId",
+        "sessionHostsDynamicGroupId",
+        "breakGlassExcludeGroupId"
+      ],
+      "properties": {
+        "avdUsersGroupId": {
+          "type": "string"
+        },
+        "avdAdminsGroupId": {
+          "type": "string"
+        },
+        "sessionHostsDynamicGroupId": {
+          "type": "string"
+        },
+        "breakGlassExcludeGroupId": {
+          "type": "string"
+        }
+      }
+    },
+    "conditionalAccess": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "displayName",
+          "state",
+          "policyId"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "enabledForReportingButNotEnforced",
+              "enabled",
+              "disabled"
+            ]
+          },
+          "policyId": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "entraKerberosReady": {
+      "type": "boolean"
+    }
+  }
+}
