@@ -1,5 +1,5 @@
 {
-  "description": "Vendored contracts, each byte-identical to its source repo at the pinned commit: C15 (fact register) and C17 (run records) from avd-assess, which authors them since avd-second-brain decision 0021; C14 (target state and approval) from avd-second-brain; and the five control-plane handoff schemas from avd-entra, avd-intune, avd-m365, avd-azure and avd-power-platform (avd-ops decision 0009). build/tests/TargetState.Tests.ps1 checks the hashes. To update: copy the files from the source at a new commit, then update that source's commit and the hashes in the same PR.",
+  "description": "Vendored contracts, each byte-identical to its source repo at the pinned commit: C15 (fact register) and C17 (run records) from avd-assess, which authors them since avd-second-brain decision 0021; C14 (target state and approval) from avd-second-brain; and the five control-plane handoff schemas from avd-entra, avd-intune, avd-m365, avd-azure, and avd-power-platform (avd-ops decision 0009). build/tests/TargetState.Tests.ps1 checks the hashes. To update: copy the files from the source at a new commit, then update that source's commit and the hashes in the same PR.",
   "sources": {
     "avd-assess": {
       "url": "https://github.com/avd-ops/avd-assess",
@@ -24,36 +24,84 @@
       ]
     },
     "avd-entra": {
+      "repo": "avd-ops/avd-entra",
       "url": "https://github.com/avd-ops/avd-entra",
       "commit": "3a6132c2146a58a7c5feb44cbeab3581d750d3fc",
+      "shortCommit": "3a6132c",
+      "entryPoint": "scripts/Deploy-AvdEntra.ps1",
+      "teardownScript": "scripts/Remove-AvdEntra.ps1",
+      "handoffManifest": "entra-manifest.json",
+      "runManifest": "entra-run-manifest.json",
+      "schemaId": "avd-ops-entra-manifest/v1",
       "files": [
         "schemas/entra-manifest.schema.json"
       ]
     },
     "avd-intune": {
+      "repo": "avd-ops/avd-intune",
       "url": "https://github.com/avd-ops/avd-intune",
       "commit": "f64c56a84f7f53bcb7aeb398a456e0853d877633",
+      "shortCommit": "f64c56a",
+      "entryPoint": "scripts/Deploy-AvdIntune.ps1",
+      "teardownScript": "scripts/Remove-AvdIntune.ps1",
+      "consumes": [
+        "entra-manifest.json"
+      ],
+      "handoffManifest": "intune-manifest.json",
+      "runManifest": "intune-run-manifest.json",
+      "schemaId": "avd-ops-intune-manifest/v1",
       "files": [
         "schemas/intune-manifest.schema.json"
       ]
     },
     "avd-m365": {
+      "repo": "avd-ops/avd-m365",
       "url": "https://github.com/avd-ops/avd-m365",
       "commit": "f18b14f9866cce604b92738c92afa390e14ee7fc",
+      "shortCommit": "f18b14f",
+      "entryPoint": "scripts/Deploy-AvdM365.ps1",
+      "teardownScript": "scripts/Remove-AvdM365.ps1",
+      "consumes": [
+        "entra-manifest.json"
+      ],
+      "handoffManifest": "m365-manifest.json",
+      "runManifest": "m365-run-manifest.json",
+      "schemaId": "avd-ops-m365-manifest/v1",
       "files": [
         "schemas/m365-manifest.schema.json"
       ]
     },
     "avd-azure": {
+      "repo": "avd-ops/avd-azure",
       "url": "https://github.com/avd-ops/avd-azure",
       "commit": "ac01bc41b1e60d04bdfc01f77fe7832255d6644c",
+      "shortCommit": "ac01bc4",
+      "entryPoint": "scripts/deploy/deploy.sh",
+      "teardownScript": null,
+      "consumes": [
+        "entra-manifest.json"
+      ],
+      "handoffManifest": "azure-outputs.json",
+      "runManifest": "azure-outputs.json",
+      "schemaId": "avd-ops-azure-outputs/v1",
       "files": [
         "schemas/azure-outputs.schema.json"
       ]
     },
     "avd-power-platform": {
+      "repo": "avd-ops/avd-power-platform",
       "url": "https://github.com/avd-ops/avd-power-platform",
       "commit": "454335695e8db154dd71550788e1ce3694b59e7e",
+      "shortCommit": "4543356",
+      "entryPoint": "scripts/Deploy-AvdPowerPlatform.ps1",
+      "teardownScript": "scripts/Remove-AvdPowerPlatform.ps1",
+      "consumes": [
+        "entra-manifest.json",
+        "azure-outputs.json"
+      ],
+      "handoffManifest": "power-platform-manifest.json",
+      "runManifest": "power-platform-run-manifest.json",
+      "schemaId": "avd-ops-power-platform-manifest/v1",
       "files": [
         "schemas/power-platform-manifest.schema.json"
       ]

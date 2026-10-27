@@ -72,10 +72,18 @@ for (const [name, viewport, colorScheme] of [['desktop', { width: 1280, height: 
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
     // Every step fits the screen too: a positioned element in a step that is off to the side in the step track
     // (the screen-reader-only text in a title) once widened the page to the whole track.
-    for (const step of ['predeploy', 'verify']) {
+    for (const step of ['predeploy', 'deploy', 'verify']) {
       await page.evaluate((s) => { localStorage.setItem('avdlz.portal.step', JSON.stringify(s)); localStorage.setItem('avdlz.portal.reachedStep', JSON.stringify(s)); }, step);
       await page.reload();
-      assert.equal(await page.getAttribute(`#steps button[aria-current="step"]`, 'aria-label'), step === 'verify' ? '8. Verify access' : '4. Pre-deployment preflight');
+      const expectedLabel = step === 'verify' ? '8. Verify access' : step === 'deploy' ? '5. Deploy' : '4. Pre-deployment preflight';
+      assert.equal(await page.getAttribute(`#steps button[aria-current="step"]`, 'aria-label'), expectedLabel);
+      if (step === 'deploy') {
+        assert.ok(await page.isVisible('#control-planes-panel'));
+        await page.click('#cp-preset-brownfield');
+        assert.match(await page.textContent('#cp-summary'), /Selected \(3\/5\)/);
+        await page.click('#cp-preset-greenfield');
+        assert.match(await page.textContent('#cp-summary'), /Selected \(5\/5\)/);
+      }
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, `${step}: no horizontal scroll`);
     }
     // Third-party loads (fonts) are blocked above; a 404 from the page's own files still fails.

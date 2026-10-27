@@ -59,8 +59,8 @@
     if (sizing) { cfg.sizing = sizing; save('sizing', cfg.sizing); }
     var topology = patch && P.validTopology(patch.topology);
     if (topology) { cfg.topology = topology; save('topology', cfg.topology); }
-    var controlPlanes = patch && P.validControlPlanes(patch.controlPlanes);
-    if (controlPlanes) { cfg.controlPlanes = controlPlanes; save('controlPlanes', cfg.controlPlanes); }
+    var validCp = patch && P.validControlPlanes(patch.controlPlanes);
+    if (validCp) { controlPlanes = validCp; cfg.controlPlanes = validCp; save('controlPlanes', cfg.controlPlanes); if (typeof renderControlPlanesPanel === 'function') renderControlPlanesPanel(); }
     // ... and which power settings it priced.
     var power = patch && P.validPower(patch.power);
     if (power) { cfg.power = power; save('power', cfg.power); }
@@ -1134,9 +1134,9 @@
 
   function controlPlaneSummaryText(cp) {
     var enabled = P.enabledControlPlanes({ controlPlanes: cp });
-    if (enabled.length === 5) return 'Full Greenfield (all 5 planes)';
-    if (enabled.length === 3 && cp.entra && cp.intune && cp.azure) return 'Brownfield Azure + Intune';
-    if (enabled.length === 1 && cp.azure) return 'Azure Only';
+    if (enabled.length === 5) return 'Greenfield — all 5 control planes';
+    if (enabled.length === 3 && cp.entra && cp.intune && cp.azure) return 'Brownfield — Entra + Intune + Azure';
+    if (enabled.length === 1 && cp.azure) return 'Azure only';
     return enabled.map(function (k) { return P.CONTROL_PLANES[k].label; }).join(' -> ');
   }
 
@@ -1161,9 +1161,9 @@
   }
 
   if ($('control-planes-panel')) {
-    [['cp-preset-greenfield', 'greenfield', 'Full Greenfield selected (all 5 control-plane repos).'],
-      ['cp-preset-brownfield', 'brownfield-azure-intune', 'Brownfield Azure + Intune selected (Entra, Intune, Azure).'],
-      ['cp-preset-azure', 'azure-only', 'Azure Only selected (avd-azure only).']
+    [['cp-preset-greenfield', 'greenfield', 'Greenfield — all 5 control planes selected.'],
+      ['cp-preset-brownfield', 'brownfield', 'Brownfield — Entra + Intune + Azure selected.'],
+      ['cp-preset-azure', 'azure-only', 'Azure only selected (avd-azure only).']
     ].forEach(function (item) {
       var btn = $(item[0]);
       if (btn) btn.addEventListener('click', function () { applyControlPlanesState(P.applyControlPlanePreset(item[1]), item[2]); });

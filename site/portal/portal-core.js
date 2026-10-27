@@ -359,73 +359,104 @@
   };
 
   // ---------------------------------------------------------------- five control planes (decision 0009)
-  // Pinned commits match contracts/PINS.json. Each stage clones its control-plane repo at its pinned commit
-  // and passes the handoff manifests in sequence: entra-manifest.json -> azure-outputs.json -> power-platform-manifest.json.
+  // Pinned commits match contracts/control-planes.json and contracts/PINS.json. Each stage clones its
+  // control-plane repo at its pinned commit and passes the handoff manifests in sequence:
+  // entra-manifest.json -> intune-manifest.json + m365-manifest.json + azure-outputs.json -> power-platform-manifest.json.
   var CONTROL_PLANE_ORDER = ['entra', 'intune', 'm365', 'azure', 'powerPlatform'];
   var CONTROL_PLANES = {
     entra: {
       id: 'entra',
+      cliId: 'entra',
       stage: 1,
       label: 'Entra ID',
       repo: 'avd-ops/avd-entra',
       repoUrl: 'https://github.com/avd-ops/avd-entra',
       dir: '~/avd-entra',
       commit: '3a6132c2146a58a7c5feb44cbeab3581d750d3fc',
+      shortCommit: '3a6132c',
+      entryPoint: 'scripts/Deploy-AvdEntra.ps1',
+      teardownScript: 'scripts/Remove-AvdEntra.ps1',
+      schemaId: 'avd-ops-entra-manifest/v1',
       schema: 'contracts/schemas/entra-manifest.schema.json',
       inputs: [],
       output: 'entra-manifest.json',
+      runManifest: 'entra-run-manifest.json',
       description: 'Creates AVD security groups, service principals, and Conditional Access exclusions, emitting entra-manifest.json.'
     },
     intune: {
       id: 'intune',
+      cliId: 'intune',
       stage: 2,
       label: 'Intune',
       repo: 'avd-ops/avd-intune',
       repoUrl: 'https://github.com/avd-ops/avd-intune',
       dir: '~/avd-intune',
       commit: 'f64c56a84f7f53bcb7aeb398a456e0853d877633',
+      shortCommit: 'f64c56a',
+      entryPoint: 'scripts/Deploy-AvdIntune.ps1',
+      teardownScript: 'scripts/Remove-AvdIntune.ps1',
+      schemaId: 'avd-ops-intune-manifest/v1',
       schema: 'contracts/schemas/intune-manifest.schema.json',
       inputs: ['entra-manifest.json'],
       output: 'intune-manifest.json',
+      runManifest: 'intune-run-manifest.json',
       description: 'Configures AVD Settings Catalog device baselines, compliance policies, and group assignments from entra-manifest.json.'
     },
     m365: {
       id: 'm365',
-      stage: 3,
+      cliId: 'm365',
+      stage: 2,
       label: 'Microsoft 365',
       repo: 'avd-ops/avd-m365',
       repoUrl: 'https://github.com/avd-ops/avd-m365',
       dir: '~/avd-m365',
       commit: 'f18b14f9866cce604b92738c92afa390e14ee7fc',
+      shortCommit: 'f18b14f',
+      entryPoint: 'scripts/Deploy-AvdM365.ps1',
+      teardownScript: 'scripts/Remove-AvdM365.ps1',
+      schemaId: 'avd-ops-m365-manifest/v1',
       schema: 'contracts/schemas/m365-manifest.schema.json',
       inputs: ['entra-manifest.json'],
       output: 'm365-manifest.json',
+      runManifest: 'm365-run-manifest.json',
       description: 'Configures Microsoft 365 Apps for Enterprise shared computer activation and OneDrive Known Folder Move policies from entra-manifest.json.'
     },
     azure: {
       id: 'azure',
-      stage: 4,
+      cliId: 'azure',
+      stage: 2,
       label: 'Azure Infrastructure',
       repo: 'avd-ops/avd-azure',
       repoUrl: 'https://github.com/avd-ops/avd-azure',
       dir: '~/avd-azure',
       commit: 'ac01bc41b1e60d04bdfc01f77fe7832255d6644c',
+      shortCommit: 'ac01bc4',
+      entryPoint: 'scripts/deploy/deploy.sh',
+      teardownScript: null,
+      schemaId: 'avd-ops-azure-outputs/v1',
       schema: 'contracts/schemas/azure-outputs.schema.json',
       inputs: ['entra-manifest.json'],
       output: 'azure-outputs.json',
+      runManifest: 'azure-outputs.json',
       description: 'Deploys subscription Bicep resource groups, VNet, FSLogix Azure Files, Key Vault, host pools, workspaces, and session hosts, emitting azure-outputs.json.'
     },
     powerPlatform: {
       id: 'powerPlatform',
-      stage: 5,
+      cliId: 'power-platform',
+      stage: 3,
       label: 'Power Platform',
       repo: 'avd-ops/avd-power-platform',
       repoUrl: 'https://github.com/avd-ops/avd-power-platform',
       dir: '~/avd-power-platform',
       commit: '454335695e8db154dd71550788e1ce3694b59e7e',
+      shortCommit: '4543356',
+      entryPoint: 'scripts/Deploy-AvdPowerPlatform.ps1',
+      teardownScript: 'scripts/Remove-AvdPowerPlatform.ps1',
+      schemaId: 'avd-ops-power-platform-manifest/v1',
       schema: 'contracts/schemas/power-platform-manifest.schema.json',
       inputs: ['entra-manifest.json', 'azure-outputs.json'],
       output: 'power-platform-manifest.json',
+      runManifest: 'power-platform-run-manifest.json',
       description: 'Configures Power Platform environment, DLP policies, and VNet data integration against entra-manifest.json and azure-outputs.json.'
     }
   };
@@ -441,29 +472,48 @@
   var CONTROL_PLANE_PRESETS = {
     greenfield: {
       id: 'greenfield',
-      label: 'Full Greenfield',
-      description: 'All five control planes in sequence: Entra ID -> Intune + Microsoft 365 -> Azure -> Power Platform.',
+      label: 'Greenfield — all 5 control planes',
+      description: 'All five control planes in sequence: Entra ID -> Intune + Microsoft 365 + Azure -> Power Platform.',
       planes: { entra: true, intune: true, m365: true, azure: true, powerPlatform: true }
+    },
+    brownfield: {
+      id: 'brownfield',
+      label: 'Brownfield — Entra + Intune + Azure',
+      description: 'Entra ID groups, Intune device baselines, and Azure AVD infrastructure (skips Microsoft 365 and Power Platform).',
+      planes: { entra: true, intune: true, m365: false, azure: true, powerPlatform: false }
     },
     'brownfield-azure-intune': {
       id: 'brownfield-azure-intune',
-      label: 'Brownfield Azure + Intune',
+      label: 'Brownfield — Entra + Intune + Azure',
       description: 'Entra ID groups, Intune device baselines, and Azure AVD infrastructure (skips Microsoft 365 and Power Platform).',
       planes: { entra: true, intune: true, m365: false, azure: true, powerPlatform: false }
     },
     'azure-only': {
       id: 'azure-only',
-      label: 'Azure Only',
+      label: 'Azure only',
       description: 'Azure AVD infrastructure only, using existing Entra ID groups.',
       planes: { entra: false, intune: false, m365: false, azure: true, powerPlatform: false }
     }
   };
 
   function validControlPlanes(raw) {
-    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+    if (!raw || typeof raw !== 'object') return null;
+    if (Array.isArray(raw)) {
+      if (!raw.length) return null;
+      var fromArr = { entra: false, intune: false, m365: false, azure: false, powerPlatform: false }, arrHits = 0;
+      for (var a = 0; a < raw.length; a++) {
+        var item = String(raw[a] || '').trim();
+        var mapped = item === 'power-platform' ? 'powerPlatform' : item;
+        if (CONTROL_PLANE_ORDER.indexOf(mapped) < 0) return null;
+        fromArr[mapped] = true;
+        arrHits++;
+      }
+      return arrHits ? fromArr : null;
+    }
     var out = merge(CONTROL_PLANE_DEFAULTS, {}), seen = 0, anyEnabled = false;
     for (var i = 0; i < CONTROL_PLANE_ORDER.length; i++) {
-      var k = CONTROL_PLANE_ORDER[i], v = raw[k];
+      var k = CONTROL_PLANE_ORDER[i];
+      var v = raw[k] !== undefined ? raw[k] : (k === 'powerPlatform' ? raw['power-platform'] : undefined);
       if (v === undefined || v === null) continue;
       if (v === true || v === 'true') { out[k] = true; seen++; }
       else if (v === false || v === 'false') { out[k] = false; seen++; }
@@ -477,8 +527,8 @@
 
   function applyControlPlanePreset(presetId) {
     var key = String(presetId || '').trim().toLowerCase();
-    if (key === 'full-greenfield' || key === 'full greenfield') key = 'greenfield';
-    else if (key === 'brownfield' || key === 'brownfield azure + intune') key = 'brownfield-azure-intune';
+    if (key === 'full-greenfield' || key === 'full greenfield' || key.indexOf('greenfield') === 0) key = 'greenfield';
+    else if (key === 'brownfield' || key === 'brownfield azure + intune' || key.indexOf('brownfield') === 0) key = 'brownfield';
     else if (key === 'azure' || key === 'azure only') key = 'azure-only';
     var preset = CONTROL_PLANE_PRESETS[key];
     return preset ? merge(preset.planes, {}) : merge(CONTROL_PLANE_DEFAULTS, {});
@@ -487,6 +537,10 @@
   function enabledControlPlanes(cfg) {
     var cp = (cfg && validControlPlanes(cfg.controlPlanes)) || CONTROL_PLANE_DEFAULTS;
     return CONTROL_PLANE_ORDER.filter(function (k) { return !!cp[k]; });
+  }
+
+  function controlPlanesCsv(cfg) {
+    return enabledControlPlanes(cfg).map(function (k) { return CONTROL_PLANES[k].cliId; }).join(',');
   }
 
   // Applies a built-in template ID or custom template object to all pools (when targetIndices is null/empty/'all')
@@ -1095,6 +1149,25 @@
         lines = lines.concat(controlPlaneStageLines(c, planeId));
       });
       return lines.length ? block(c, lines) : '';
+    },
+    controlPlaneOrchestrator: function (cfg) {
+      var c = merge(DEFAULTS, cfg);
+      var csv = controlPlanesCsv(c);
+      return block(c, [
+        './scripts/deploy/Invoke-AvdControlPlanes.ps1 -Planes ' + psQuote(csv) +
+          ' -NamePrefix ' + c.namePrefix + ' -Environment ' + c.environment +
+          ' -ParameterFile ' + c.parameterFile + ' -Location ' + c.location +
+          ' -UsersGroup ' + psQuote(c.usersGroup) + ' -AdminsGroup ' + psQuote(c.adminsGroup)
+      ]);
+    },
+    controlPlaneTeardown: function (cfg) {
+      var c = merge(DEFAULTS, cfg);
+      var csv = controlPlanesCsv(c);
+      return block(c, [
+        './scripts/deploy/Invoke-AvdControlPlanes.ps1 -Planes ' + psQuote(csv) +
+          ' -NamePrefix ' + c.namePrefix + ' -Environment ' + c.environment +
+          ' -Teardown -DiscardLastCopy'
+      ]);
     }
   };
 
@@ -1114,32 +1187,33 @@
     var clone = clonePlaneLines(planeId);
     if (planeId === 'entra') {
       return clone.concat([
-        'bash ~/avd-entra/scripts/deploy-entra.sh ' + psQuote(c.namePrefix) + ' ' + psQuote(c.environment) + ' ~/avd-landing-zone/entra-manifest.json'
+        signIn(c),
+        'pwsh -NoLogo -NoProfile -File ~/avd-entra/scripts/Deploy-AvdEntra.ps1 -Prefix ' + psQuote(c.namePrefix) + ' -Environment ' + psQuote(c.environment) + ' -OutputPath ~/avd-landing-zone/entra-manifest.json -RunManifestPath ~/avd-landing-zone/entra-run-manifest.json'
       ]);
     }
     if (planeId === 'intune') {
       return clone.concat([
-        'bash ~/avd-intune/scripts/deploy-intune.sh ~/avd-landing-zone/entra-manifest.json ~/avd-landing-zone/intune-manifest.json'
+        'pwsh -NoLogo -NoProfile -File ~/avd-intune/scripts/Deploy-AvdIntune.ps1 -EntraManifestPath ~/avd-landing-zone/entra-manifest.json -OutputPath ~/avd-landing-zone/intune-manifest.json -RunManifestPath ~/avd-landing-zone/intune-run-manifest.json -Prefix ' + psQuote(c.namePrefix)
       ]);
     }
     if (planeId === 'm365') {
       return clone.concat([
-        'bash ~/avd-m365/scripts/deploy-m365.sh ~/avd-landing-zone/entra-manifest.json ~/avd-landing-zone/m365-manifest.json'
+        'pwsh -NoLogo -NoProfile -File ~/avd-m365/scripts/Deploy-AvdM365.ps1 -EntraManifestPath ~/avd-landing-zone/entra-manifest.json -OutputPath ~/avd-landing-zone/m365-manifest.json -RunManifestPath ~/avd-landing-zone/m365-run-manifest.json'
       ]);
     }
     if (planeId === 'azure') {
       var base = c.namePrefix + '-' + c.environment;
       return clone.concat([
-        'if (Test-Path ~/avd-landing-zone/entra-manifest.json) { $em = Get-Content ~/avd-landing-zone/entra-manifest.json -Raw | ConvertFrom-Json; $env:AVD_USERS_GROUP_ID = $em.groups.usersGroupId; $env:AVD_ADMINS_GROUP_ID = $em.groups.adminsGroupId; $env:AVD_SERVICE_PRINCIPAL_ID = $em.servicePrincipals.avdServicePrincipalId }',
+        'if (Test-Path ~/avd-landing-zone/entra-manifest.json) { $em = Get-Content ~/avd-landing-zone/entra-manifest.json -Raw | ConvertFrom-Json; $env:AVD_USERS_GROUP_ID = $em.groups.avdUsersGroupId; $env:AVD_ADMINS_GROUP_ID = $em.groups.avdAdminsGroupId }',
         'Set-Location ~/avd-azure; bash ./scripts/deploy/deploy.sh -p ' + c.parameterFile + ' -l ' + c.location +
           ' --users-group ' + psQuote(c.usersGroup) + ' --admins-group ' + psQuote(c.adminsGroup) + sizeArgs.deploy(c),
-        '$subId = (az account show --query id -o tsv); $depName = (az deployment sub list --query "sort_by([?starts_with(name,\'avdlz-\')], &properties.timestamp)[-1].name" -o tsv); $out = (az deployment sub show -n $depName --query properties.outputs -o json | ConvertFrom-Json); @{ version = 1; subscriptionId = $subId; location = ' + psQuote(c.location) + '; resourceGroups = @{ network = $out.resourceGroups.value.network; management = $out.resourceGroups.value.management; storage = $out.resourceGroups.value.storage; controlPlane = $out.resourceGroups.value.controlPlane; hosts = $out.resourceGroups.value.hosts }; vnetId = "/subscriptions/$subId/resourceGroups/$($out.resourceGroups.value.network)/providers/Microsoft.Network/virtualNetworks/vnet-' + base + '"; storageAccountName = $out.storageAccountName.value; profileShareName = \'profiles\'; keyVaultName = $out.keyVaultName.value; logAnalyticsWorkspaceId = $out.logAnalyticsWorkspaceResourceId.value; hostPoolName = ($out.hostPoolResourceId.value -split \'/\')[-1]; appGroupName = \'vdag-' + base + '-desktop\'; workspaceName = ($out.workspaceResourceId.value -split \'/\')[-1] } | ConvertTo-Json -Depth 5 | Set-Content -Path ~/avd-landing-zone/azure-outputs.json -Encoding utf8',
+        '$subId = (az account show --query id -o tsv); @{ schema = \'avd-ops-azure-outputs/v1\'; environment = ' + psQuote(c.environment) + '; location = ' + psQuote(c.location) + '; resourceGroups = @{ controlPlane = \'rg-' + base + '-avd\'; sessionHosts = \'rg-' + base + '-hosts\'; network = \'rg-' + base + '-network\'; storage = \'rg-' + base + '-storage\' }; hostPools = @(@{ name = \'vdpool-' + base + '\'; type = \'Pooled\'; workspace = \'vdws-' + base + '\'; appGroupIds = @("/subscriptions/$subId/resourceGroups/rg-' + base + '-avd/providers/Microsoft.DesktopVirtualization/applicationGroups/vdag-' + base + '-desktop") }); network = @{ vnetName = \'vnet-' + base + '\'; privateLinkEnabled = $true } } | ConvertTo-Json -Depth 6 | Set-Content -Path ~/avd-landing-zone/azure-outputs.json -Encoding utf8',
         'Set-Location ~/avd-landing-zone'
       ]);
     }
     if (planeId === 'powerPlatform') {
       return clone.concat([
-        'bash ~/avd-power-platform/scripts/deploy-power-platform.sh ~/avd-landing-zone/entra-manifest.json ~/avd-landing-zone/azure-outputs.json ~/avd-landing-zone/power-platform-manifest.json'
+        'pwsh -NoLogo -NoProfile -File ~/avd-power-platform/scripts/Deploy-AvdPowerPlatform.ps1 -EntraManifestPath ~/avd-landing-zone/entra-manifest.json -AzureOutputsPath ~/avd-landing-zone/azure-outputs.json -OutputPath ~/avd-landing-zone/power-platform-manifest.json -RunManifestPath ~/avd-landing-zone/power-platform-run-manifest.json'
       ]);
     }
     return [];
@@ -1155,12 +1229,16 @@
         : 'Writes ' + p.output + ' for downstream control planes.';
       return {
         id: p.id,
+        cliId: p.cliId,
         stage: idx + 1,
         repo: p.repo,
         commit: p.commit,
+        shortCommit: p.shortCommit,
+        entryPoint: p.entryPoint,
+        teardownScript: p.teardownScript,
         inputs: p.inputs.slice(),
         output: p.output,
-        title: 'Stage ' + (idx + 1) + ' (' + p.label + '): ' + p.repo + '@' + p.commit.slice(0, 7),
+        title: 'Stage ' + (idx + 1) + ' (' + p.label + '): ' + p.repo + '@' + p.shortCommit,
         why: p.description + ' ' + handoff,
         command: cmd.controlPlane(cfg, planeId)
       };
@@ -1176,6 +1254,7 @@
     "scripts/ops/Connect-AvdLandingZone.ps1": {"cloudshell-pwsh": "tested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules", "evidence": "build/lessons/0030-graph-unlisted-delegated-scope.md"},
     "scripts/ops/Test-AvdLandingZoneReadiness.ps1": {"cloudshell-pwsh": "tested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules", "evidence": "build/tests/portal/fixtures/real-predeploy-ready.txt, real-postdeploy-ready.txt"},
     "scripts/deploy/deploy.sh": {"cloudshell-pwsh": "tested", "cloudshell-bash": "untested", "windows": "no", "macos": "untested", "requires": "bash, the az CLI with Bicep", "evidence": "build/tests/portal/fixtures/real-deploy-dcr-tables.txt, build/lessons/0006-provider-registration.md"},
+    "scripts/deploy/Invoke-AvdControlPlanes.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules"},
     "scripts/ops/Deploy-AvdDemo.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules, the Microsoft.Graph modules"},
     "scripts/ops/Test-AvdUserConnection.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules"},
     "scripts/ops/Get-AvdRunStatus.ps1": {"cloudshell-pwsh": "untested", "cloudshell-bash": "untested", "windows": "untested", "macos": "untested", "requires": "PowerShell 7.2 or later, the Az modules"},
@@ -1665,10 +1744,39 @@
       else note('The demo is removed', 'The landing zone is untouched.', '');
       return { step: state.context && state.context.includeLandingZone ? 'predeploy' : 'signin', actions: a };
     }
+    if (S === 'controlplanes') {
+      var cpc = Object.assign({}, state, state.context || {});
+      var donePlanes = Array.isArray(cpc.completedPlanes) ? cpc.completedPlanes : [];
+      var manifests = Array.isArray(cpc.manifests) ? cpc.manifests : (cpc.manifests && typeof cpc.manifests === 'object' ? Object.keys(cpc.manifests) : []);
+      if (cpc.teardown) {
+        if (state.status === 'done' || state.status === 'ready' || state.status === 'succeeded') {
+          note('Selected control planes removed', 'Reverse-order teardown completed (' + (donePlanes.join(' -> ') || 'all selected planes') + '). Start with the pre-deployment preflight to deploy again.', cmd.predeploy(cfg, false));
+          return { step: 'predeploy', actions: a };
+        }
+        failures.forEach(function (f) { note('Fix: ' + (f.check || 'Teardown failure'), [f.detail, f.remediation].filter(Boolean).join(' '), ''); });
+        note('Rerun coordinated teardown with -DiscardLastCopy', 'Runs reverse-order teardown across the selected control planes.', cmd.controlPlaneTeardown(cfg));
+        return { step: 'deploy', actions: a };
+      }
+      if (state.status === 'succeeded' || state.status === 'ready') {
+        note('Run the post-deployment setup', 'All selected control planes succeeded (' + (donePlanes.join(' -> ') || 'completed') + ')' + (manifests.length ? ' and emitted ' + manifests.join(', ') : '') + '. Next, run the post-deployment setup to verify consent, Conditional Access, and profile share permissions.', cmd.postdeploy(cfg, true));
+        return { step: 'postdeploy', actions: a };
+      }
+      if (state.status === 'partial' || state.status === 'inprogress' || state.status === 'started') {
+        var nextId = cpc.nextPlane === 'power-platform' ? 'powerPlatform' : cpc.nextPlane;
+        if (nextId && CONTROL_PLANES[nextId]) {
+          note('Continue with ' + CONTROL_PLANES[nextId].label, 'Completed ' + (donePlanes.join(', ') || 'previous stage') + (manifests.length ? ' (' + manifests.join(', ') + ')' : '') + '. Run the next control-plane stage.', cmd.controlPlane(cfg, nextId));
+        }
+        note('Or run the control-plane orchestrator', 'Continues across all selected control planes.', cmd.controlPlaneOrchestrator(cfg));
+        return { step: 'deploy', actions: a };
+      }
+      failures.forEach(function (f) { note('Fix: ' + (f.check || 'Control-plane failure'), [f.detail, f.remediation].filter(Boolean).join(' '), ''); });
+      note('Rerun the selected control planes', 'Runs the top-level orchestrator for the selected control planes.', cmd.controlPlaneOrchestrator(cfg));
+      return { step: 'deploy', actions: a };
+    }
     return { step: null, actions: a };
   }
 
-  var STAGE_LABEL = { predeploy: 'Pre-deployment preflight', deploy: 'Deployment', postdeploy: 'Post-deployment setup', demo: 'Demo validation', cleanup: 'Cleanup', power: 'Auto shutdown', verify: 'Access check', resume: 'Where you left off', recovery: 'Recovery', rotation: 'Host rotation' };
+  var STAGE_LABEL = { predeploy: 'Pre-deployment preflight', deploy: 'Deployment', controlplanes: 'Control planes', postdeploy: 'Post-deployment setup', demo: 'Demo validation', cleanup: 'Cleanup', power: 'Auto shutdown', verify: 'Access check', resume: 'Where you left off', recovery: 'Recovery', rotation: 'Host rotation' };
   var STATUS_LABEL = { done: 'Done', ready: 'Ready', notready: 'Not ready', succeeded: 'Succeeded', failed: 'Failed', started: 'Still running (or disconnected)', whatif: 'What-if only', locked: 'Locked', resumed: 'Resumed', stopped: 'Stopped', verified: 'Verified', notverified: 'Not verified', unknown: 'Unknown', met: 'Met', notmet: 'Not met', passed: 'Passed', refused: 'Refused', waiting: 'Waiting' };
 
   /*
@@ -1843,6 +1951,11 @@
         var deployActs = [{ title: 'Deploy the landing zone', why: 'Run this once the pre-deployment preflight is Ready. It takes 30-45 minutes and keeps running in Azure if Cloud Shell disconnects.', command: cmd.deploy(cfg) }];
         if (validControlPlanes(cfg.controlPlanes)) {
           var cpActs = controlPlaneActions(cfg);
+          deployActs.push({
+            title: 'Orchestrate selected control planes (' + controlPlanesCsv(cfg) + ')',
+            why: 'Runs Invoke-AvdControlPlanes.ps1 to check out each selected control-plane repo at its pinned commit, sequence execution, and validate handoff manifests.',
+            command: cmd.controlPlaneOrchestrator(cfg)
+          });
           if (cpActs.length > 1) {
             deployActs.push({
               title: 'Run all ' + cpActs.length + ' selected control planes in sequence',
@@ -1880,7 +1993,7 @@
     return a;
   }
 
-  return { STEPS: STEPS, newRunId: newRunId, recording: recording, recordActions: recordActions, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, isCommit: isCommit, siteConfig: siteConfig, SETTINGS: SETTINGS, SETTING_NAMES: SETTING_NAMES, validSettings: validSettings, contextSettings: contextSettings, validSizing: validSizing, validPower: validPower, validEstimate: validEstimate, validTopology: validTopology, hasCustomTopology: hasCustomTopology, buildTopologyManifest: buildTopologyManifest, CONTROL_PLANE_ORDER: CONTROL_PLANE_ORDER, CONTROL_PLANES: CONTROL_PLANES, CONTROL_PLANE_DEFAULTS: CONTROL_PLANE_DEFAULTS, CONTROL_PLANE_PRESETS: CONTROL_PLANE_PRESETS, validControlPlanes: validControlPlanes, applyControlPlanePreset: applyControlPlanePreset, enabledControlPlanes: enabledControlPlanes, controlPlaneActions: controlPlaneActions, versionNote: versionNote, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, DEFAULT_RDP_PROPERTIES: DEFAULT_RDP_PROPERTIES, LOCKED_DOWN_RDP_PROPERTIES: LOCKED_DOWN_RDP_PROPERTIES, POOL_TEMPLATES: POOL_TEMPLATES, WORKSPACE_DEFAULTS: WORKSPACE_DEFAULTS, APP_GROUP_DEFAULTS: APP_GROUP_DEFAULTS, DNS_ZONE_DEFINITIONS: DNS_ZONE_DEFINITIONS, PRIVATE_LINK_DEFAULTS: PRIVATE_LINK_DEFAULTS, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_WORKSPACES: MAX_WORKSPACES, MAX_APP_GROUPS: MAX_APP_GROUPS, MAX_HOSTS: MAX_HOSTS, applyPoolTemplate: applyPoolTemplate, computePool: computePool, computeTopology: computeTopology, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
+  return { STEPS: STEPS, newRunId: newRunId, recording: recording, recordActions: recordActions, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, isCommit: isCommit, siteConfig: siteConfig, SETTINGS: SETTINGS, SETTING_NAMES: SETTING_NAMES, validSettings: validSettings, contextSettings: contextSettings, validSizing: validSizing, validPower: validPower, validEstimate: validEstimate, validTopology: validTopology, hasCustomTopology: hasCustomTopology, buildTopologyManifest: buildTopologyManifest, CONTROL_PLANE_ORDER: CONTROL_PLANE_ORDER, CONTROL_PLANES: CONTROL_PLANES, CONTROL_PLANE_DEFAULTS: CONTROL_PLANE_DEFAULTS, CONTROL_PLANE_PRESETS: CONTROL_PLANE_PRESETS, validControlPlanes: validControlPlanes, applyControlPlanePreset: applyControlPlanePreset, enabledControlPlanes: enabledControlPlanes, controlPlanesCsv: controlPlanesCsv, controlPlaneActions: controlPlaneActions, versionNote: versionNote, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, DEFAULT_RDP_PROPERTIES: DEFAULT_RDP_PROPERTIES, LOCKED_DOWN_RDP_PROPERTIES: LOCKED_DOWN_RDP_PROPERTIES, POOL_TEMPLATES: POOL_TEMPLATES, WORKSPACE_DEFAULTS: WORKSPACE_DEFAULTS, APP_GROUP_DEFAULTS: APP_GROUP_DEFAULTS, DNS_ZONE_DEFINITIONS: DNS_ZONE_DEFINITIONS, PRIVATE_LINK_DEFAULTS: PRIVATE_LINK_DEFAULTS, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_WORKSPACES: MAX_WORKSPACES, MAX_APP_GROUPS: MAX_APP_GROUPS, MAX_HOSTS: MAX_HOSTS, applyPoolTemplate: applyPoolTemplate, computePool: computePool, computeTopology: computeTopology, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
     PLATFORMS: PLATFORMS, RUNIN_DEFAULT: RUNIN_DEFAULT, PLACES: PLACES, validRunIn: validRunIn, isDefaultRunIn: isDefaultRunIn, scriptsIn: scriptsIn, support: support, forRunIn: forRunIn,
     REACHABILITY_HOSTS: REACHABILITY_HOSTS, rateLatency: rateLatency, classifyReachability: classifyReachability, launchTarget: launchTarget, launchUrl: launchUrl };
 });

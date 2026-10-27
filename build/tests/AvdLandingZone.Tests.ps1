@@ -968,3 +968,108 @@ Describe 'Multi-pool topology and Private Link cost & plan' {
     ($e.lines | Where-Object key -eq 'privateendpoints').item | Should -Match 'Private endpoints \(7\)'
   }
 }
+
+Describe 'Five control planes orchestrator and pin manifest (decision 0009)' {
+  BeforeAll {
+    $script:repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
+    $script:cpPath = Join-Path $script:repoRoot 'contracts/control-planes.json'
+    $script:pinsPath = Join-Path $script:repoRoot 'contracts/PINS.json'
+    $script:orchestratorPath = Join-Path $script:repoRoot 'scripts/deploy/Invoke-AvdControlPlanes.ps1'
+    $script:deployShPath = Join-Path $script:repoRoot 'scripts/deploy/deploy.sh'
+    $script:cpManifest = Get-Content -Raw -Path $script:cpPath | ConvertFrom-Json
+    $script:pinsManifest = Get-Content -Raw -Path $script:pinsPath | ConvertFrom-Json
+  }
+
+  It 'records all 5 control planes with matching pinned commits, entry points, teardown scripts, and schemas' {
+    $script:cpManifest.schema | Should -Be 'avd-ops-control-planes-pins/v1'
+    @($script:cpManifest.executionOrder) | Should -Be @('entra', 'intune', 'm365', 'azure', 'power-platform')
+    @($script:cpManifest.teardownOrder) | Should -Be @('power-platform', 'azure', 'm365', 'intune', 'entra')
+
+    $expected = @(
+      @{ Key = 'entra'; Repo = 'avd-entra'; Short = '3a6132c'; Entry = 'scripts/Deploy-AvdEntra.ps1'; Teardown = 'scripts/Remove-AvdEntra.ps1'; Manifest = 'entra-manifest.json' }
+      @{ Key = 'intune'; Repo = 'avd-intune'; Short = 'f64c56a'; Entry = 'scripts/Deploy-AvdIntune.ps1'; Teardown = 'scripts/Remove-AvdIntune.ps1'; Manifest = 'intune-manifest.json' }
+      @{ Key = 'm365'; Repo = 'avd-m365'; Short = 'f18b14f'; Entry = 'scripts/Deploy-AvdM365.ps1'; Teardown = 'scripts/Remove-AvdM365.ps1'; Manifest = 'm365-manifest.json' }
+      @{ Key = 'azure'; Repo = 'avd-azure'; Short = 'ac01bc4'; Entry = 'scripts/deploy/deploy.sh'; Teardown = $null; Manifest = 'azure-outputs.json' }
+      @{ Key = 'power-platform'; Repo = 'avd-power-platform'; Short = '4543356'; Entry = 'scripts/Deploy-AvdPowerPlatform.ps1'; Teardown = 'scripts/Remove-AvdPowerPlatform.ps1'; Manifest = 'power-platform-manifest.json' }
+    )
+
+    foreach ($e in $expected) {
+      $plane = $script:cpManifest.planes.($e.Key)
+      $plane | Should -Not -BeNullOrEmpty -Because $e.Key
+      $plane.shortCommit | Should -Be $e.Short
+      $plane.commit | Should -Match "^$($e.Short)[0-9a-f]{33}$"
+      $plane.entryPoint | Should -Be $e.Entry
+      $plane.teardownScript | Should -Be $e.Teardown
+      $plane.handoffManifest | Should -Be $e.Manifest
+      Test-Path (Join-Path $script:repoRoot $plane.schemaFile) | Should -BeTrue -Because $plane.schemaFile
+
+      $pinSource = $script:pinsManifest.sources.($e.Repo)
+      $pinSource.commit | Should -Be $plane.commit
+      $pinSource.shortCommit | Should -Be $e.Short
+      $pinSource.entryPoint | Should -Be $e.Entry
+      $pinSource.handoffManifest | Should -Be $e.Manifest
+    }
+  }
+
+  It 'executes greenfield DryRun in dependency order and validates all 5 handoff manifests against their JSON Schemas' {
+    $outDir = Join-Path ([System.IO.Path]::GetTempPath()) "avdlz-cp-greenfield-$([guid]::NewGuid().ToString('N'))"
+    try {
+      $res = & $script:orchestratorPath -Preset greenfield -NamePrefix 'avdlz' -Environment 'dev' -Location 'eastus2' -ManifestDirectory $outDir -DryRun 6>$null
+      $res.status | Should -Be 'succeeded'
+      @($res.planes) | Should -Be @('entra', 'intune', 'm365', 'azure', 'power-platform')
+      @($res.completedPlanes) | Should -Be @('entra', 'intune', 'm365', 'azure', 'power-platform')
+
+      foreach ($planeKey in @('entra', 'intune', 'm365', 'azure', 'power-platform')) {
+        $planeDef = $script:cpManifest.planes.$planeKey
+        $manifestFile = Join-Path $outDir $planeDef.handoffManifest
+        $schemaFile = Join-Path $script:repoRoot $planeDef.schemaFile
+        Test-Path $manifestFile | Should -BeTrue -Because "$planeKey handoff manifest"
+        Test-Json -Path $manifestFile -SchemaFile $schemaFile | Should -BeTrue -Because "$planeKey schema validation"
+      }
+    }
+    finally {
+      if (Test-Path $outDir) { Remove-Item -Path $outDir -Recurse -Force }
+    }
+  }
+
+  It 'executes brownfield subset (--planes entra,intune,azure) in DryRun mode' {
+    $outDir = Join-Path ([System.IO.Path]::GetTempPath()) "avdlz-cp-brownfield-$([guid]::NewGuid().ToString('N'))"
+    try {
+      $res = & $script:orchestratorPath -Planes 'entra,intune,azure' -NamePrefix 'avdlz' -Environment 'dev' -ManifestDirectory $outDir -DryRun 6>$null
+      $res.status | Should -Be 'succeeded'
+      @($res.completedPlanes) | Should -Be @('entra', 'intune', 'azure')
+      Test-Path (Join-Path $outDir 'entra-manifest.json') | Should -BeTrue
+      Test-Path (Join-Path $outDir 'intune-manifest.json') | Should -BeTrue
+      Test-Path (Join-Path $outDir 'azure-outputs.json') | Should -BeTrue
+      Test-Path (Join-Path $outDir 'm365-manifest.json') | Should -BeFalse
+      Test-Path (Join-Path $outDir 'power-platform-manifest.json') | Should -BeFalse
+    }
+    finally {
+      if (Test-Path $outDir) { Remove-Item -Path $outDir -Recurse -Force }
+    }
+  }
+
+  It 'requires -DiscardLastCopy for -Teardown and runs teardown in reverse dependency order' {
+    $outDir = Join-Path ([System.IO.Path]::GetTempPath()) "avdlz-cp-teardown-$([guid]::NewGuid().ToString('N'))"
+    try {
+      { & $script:orchestratorPath -Preset greenfield -ManifestDirectory $outDir -Teardown -DryRun 6>$null } |
+        Should -Throw '*-DiscardLastCopy*'
+
+      $res = & $script:orchestratorPath -Preset greenfield -ManifestDirectory $outDir -Teardown -DiscardLastCopy -DryRun 6>$null
+      $res.status | Should -Be 'succeeded'
+      $res.teardown | Should -BeTrue
+      @($res.completedPlanes) | Should -Be @('power-platform', 'azure', 'm365', 'intune', 'entra')
+    }
+    finally {
+      if (Test-Path $outDir) { Remove-Item -Path $outDir -Recurse -Force }
+    }
+  }
+
+  It 'wires --planes, --azure-outputs, --teardown, and --discard-last-copy in deploy.sh' {
+    $sh = Get-Content -Raw -Path $script:deployShPath
+    $sh | Should -Match '--planes\)'
+    $sh | Should -Match '--azure-outputs\)'
+    $sh | Should -Match 'Invoke-AvdControlPlanes\.ps1'
+    $sh | Should -Match 'avd-ops-azure-outputs/v1'
+  }
+}

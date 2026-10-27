@@ -67,6 +67,13 @@ JUMPBOX=false
 JUMPBOX_KEEP_RUNNING=""
 JUMPBOX_OS="${AVD_JUMPBOX_OS:-}"
 TOPOLOGY="${AVD_TOPOLOGY_JSON:-}"
+PLANES=""
+AZURE_OUTPUTS=""
+NAME_PREFIX_ARG=""
+ENVIRONMENT_ARG=""
+TEARDOWN=false
+DISCARD_LAST_COPY=false
+DRY_RUN=false
 AVD_APP_ID="9cdead84-a844-4324-93f2-b2e6bb768d07"   # Azure Virtual Desktop first-party app
 
 usage() {
@@ -97,9 +104,46 @@ while [[ $# -gt 0 ]]; do
     --jumpbox-keep-running) JUMPBOX_KEEP_RUNNING="$2"; shift 2 ;;
     --jumpbox-os) JUMPBOX_OS="$2"; shift 2 ;;
     --topology) TOPOLOGY="$2"; shift 2 ;;
+    --planes) PLANES="$2"; shift 2 ;;
+    --azure-outputs) AZURE_OUTPUTS="$2"; shift 2 ;;
+    --name-prefix) NAME_PREFIX_ARG="$2"; shift 2 ;;
+    --environment) ENVIRONMENT_ARG="$2"; shift 2 ;;
+    --teardown) TEARDOWN=true; shift ;;
+    --discard-last-copy) DISCARD_LAST_COPY=true; shift ;;
+    --dry-run) DRY_RUN=true; shift ;;
     *) usage ;;
   esac
 done
+
+if [[ -n "$PLANES" ]] || $TEARDOWN || $DRY_RUN; then
+  script_repo_dir=$(cd "$(dirname "$0")/../.." && { pwd -W 2>/dev/null || pwd; })
+  orch_env="${ENVIRONMENT_ARG:-}"
+  if [[ -z "$orch_env" && "$PARAM_FILE" =~ (dev|test|prod)\.bicepparam$ ]]; then
+    orch_env="${BASH_REMATCH[1]}"
+  fi
+  orch_env="${orch_env:-dev}"
+  orch_prefix="${NAME_PREFIX_ARG:-avdlz}"
+  orch_loc="${LOCATION:-northcentralus}"
+  orch_param="${PARAM_FILE:-parameters/$orch_env.bicepparam}"
+  orch_planes="${PLANES:-entra,intune,m365,azure,power-platform}"
+  orch_args=(
+    -NoLogo -NoProfile
+    -File "$script_repo_dir/scripts/deploy/Invoke-AvdControlPlanes.ps1"
+    -Planes "$orch_planes"
+    -NamePrefix "$orch_prefix"
+    -Environment "$orch_env"
+    -ParameterFile "$orch_param"
+    -Location "$orch_loc"
+  )
+  [[ -n "$USERS_GROUP" ]] && orch_args+=(-UsersGroup "$USERS_GROUP")
+  [[ -n "$ADMINS_GROUP" ]] && orch_args+=(-AdminsGroup "$ADMINS_GROUP")
+  [[ -n "$SUBSCRIPTION" ]] && orch_args+=(-SubscriptionId "$SUBSCRIPTION")
+  $TEARDOWN && orch_args+=(-Teardown)
+  $DISCARD_LAST_COPY && orch_args+=(-DiscardLastCopy)
+  $DRY_RUN && orch_args+=(-DryRun)
+  $WHATIF && orch_args+=(-WhatIf)
+  exec pwsh "${orch_args[@]}"
+fi
 
 [[ -z "$PARAM_FILE" || -z "$LOCATION" ]] && usage
 [[ ! -f "$PARAM_FILE" ]] && { echo "Parameter file not found: $PARAM_FILE"; exit 1; }
@@ -510,6 +554,36 @@ STORAGE_NAME=$(arm deployment sub show -n "$DEPLOY_NAME" --query properties.outp
 # rg-<prefix>-<env>-avd -> <prefix> and <env>, for the post-deployment command.
 BASE_NAME=$(arm deployment sub show -n "$DEPLOY_NAME" --query properties.outputs.resourceGroups.value.controlPlane -o tsv)
 BASE_NAME=${BASE_NAME#rg-}; BASE_NAME=${BASE_NAME%-avd}
+
+if [[ -n "$AZURE_OUTPUTS" ]]; then
+  cat > "$AZURE_OUTPUTS" <<JSONEOF
+{
+  "schema": "avd-ops-azure-outputs/v1",
+  "environment": "${BASE_NAME##*-}",
+  "location": "$LOCATION",
+  "resourceGroups": {
+    "controlPlane": "rg-$BASE_NAME-avd",
+    "sessionHosts": "rg-$BASE_NAME-hosts",
+    "network": "rg-$BASE_NAME-network",
+    "storage": "rg-$BASE_NAME-storage"
+  },
+  "hostPools": [
+    {
+      "name": "vdpool-$BASE_NAME",
+      "type": "Pooled",
+      "workspace": "vdws-$BASE_NAME",
+      "appGroupIds": [
+        "/subscriptions/$SUB_ID/resourceGroups/rg-$BASE_NAME-avd/providers/Microsoft.DesktopVirtualization/applicationGroups/vdag-$BASE_NAME-desktop"
+      ]
+    }
+  ],
+  "network": {
+    "vnetName": "vnet-$BASE_NAME",
+    "privateLinkEnabled": true
+  }
+}
+JSONEOF
+fi
 
 cat <<EOF
 

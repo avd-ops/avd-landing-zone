@@ -256,12 +256,14 @@ test('portal commands only use parameters the scripts define', () => {
     'Connect-AvdLandingZone.ps1': psParams('scripts/ops/Connect-AvdLandingZone.ps1'),
     'Get-AvdRunStatus.ps1': psParams('scripts/ops/Get-AvdRunStatus.ps1'),
     'Start-AvdRunRecorder.ps1': psParams('scripts/ops/Start-AvdRunRecorder.ps1'),
-    'Stop-AvdRunRecorder.ps1': psParams('scripts/ops/Stop-AvdRunRecorder.ps1')
+    'Stop-AvdRunRecorder.ps1': psParams('scripts/ops/Stop-AvdRunRecorder.ps1'),
+    'Invoke-AvdControlPlanes.ps1': psParams('scripts/deploy/Invoke-AvdControlPlanes.ps1')
   };
   const cfg = { ...P.DEFAULTS, testUserUpn: 'alex@contoso.com' };
   const commands = [
     P.commands.predeploy(cfg, true), P.commands.predeploy(cfg, false), P.commands.postdeploy(cfg, true), P.commands.postdeploy(cfg, false),
-    P.commands.demo(cfg), P.commands.removeDemo(cfg), P.commands.deploy(cfg), P.commands.wellArchitected(cfg)
+    P.commands.demo(cfg), P.commands.removeDemo(cfg), P.commands.deploy(cfg), P.commands.wellArchitected(cfg),
+    P.commands.controlPlaneOrchestrator(cfg), P.commands.controlPlaneTeardown(cfg)
   ];
   // The same commands once a sizing is set.
   const sizedCfg = { ...cfg, sizing: P.toSizing(P.computePool({ users: 120, workload: 'heavy', vmSize: '', hostCount: 'auto' }, 'prod')) };
@@ -1273,44 +1275,69 @@ test('run in: Windows and macOS PowerShell sign in first; a script that does not
 });
 
 // ---------------------------------------------------------------- five control planes (decision 0009)
-test('control planes: pinned commits in portal-core.js match contracts/PINS.json and vendored schemas exist', () => {
+test('control planes: pinned commits in portal-core.js match contracts/control-planes.json and contracts/PINS.json', () => {
   const pins = JSON.parse(readFileSync(new URL('../../../contracts/PINS.json', import.meta.url), 'utf8'));
+  const cpManifest = JSON.parse(readFileSync(new URL('../../../contracts/control-planes.json', import.meta.url), 'utf8'));
+  assert.equal(cpManifest.schema, 'avd-ops-control-planes-pins/v1');
+  assert.equal(cpManifest.decision, '0009-split-landing-zone-into-five-control-planes');
   const expected = [
-    ['entra', 'avd-entra', 'avd-ops/avd-entra', 'schemas/entra-manifest.schema.json', 'entra-manifest.json'],
-    ['intune', 'avd-intune', 'avd-ops/avd-intune', 'schemas/intune-manifest.schema.json', 'intune-manifest.json'],
-    ['m365', 'avd-m365', 'avd-ops/avd-m365', 'schemas/m365-manifest.schema.json', 'm365-manifest.json'],
-    ['azure', 'avd-azure', 'avd-ops/avd-azure', 'schemas/azure-outputs.schema.json', 'azure-outputs.json'],
-    ['powerPlatform', 'avd-power-platform', 'avd-ops/avd-power-platform', 'schemas/power-platform-manifest.schema.json', 'power-platform-manifest.json']
+    ['entra', 'avd-entra', 'avd-ops/avd-entra', '3a6132c', 'scripts/Deploy-AvdEntra.ps1', 'scripts/Remove-AvdEntra.ps1', 'schemas/entra-manifest.schema.json', 'entra-manifest.json'],
+    ['intune', 'avd-intune', 'avd-ops/avd-intune', 'f64c56a', 'scripts/Deploy-AvdIntune.ps1', 'scripts/Remove-AvdIntune.ps1', 'schemas/intune-manifest.schema.json', 'intune-manifest.json'],
+    ['m365', 'avd-m365', 'avd-ops/avd-m365', 'f18b14f', 'scripts/Deploy-AvdM365.ps1', 'scripts/Remove-AvdM365.ps1', 'schemas/m365-manifest.schema.json', 'm365-manifest.json'],
+    ['azure', 'avd-azure', 'avd-ops/avd-azure', 'ac01bc4', 'scripts/deploy/deploy.sh', null, 'schemas/azure-outputs.schema.json', 'azure-outputs.json'],
+    ['powerPlatform', 'avd-power-platform', 'avd-ops/avd-power-platform', '4543356', 'scripts/Deploy-AvdPowerPlatform.ps1', 'scripts/Remove-AvdPowerPlatform.ps1', 'schemas/power-platform-manifest.schema.json', 'power-platform-manifest.json']
   ];
   assert.deepEqual(P.CONTROL_PLANE_ORDER, expected.map((e) => e[0]));
-  for (const [id, sourceKey, repo, schemaRel, output] of expected) {
+  for (const [id, sourceKey, repo, shortCommit, entryPoint, teardownScript, schemaRel, output] of expected) {
     const plane = P.CONTROL_PLANES[id];
     assert.ok(plane, `missing plane ${id}`);
     assert.equal(plane.repo, repo);
+    assert.equal(plane.shortCommit, shortCommit);
+    assert.ok(plane.commit.startsWith(shortCommit), `${id} commit starts with ${shortCommit}`);
+    assert.equal(plane.entryPoint, entryPoint);
+    assert.equal(plane.teardownScript, teardownScript);
     assert.equal(plane.output, output);
     assert.equal(plane.schema, `contracts/${schemaRel}`);
     assert.ok(pins.sources[sourceKey], `missing source ${sourceKey} in PINS.json`);
     assert.equal(pins.sources[sourceKey].url, `https://github.com/${repo}`);
     assert.match(pins.sources[sourceKey].commit, /^[0-9a-f]{40}$/);
     assert.equal(plane.commit, pins.sources[sourceKey].commit, `${id} commit matches contracts/PINS.json`);
+    assert.equal(pins.sources[sourceKey].shortCommit, shortCommit);
+    assert.equal(pins.sources[sourceKey].entryPoint, entryPoint);
+    assert.equal(pins.sources[sourceKey].teardownScript, teardownScript);
+    assert.equal(pins.sources[sourceKey].handoffManifest, output);
+
+    const cpEntry = cpManifest.planes[plane.cliId];
+    assert.ok(cpEntry, `missing plane ${plane.cliId} in contracts/control-planes.json`);
+    assert.equal(cpEntry.commit, plane.commit);
+    assert.equal(cpEntry.shortCommit, shortCommit);
+    assert.equal(cpEntry.entryPoint, entryPoint);
+    assert.equal(cpEntry.teardownScript, teardownScript);
+    assert.equal(cpEntry.handoffManifest, output);
+
     assert.ok(pins.files[schemaRel], `missing file ${schemaRel} in PINS.json`);
     const schemaJson = JSON.parse(readFileSync(new URL(`../../../contracts/${schemaRel}`, import.meta.url), 'utf8'));
     assert.ok(schemaJson.$schema);
   }
 });
 
-test('control planes: presets (Full Greenfield, Brownfield Azure + Intune, Azure Only) and validation', () => {
+test('control planes: presets (Greenfield, Brownfield Entra + Intune + Azure, Azure Only), CSV helpers, and validation', () => {
   const greenfield = P.applyControlPlanePreset('greenfield');
   assert.deepEqual(greenfield, { entra: true, intune: true, m365: true, azure: true, powerPlatform: true });
   assert.deepEqual(P.enabledControlPlanes({ controlPlanes: greenfield }), ['entra', 'intune', 'm365', 'azure', 'powerPlatform']);
+  assert.equal(P.controlPlanesCsv({ controlPlanes: greenfield }), 'entra,intune,m365,azure,power-platform');
 
-  const brownfield = P.applyControlPlanePreset('brownfield-azure-intune');
-  assert.deepEqual(brownfield, { entra: true, intune: true, m365: false, azure: true, powerPlatform: false });
-  assert.deepEqual(P.enabledControlPlanes({ controlPlanes: brownfield }), ['entra', 'intune', 'azure']);
+  for (const presetId of ['brownfield', 'brownfield-azure-intune']) {
+    const brownfield = P.applyControlPlanePreset(presetId);
+    assert.deepEqual(brownfield, { entra: true, intune: true, m365: false, azure: true, powerPlatform: false });
+    assert.deepEqual(P.enabledControlPlanes({ controlPlanes: brownfield }), ['entra', 'intune', 'azure']);
+    assert.equal(P.controlPlanesCsv({ controlPlanes: brownfield }), 'entra,intune,azure');
+  }
 
   const azureOnly = P.applyControlPlanePreset('azure-only');
   assert.deepEqual(azureOnly, { entra: false, intune: false, m365: false, azure: true, powerPlatform: false });
   assert.deepEqual(P.enabledControlPlanes({ controlPlanes: azureOnly }), ['azure']);
+  assert.equal(P.controlPlanesCsv({ controlPlanes: azureOnly }), 'azure');
 
   // Validation rejects non-boolean values and ensures at least one plane is active.
   assert.equal(P.validControlPlanes(null), null);
@@ -1319,7 +1346,7 @@ test('control planes: presets (Full Greenfield, Brownfield Azure + Intune, Azure
     { entra: false, intune: false, m365: false, azure: true, powerPlatform: false });
 });
 
-test('control planes: sequenced Cloud Shell command blocks clone each repo at its pinned commit and pass handoff manifests', () => {
+test('control planes: standalone Cloud Shell commands, orchestrator, and teardown commands use real entry points and pinned commits', () => {
   const cfg = { ...P.DEFAULTS, location: 'eastus2', namePrefix: 'avdlz', environment: 'dev', controlPlanes: P.applyControlPlanePreset('greenfield') };
   const actions = P.controlPlaneActions(cfg);
   assert.equal(actions.length, 5);
@@ -1333,23 +1360,62 @@ test('control planes: sequenced Cloud Shell command blocks clone each repo at it
     assert.match(a.command, new RegExp(`git -C ${plane.dir} checkout -q '${plane.commit}'`));
   }
 
-  // Verify manifest handoff chain: entra-manifest.json -> azure-outputs.json -> power-platform-manifest.json
-  assert.match(actions[0].command, /deploy-entra\.sh 'avdlz' 'dev' ~\/avd-landing-zone\/entra-manifest\.json/);
-  assert.match(actions[1].command, /deploy-intune\.sh ~\/avd-landing-zone\/entra-manifest\.json ~\/avd-landing-zone\/intune-manifest\.json/);
-  assert.match(actions[2].command, /deploy-m365\.sh ~\/avd-landing-zone\/entra-manifest\.json ~\/avd-landing-zone\/m365-manifest\.json/);
+  // Verify manifest handoff chain with real entry-point scripts
+  assert.match(actions[0].command, /Deploy-AvdEntra\.ps1 -Prefix 'avdlz' -Environment 'dev' -OutputPath ~\/avd-landing-zone\/entra-manifest\.json/);
+  assert.match(actions[1].command, /Deploy-AvdIntune\.ps1 -EntraManifestPath ~\/avd-landing-zone\/entra-manifest\.json -OutputPath ~\/avd-landing-zone\/intune-manifest\.json/);
+  assert.match(actions[2].command, /Deploy-AvdM365\.ps1 -EntraManifestPath ~\/avd-landing-zone\/entra-manifest\.json -OutputPath ~\/avd-landing-zone\/m365-manifest\.json/);
   assert.match(actions[3].command, /entra-manifest\.json/);
   assert.match(actions[3].command, /azure-outputs\.json/);
-  assert.match(actions[4].command, /deploy-power-platform\.sh ~\/avd-landing-zone\/entra-manifest\.json ~\/avd-landing-zone\/azure-outputs\.json ~\/avd-landing-zone\/power-platform-manifest\.json/);
+  assert.match(actions[4].command, /Deploy-AvdPowerPlatform\.ps1 -EntraManifestPath ~\/avd-landing-zone\/entra-manifest\.json -AzureOutputsPath ~\/avd-landing-zone\/azure-outputs\.json -OutputPath ~\/avd-landing-zone\/power-platform-manifest\.json/);
 
   // Combined sequence command block contains all 5 stages in sequence
   const seq = P.commands.controlPlaneSequence(cfg);
-  assert.ok(seq.indexOf('deploy-entra.sh') < seq.indexOf('deploy-intune.sh'));
-  assert.ok(seq.indexOf('deploy-intune.sh') < seq.indexOf('deploy-m365.sh'));
-  assert.ok(seq.indexOf('deploy-m365.sh') < seq.indexOf('azure-outputs.json'));
-  assert.ok(seq.indexOf('azure-outputs.json') < seq.indexOf('deploy-power-platform.sh'));
+  assert.ok(seq.indexOf('Deploy-AvdEntra.ps1') < seq.indexOf('Deploy-AvdIntune.ps1'));
+  assert.ok(seq.indexOf('Deploy-AvdIntune.ps1') < seq.indexOf('Deploy-AvdM365.ps1'));
+  assert.ok(seq.indexOf('Deploy-AvdM365.ps1') < seq.indexOf('azure-outputs.json'));
+  assert.ok(seq.indexOf('azure-outputs.json') < seq.indexOf('Deploy-AvdPowerPlatform.ps1'));
 
-  // Deploy step actions include the sequenced control-plane actions when controlPlanes is configured
+  // Orchestrator and reverse-order teardown commands
+  const orch = P.commands.controlPlaneOrchestrator(cfg);
+  assert.match(orch, /Invoke-AvdControlPlanes\.ps1 -Planes 'entra,intune,m365,azure,power-platform' -NamePrefix avdlz -Environment dev -ParameterFile parameters\/dev\.bicepparam -Location eastus2/);
+  const teardown = P.commands.controlPlaneTeardown(cfg);
+  assert.match(teardown, /Invoke-AvdControlPlanes\.ps1 -Planes 'entra,intune,m365,azure,power-platform' -NamePrefix avdlz -Environment dev -Teardown -DiscardLastCopy/);
+
+  // Deploy step actions include orchestrator, standalone per-plane actions, and teardown when controlPlanes is configured
   const deployStepActions = P.actionsForStep('deploy', cfg);
-  assert.ok(deployStepActions.length >= 7);
+  assert.ok(deployStepActions.length >= 8);
   assertSelfContained({ actions: deployStepActions });
+});
+
+test('control planes: analyze() parses <<<AVDLZ-STATE ... AVDLZ-STATE>>> for stage controlplanes (succeeded, partial, failed, teardown)', () => {
+  const succeededLine = '<<<AVDLZ-STATE {"v":1,"stage":"controlplanes","teardown":false,"planes":["entra","intune","m365","azure","power-platform"],"completedPlanes":["entra","intune","m365","azure","power-platform"],"nextPlane":null,"failedPlane":null,"status":"succeeded","manifests":{"entra":"~/avd-landing-zone/entra-manifest.json","azure":"~/avd-landing-zone/azure-outputs.json"}} AVDLZ-STATE>>>';
+  const rOk = P.analyze(succeededLine, P.DEFAULTS);
+  assert.equal(rOk.status, 'succeeded');
+  assert.equal(rOk.step, 'postdeploy');
+  assert.equal(rOk.headline, 'Control planes: Succeeded');
+  assert.match(rOk.actions[0].why, /All selected control planes succeeded/);
+  assertSelfContained(rOk);
+
+  const partialLine = '<<<AVDLZ-STATE {"v":1,"stage":"controlplanes","teardown":false,"planes":["entra","intune","azure"],"completedPlanes":["entra"],"nextPlane":"intune","failedPlane":null,"status":"partial"} AVDLZ-STATE>>>';
+  const rPartial = P.analyze(partialLine, P.DEFAULTS);
+  assert.equal(rPartial.status, 'partial');
+  assert.equal(rPartial.step, 'deploy');
+  assert.match(rPartial.actions[0].title, /Continue with Intune/);
+  assert.match(rPartial.actions[0].command, /Deploy-AvdIntune\.ps1/);
+  assertSelfContained(rPartial);
+
+  const failedLine = '<<<AVDLZ-STATE {"v":1,"stage":"controlplanes","teardown":false,"planes":["entra","intune","azure"],"completedPlanes":["entra"],"nextPlane":"intune","failedPlane":"intune","status":"failed"} AVDLZ-STATE>>>';
+  const rFail = P.analyze(failedLine, P.DEFAULTS);
+  assert.equal(rFail.status, 'failed');
+  assert.equal(rFail.step, 'deploy');
+  assert.equal(rFail.headline, 'Control planes: Failed');
+  assert.match(rFail.actions[0].title, /Rerun the selected control planes/);
+  assertSelfContained(rFail);
+
+  const teardownLine = '<<<AVDLZ-STATE {"v":1,"stage":"controlplanes","teardown":true,"planes":["entra","intune","azure"],"completedPlanes":["azure","intune","entra"],"nextPlane":null,"failedPlane":null,"status":"succeeded"} AVDLZ-STATE>>>';
+  const rTear = P.analyze(teardownLine, P.DEFAULTS);
+  assert.equal(rTear.step, 'predeploy');
+  assert.equal(rTear.actions[0].title, 'Selected control planes removed');
+  assert.match(rTear.actions[0].why, /Reverse-order teardown completed/);
+  assertSelfContained(rTear);
 });

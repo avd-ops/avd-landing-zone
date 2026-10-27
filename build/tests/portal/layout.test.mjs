@@ -16,7 +16,7 @@ test('a release archive holds what a user needs, and not the website or the buil
   const tar = execFileSync('git', ['archive', '--format=tar', 'HEAD'], { cwd: root, maxBuffer: 256 * 1024 * 1024 });
   const files = execFileSync('tar', ['-t'], { input: tar, maxBuffer: 64 * 1024 * 1024 }).toString().split('\n').filter(Boolean);
   for (const f of ['README.md', 'LICENSE', 'bicepconfig.json', 'bicep/main.bicep', 'parameters/dev.bicepparam', 'scripts/deploy/deploy.sh',
-    'scripts/ops/Test-AvdLandingZoneReadiness.ps1', 'contracts/PINS.json', 'docs/deploy.md', 'releases/README.md']) {
+    'scripts/deploy/Invoke-AvdControlPlanes.ps1', 'scripts/ops/Test-AvdLandingZoneReadiness.ps1', 'contracts/PINS.json', 'contracts/control-planes.json', 'docs/deploy.md', 'releases/README.md']) {
     assert.ok(files.includes(f), `${f} is missing from the release archive`);
   }
   for (const f of files) assert.doesNotMatch(f, /^(build|site|\.github|\.claude|\.githooks)\//, `${f} is in the release archive`);
