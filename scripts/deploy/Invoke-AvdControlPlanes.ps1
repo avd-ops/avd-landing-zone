@@ -292,16 +292,16 @@ function Write-AvdDryRunPlaneManifest {
         environment        = $EnvName
         prefix             = $Prefix
         groups             = [ordered]@{
-          avdUsersGroupId            = '00000000-0000-0000-0000-000000000001'
-          avdAdminsGroupId           = '00000000-0000-0000-0000-000000000002'
-          sessionHostsDynamicGroupId = '00000000-0000-0000-0000-000000000003'
-          breakGlassExcludeGroupId   = '00000000-0000-0000-0000-000000000004'
+          avdUsersGroupId            = '00000000-0000-0000-0000-000000000000'
+          avdAdminsGroupId           = '00000000-0000-0000-0000-000000000000'
+          sessionHostsDynamicGroupId = '00000000-0000-0000-0000-000000000000'
+          breakGlassExcludeGroupId   = '00000000-0000-0000-0000-000000000000'
         }
         conditionalAccess  = @(
           [ordered]@{
             displayName = "$Prefix-$EnvName-avd-mfa"
             state       = 'enabledForReportingButNotEnforced'
-            policyId    = '00000000-0000-0000-0000-000000000010'
+            policyId    = '00000000-0000-0000-0000-000000000000'
           }
         )
         entraKerberosReady = $true
@@ -309,7 +309,7 @@ function Write-AvdDryRunPlaneManifest {
       $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $OutputPath -Encoding utf8
     }
     'intune' {
-      $deviceGroupId = '00000000-0000-0000-0000-000000000003'
+      $deviceGroupId = '00000000-0000-0000-0000-000000000000'
       if ($EntraManifestFile -and (Test-Path -LiteralPath $EntraManifestFile)) {
         $entraJson = Get-Content -LiteralPath $EntraManifestFile -Raw | ConvertFrom-Json
         if ($entraJson.groups.sessionHostsDynamicGroupId) {
@@ -324,7 +324,7 @@ function Write-AvdDryRunPlaneManifest {
           "$Prefix-$EnvName-avd-fslogix",
           "$Prefix-$EnvName-avd-security-baseline"
         )
-        compliancePolicyId      = '00000000-0000-0000-0000-000000000020'
+        compliancePolicyId      = '00000000-0000-0000-0000-000000000000'
       }
       $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $OutputPath -Encoding utf8
     }
