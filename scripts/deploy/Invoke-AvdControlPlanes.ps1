@@ -163,14 +163,16 @@ function Resolve-AvdControlPlaneRepo {
     [switch] $NoCheckout,
     [switch] $IsDryRun
   )
+  $siblingPath = Join-Path $SiblingRoot $Plane.name
   $candidates = @()
   if ($WorkspaceRoot) {
     $candidates += (Join-Path $WorkspaceRoot $Plane.name)
   }
-  $siblingPath = Join-Path $SiblingRoot $Plane.name
-  $candidates += $siblingPath
-  if ($HOME) {
-    $candidates += (Join-Path $HOME $Plane.name)
+  else {
+    $candidates += $siblingPath
+    if ($HOME) {
+      $candidates += (Join-Path $HOME $Plane.name)
+    }
   }
 
   $resolvedDir = $null
@@ -270,6 +272,97 @@ function Write-AvdAzureOutputManifest {
   $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $OutputPath -Encoding utf8
 }
 
+function Write-AvdDryRunPlaneManifest {
+  param(
+    [Parameter(Mandatory)][string] $PlaneId,
+    [Parameter(Mandatory)][string] $OutputPath,
+    [Parameter(Mandatory)][string] $RunManifestPath,
+    [Parameter(Mandatory)][string] $Prefix,
+    [Parameter(Mandatory)][string] $EnvName,
+    [string] $EntraManifestFile = ''
+  )
+  $parentDir = Split-Path -Parent $OutputPath
+  if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
+    New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
+  }
+  switch ($PlaneId) {
+    'entra' {
+      $manifest = [ordered]@{
+        schema             = 'avd-ops-entra-manifest/v1'
+        environment        = $EnvName
+        prefix             = $Prefix
+        groups             = [ordered]@{
+          avdUsersGroupId            = '00000000-0000-0000-0000-000000000001'
+          avdAdminsGroupId           = '00000000-0000-0000-0000-000000000002'
+          sessionHostsDynamicGroupId = '00000000-0000-0000-0000-000000000003'
+          breakGlassExcludeGroupId   = '00000000-0000-0000-0000-000000000004'
+        }
+        conditionalAccess  = @(
+          [ordered]@{
+            displayName = "$Prefix-$EnvName-avd-mfa"
+            state       = 'enabledForReportingButNotEnforced'
+            policyId    = '00000000-0000-0000-0000-000000000010'
+          }
+        )
+        entraKerberosReady = $true
+      }
+      $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $OutputPath -Encoding utf8
+    }
+    'intune' {
+      $deviceGroupId = '00000000-0000-0000-0000-000000000003'
+      if ($EntraManifestFile -and (Test-Path -LiteralPath $EntraManifestFile)) {
+        $entraJson = Get-Content -LiteralPath $EntraManifestFile -Raw | ConvertFrom-Json
+        if ($entraJson.groups.sessionHostsDynamicGroupId) {
+          $deviceGroupId = [string]$entraJson.groups.sessionHostsDynamicGroupId
+        }
+      }
+      $manifest = [ordered]@{
+        schema                  = 'avd-ops-intune-manifest/v1'
+        environment             = $EnvName
+        targetDeviceGroupId     = $deviceGroupId
+        settingsCatalogProfiles = @(
+          "$Prefix-$EnvName-avd-fslogix",
+          "$Prefix-$EnvName-avd-security-baseline"
+        )
+        compliancePolicyId      = '00000000-0000-0000-0000-000000000020'
+      }
+      $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $OutputPath -Encoding utf8
+    }
+    'm365' {
+      $manifest = [ordered]@{
+        schema                          = 'avd-ops-m365-manifest/v1'
+        environment                     = $EnvName
+        oneDriveKfmEnabled              = $true
+        teamsVdiOptimizationEnabled     = $true
+        sharedComputerActivationEnabled = $true
+      }
+      $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $OutputPath -Encoding utf8
+    }
+    'power-platform' {
+      $manifest = [ordered]@{
+        schema                       = 'avd-ops-power-platform-manifest/v1'
+        environment                  = $EnvName
+        powerPlatformEnvironmentName = "$Prefix-$EnvName-pp"
+        dlpPolicyName                = "$Prefix-$EnvName-dlp"
+        activeWorkflows              = @(
+          "$Prefix-$EnvName-session-host-drain",
+          "$Prefix-$EnvName-cost-anomaly-alert"
+        )
+      }
+      $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $OutputPath -Encoding utf8
+    }
+  }
+  if ($RunManifestPath) {
+    $runObj = [ordered]@{
+      plane       = $PlaneId
+      environment = $EnvName
+      prefix      = $Prefix
+      dryRun      = $true
+    }
+    $runObj | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $RunManifestPath -Encoding utf8
+  }
+}
+
 if ($Teardown -and -not $DiscardLastCopy -and -not $WhatIfPreference) {
   throw 'Never delete the last copy: coordinated control-plane teardown requires -DiscardLastCopy. Nothing was removed.'
 }
@@ -324,11 +417,11 @@ foreach ($planeId in $sequenceOrder) {
       }
     }
     else {
-      if (-not $teardownScriptPath -or -not (Test-Path -LiteralPath $teardownScriptPath)) {
+      if (-not $DryRun -and (-not $teardownScriptPath -or -not (Test-Path -LiteralPath $teardownScriptPath))) {
         throw "Teardown script not found for $($plane.name): $teardownScriptPath"
       }
-      if ($DryRun -and -not (Test-Path -LiteralPath $runManifestPath)) {
-        Write-Host "  [DRY-RUN] Run manifest '$runManifestPath' not present; skipping $($plane.name) teardown." -ForegroundColor DarkGray
+      if ($DryRun -and (-not (Test-Path -LiteralPath $runManifestPath) -or -not $teardownScriptPath -or -not (Test-Path -LiteralPath $teardownScriptPath))) {
+        Write-Host "  [DRY-RUN] Run manifest '$runManifestPath' or script not present; skipping $($plane.name) teardown." -ForegroundColor DarkGray
       }
       elseif ($PSCmdlet.ShouldProcess("$($plane.name) ($NamePrefix-$Environment)", 'Remove control plane resources')) {
         Push-Location $planeRepoDir
@@ -376,9 +469,14 @@ foreach ($planeId in $sequenceOrder) {
   switch ($planeId) {
     'entra' {
       if (-not (Test-Path -LiteralPath $entryScriptPath)) {
-        throw "Entry-point script not found for avd-entra: $entryScriptPath"
+        if ($DryRun) {
+          Write-AvdDryRunPlaneManifest -PlaneId 'entra' -OutputPath $handoffPath -RunManifestPath $runManifestPath -Prefix $NamePrefix -EnvName $Environment
+        }
+        else {
+          throw "Entry-point script not found for avd-entra: $entryScriptPath"
+        }
       }
-      if ($DryRun -or $PSCmdlet.ShouldProcess("avd-entra ($NamePrefix-$Environment)", 'Deploy Entra ID control plane')) {
+      elseif ($DryRun -or $PSCmdlet.ShouldProcess("avd-entra ($NamePrefix-$Environment)", 'Deploy Entra ID control plane')) {
         Push-Location $planeRepoDir
         try {
           & $entryScriptPath `
@@ -395,9 +493,14 @@ foreach ($planeId in $sequenceOrder) {
     }
     'intune' {
       if (-not (Test-Path -LiteralPath $entryScriptPath)) {
-        throw "Entry-point script not found for avd-intune: $entryScriptPath"
+        if ($DryRun) {
+          Write-AvdDryRunPlaneManifest -PlaneId 'intune' -OutputPath $handoffPath -RunManifestPath $runManifestPath -Prefix $NamePrefix -EnvName $Environment -EntraManifestFile $entraManifestPath
+        }
+        else {
+          throw "Entry-point script not found for avd-intune: $entryScriptPath"
+        }
       }
-      if ($DryRun -or $PSCmdlet.ShouldProcess("avd-intune ($NamePrefix-$Environment)", 'Deploy Intune control plane')) {
+      elseif ($DryRun -or $PSCmdlet.ShouldProcess("avd-intune ($NamePrefix-$Environment)", 'Deploy Intune control plane')) {
         Push-Location $planeRepoDir
         try {
           & $entryScriptPath `
@@ -414,9 +517,14 @@ foreach ($planeId in $sequenceOrder) {
     }
     'm365' {
       if (-not (Test-Path -LiteralPath $entryScriptPath)) {
-        throw "Entry-point script not found for avd-m365: $entryScriptPath"
+        if ($DryRun) {
+          Write-AvdDryRunPlaneManifest -PlaneId 'm365' -OutputPath $handoffPath -RunManifestPath $runManifestPath -Prefix $NamePrefix -EnvName $Environment -EntraManifestFile $entraManifestPath
+        }
+        else {
+          throw "Entry-point script not found for avd-m365: $entryScriptPath"
+        }
       }
-      if ($DryRun -or $PSCmdlet.ShouldProcess("avd-m365 ($NamePrefix-$Environment)", 'Deploy Microsoft 365 control plane')) {
+      elseif ($DryRun -or $PSCmdlet.ShouldProcess("avd-m365 ($NamePrefix-$Environment)", 'Deploy Microsoft 365 control plane')) {
         Push-Location $planeRepoDir
         try {
           & $entryScriptPath `
@@ -457,9 +565,14 @@ foreach ($planeId in $sequenceOrder) {
     }
     'power-platform' {
       if (-not (Test-Path -LiteralPath $entryScriptPath)) {
-        throw "Entry-point script not found for avd-power-platform: $entryScriptPath"
+        if ($DryRun) {
+          Write-AvdDryRunPlaneManifest -PlaneId 'power-platform' -OutputPath $handoffPath -RunManifestPath $runManifestPath -Prefix $NamePrefix -EnvName $Environment -EntraManifestFile $entraManifestPath
+        }
+        else {
+          throw "Entry-point script not found for avd-power-platform: $entryScriptPath"
+        }
       }
-      if ($DryRun -or $PSCmdlet.ShouldProcess("avd-power-platform ($NamePrefix-$Environment)", 'Deploy Power Platform control plane')) {
+      elseif ($DryRun -or $PSCmdlet.ShouldProcess("avd-power-platform ($NamePrefix-$Environment)", 'Deploy Power Platform control plane')) {
         Push-Location $planeRepoDir
         try {
           & $entryScriptPath `

@@ -72,17 +72,25 @@ for (const [name, viewport, colorScheme] of [['desktop', { width: 1280, height: 
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false);
     // Every step fits the screen too: a positioned element in a step that is off to the side in the step track
     // (the screen-reader-only text in a title) once widened the page to the whole track.
-    for (const step of ['predeploy', 'deploy', 'verify']) {
+    const stepLabels = {
+      size: '2. Size the host pool',
+      predeploy: '4. Pre-deployment preflight',
+      deploy: '5. Deploy the landing zone',
+      verify: '8. Verify access'
+    };
+    for (const step of ['size', 'predeploy', 'deploy', 'verify']) {
       await page.evaluate((s) => { localStorage.setItem('avdlz.portal.step', JSON.stringify(s)); localStorage.setItem('avdlz.portal.reachedStep', JSON.stringify(s)); }, step);
       await page.reload();
-      const expectedLabel = step === 'verify' ? '8. Verify access' : step === 'deploy' ? '5. Deploy' : '4. Pre-deployment preflight';
-      assert.equal(await page.getAttribute(`#steps button[aria-current="step"]`, 'aria-label'), expectedLabel);
-      if (step === 'deploy') {
+      assert.equal(await page.getAttribute(`#steps button[aria-current="step"]`, 'aria-label'), stepLabels[step]);
+      if (step === 'size') {
         assert.ok(await page.isVisible('#control-planes-panel'));
+        await page.click('#control-planes-panel > summary');
         await page.click('#cp-preset-brownfield');
-        assert.match(await page.textContent('#cp-summary'), /Selected \(3\/5\)/);
+        assert.match(await page.textContent('#cp-summary'), /Brownfield/);
         await page.click('#cp-preset-greenfield');
-        assert.match(await page.textContent('#cp-summary'), /Selected \(5\/5\)/);
+        assert.match(await page.textContent('#cp-summary'), /Greenfield/);
+        await page.click('#cp-preset-azure');
+        assert.match(await page.textContent('#cp-summary'), /Azure only/);
       }
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth), false, `${step}: no horizontal scroll`);
     }

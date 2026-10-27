@@ -1059,6 +1059,16 @@ Describe 'Five control planes orchestrator and pin manifest (decision 0009)' {
       $res.status | Should -Be 'succeeded'
       $res.teardown | Should -BeTrue
       @($res.completedPlanes) | Should -Be @('power-platform', 'azure', 'm365', 'intune', 'entra')
+
+      # Also verify DryRun deploy and teardown when no sibling repos exist in WorkspaceDirectory (CI environment)
+      $emptyWs = Join-Path $outDir 'empty-ws'
+      New-Item -ItemType Directory -Path $emptyWs -Force | Out-Null
+      $ciDeploy = & $script:orchestratorPath -Preset greenfield -ManifestDirectory $outDir -WorkspaceDirectory $emptyWs -DryRun 6>$null
+      $ciDeploy.status | Should -Be 'succeeded'
+      @($ciDeploy.completedPlanes) | Should -Be @('entra', 'intune', 'm365', 'azure', 'power-platform')
+      $ciTeardown = & $script:orchestratorPath -Preset greenfield -ManifestDirectory $outDir -WorkspaceDirectory $emptyWs -Teardown -DiscardLastCopy -DryRun 6>$null
+      $ciTeardown.status | Should -Be 'succeeded'
+      @($ciTeardown.completedPlanes) | Should -Be @('power-platform', 'azure', 'm365', 'intune', 'entra')
     }
     finally {
       if (Test-Path $outDir) { Remove-Item -Path $outDir -Recurse -Force }
