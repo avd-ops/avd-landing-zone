@@ -1245,23 +1245,42 @@ function Test-AvdLandingZoneRbac {
 function Get-AvdStorageKerberosApp {
   <#
     The app Azure registers when Entra Kerberos is enabled on the storage account. It can only be
-    found by its display name, and anyone who can register an app can use that name, so a
-    user-registered look-alike is told apart by what Azure's app never has: owners. Returns $null
-    when there is no such app, and an object with .Rejected set (and no Application) when the apps
-    with this name can't be settled to the one Azure created.
+    found by its display name, and anyone who can register an app can use that name. When deployed
+    by a signed-in user, Entra sets that user as the app's owner; when deployed without a user
+    context, the app has no owners. A user-registered look-alike by a non-administrator has an
+    owner outside the directory administrators (and the signed-in operator) and is rejected.
+    Returns $null when there is no such app, and an object with .Rejected set (and no Application)
+    when the apps with this name can't be settled to the one Azure created.
   #>
   param([Parameter(Mandatory)] $Lz)
   $name = "[Storage Account] $($Lz.StorageFqdn)"
   $apps = @(Invoke-AvdGraph -Uri (Get-AvdGraphFilterUri -Collection applications -Filter "displayName eq '$name'" -Select 'id,appId,displayName,tags,requiredResourceAccess,createdDateTime'))
   if (-not $apps.Count) { return $null }
-  $owned = [System.Collections.Generic.List[string]]::new()
+  $me = $null
+  $admins = $null
+  $rejected = [System.Collections.Generic.List[string]]::new()
   $candidates = @(foreach ($a in $apps) {
-      $owners = @(Invoke-AvdGraph -Uri "v1.0/applications/$($a.id)/owners?`$select=id")
-      if ($owners.Count) { $owned.Add("$($a.appId) ($($owners.Count) owner(s), created $($a.createdDateTime))") } else { $a }
+      $owners = @(Invoke-AvdGraph -Uri "v1.0/applications/$($a.id)/owners?`$select=id,userPrincipalName,displayName")
+      if (-not $owners.Count) {
+        $a
+        continue
+      }
+      if ($null -eq $admins) {
+        $me = try { (Invoke-AvdGraph -Uri 'v1.0/me?$select=id').id } catch { $null }
+        $admins = @(Get-AvdDirectoryAdminId)
+      }
+      $outside = @($owners | Where-Object { $_.id -ne $me -and $admins -notcontains $_.id })
+      if ($outside.Count) {
+        $who = @($outside | ForEach-Object { if ($_.userPrincipalName) { $_.userPrincipalName } elseif ($_.displayName) { $_.displayName } else { $_.id } }) -join ', '
+        $rejected.Add("$($a.appId) (owned by $who, created $($a.createdDateTime))")
+      }
+      else {
+        $a
+      }
     })
   if ($candidates.Count -ne 1) {
-    $why = if ($candidates.Count) { "$($candidates.Count) apps with this name have no owners" }
-    else { "every app with this name has owners, which the app Azure creates never has: $($owned -join '; ')" }
+    $why = if ($candidates.Count) { "$($candidates.Count) apps with this name have no non-administrator owners" }
+    else { "every app with this name has a non-administrator owner: $($rejected -join '; ')" }
     return [pscustomobject]@{ Name = $name; Application = $null; ServicePrincipal = $null; Rejected = $why }
   }
   $app = $candidates[0]

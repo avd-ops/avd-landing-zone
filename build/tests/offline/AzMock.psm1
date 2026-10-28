@@ -823,10 +823,12 @@ function Invoke-MgGraphRequest { param($Method,$Uri,$Body,$ContentType,$OutputTy
     'groups/[0-9a-f-]+/owners' { @{value=@(@($global:St.groupOwners) | ? { $_ })} }
     "directoryRoles\?.*roleTemplateId eq '([0-9a-f-]+)'" { @{value=@(if ($Matches[1] -like '62e90394*') { @{id='role-ga'} })} }
     'directoryRoles/role-ga/members' { @{value=@(@{id='admin-1'})} }
-    # The storage account's Entra app has no owners, as the one Azure creates never has. A scenario can add a
-    # user-registered app of the same name beside it ($global:St.storageAppImposter = 'beside') or in its place ('only').
-    'applications/app-obj/owners' { @{value=@()} }
-    'applications/app-fake/owners' { @{value=@(@{id='u-eve'})} }
+    # When a signed-in operator deploys the storage account, Entra sets them as the owner of the
+    # storage account's app (or it has no owners when deployed without a user context). A scenario
+    # can add a user-registered app by a non-admin beside it ($global:St.storageAppImposter = 'beside')
+    # or in its place ('only').
+    'applications/app-obj/owners' { @{value=@(if ($global:St.storageAppUnowned) { } else { @{id='admin-1'} })} }
+    'applications/app-fake/owners' { @{value=@(@{id='u-eve';userPrincipalName='eve@contoso.com'})} }
     "groups\?.*displayName eq '([^']+)'" { $n=$Matches[1]; @{value=@($global:St.groups | ? { $_.displayName -eq $n })} }
     "servicePrincipals\?.*appId eq '9cdead84" { @{value=@(if ($global:St.avdSp) { @{id='33333333-3333-3333-3333-333333333333';appId='9cdead84-a844-4324-93f2-b2e6bb768d07'} })} }
     'me/memberOf' { @{value=@(@{displayName='Global Administrator'})} }

@@ -614,14 +614,28 @@ Describe 'Multi-pool topology, Private Link and per-zone Private DNS' {
     $m['outputs'].Keys | Should -Contain 'avdGlobalZoneResourceId'
   }
 
-  It 'compiles additionalPool.bicep and controlPlane.bicep with multi-workspace, multi-app-group, feed and global Private Link' {
+  It 'compiles additionalPool.bicep, registerPoolHosts.bicep and controlPlane.bicep with multi-workspace, multi-app-group, feed and global Private Link' {
     $poolRaw = (& $script:bicep build 'bicep/modules/additionalPool.bicep' --stdout) -join "`n"
     $poolMod = $poolRaw | ConvertFrom-Json -Depth 50 -AsHashtable
     $poolMod['outputs']['registrationToken']['type'] | Should -Be 'securestring'
+    $regRaw = (& $script:bicep build 'bicep/modules/registerPoolHosts.bicep' --stdout) -join "`n"
+    $regMod = $regRaw | ConvertFrom-Json -Depth 50 -AsHashtable
+    $regMod['parameters']['hostPoolRegistrationToken']['type'] | Should -Be 'securestring'
     $cpRaw = (& $script:bicep build 'bicep/modules/controlPlane.bicep' --stdout) -join "`n"
     $cpMod = $cpRaw | ConvertFrom-Json -Depth 50 -AsHashtable
     foreach ($p in 'primaryPool', 'primaryAppGroup', 'primaryWorkspace', 'additionalAppGroups', 'additionalWorkspaces', 'enableAvdFeedPrivateLink', 'enableAvdGlobalPrivateLink', 'avdGlobalPrivateDnsZoneResourceId') {
       $cpMod['parameters'].Keys | Should -Contain $p
+    }
+  }
+
+  It 'keeps every compiled subscription template under Azure Resource Manager''s 4 MB request limit (build/lessons/0037)' {
+    $armLimitBytes = 4194304
+    foreach ($file in 'parameters/dev.bicepparam', 'parameters/test.bicepparam', 'parameters/prod.bicepparam') {
+      $raw = (& $script:bicep build-params $file --stdout) -join "`n" | ConvertFrom-Json
+      $bytes = [Text.Encoding]::UTF8.GetByteCount($raw.templateJson)
+      $bytes | Should -BeLessThan $armLimitBytes -Because "$file compiled templateJson must fit inside ARM's 4 MB HTTP request body limit"
+      # Only sessionHosts and jumpbox inline the AVM virtual-machine module; additionalSessionHosts must not duplicate it.
+      ([regex]::Matches($raw.templateJson, '"vm_nic":\s*\{')).Count | Should -BeLessOrEqual 2 -Because "$file must not duplicate the AVM virtual-machine module for additional pools"
     }
   }
 }

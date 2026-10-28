@@ -710,6 +710,23 @@ module controlPlane 'modules/controlPlane.bicep' = {
 // 7. SESSION HOSTS — Entra joined, Intune enrolled, Trusted Launch,
 //    registered to the host pool and FSLogix-configured declaratively
 // =====================================================================
+var extraPoolHostSpecs = [
+  for (pool, i) in extraHostPools: {
+    count: int(pool.?sessionHostCount ?? sessionHostCount)
+    namePrefix: !empty(pool.?sessionHostNamePrefix ?? '')
+      ? take(string(pool.sessionHostNamePrefix), 11)
+      : take('${cleanPrefix}${take(environmentName, 1)}p${i + 2}sh', 11)
+    vmSize: string(pool.?sessionHostVmSize ?? sessionHostVmSize)
+    availabilityZones: pool.?availabilityZones ?? availabilityZones
+    imageReference: !empty(pool.?sessionHostImageId ?? '')
+      ? { id: string(pool.sessionHostImageId) }
+      : (pool.?sessionHostImage ?? hostImageReference)
+    encryptionAtHost: bool(pool.?encryptionAtHost ?? encryptionAtHost)
+    enrollInIntune: bool(pool.?enrollInIntune ?? enrollInIntune)
+    fslogixProfileSizeMiB: int(pool.?fslogixProfileSizeMiB ?? fslogixProfileSizeMiB)
+  }
+]
+
 module sessionHosts 'modules/sessionHosts.bicep' = {
   name: 'avdlz-session-hosts'
   scope: rgHosts
@@ -733,10 +750,11 @@ module sessionHosts 'modules/sessionHosts.bicep' = {
     usersGroupObjectId: avdUsersGroupObjectId
     adminsGroupObjectId: avdAdminsGroupObjectId
     avdServicePrincipalObjectId: avdServicePrincipalObjectId
+    additionalPools: extraPoolHostSpecs
   }
 }
 
-module additionalSessionHosts 'modules/sessionHosts.bicep' = [
+module additionalSessionHosts 'modules/registerPoolHosts.bicep' = [
   for (pool, i) in extraHostPools: {
     name: take('avdlz-session-hosts-${i + 2}', 64)
     scope: rgHosts
@@ -746,28 +764,9 @@ module additionalSessionHosts 'modules/sessionHosts.bicep' = [
     params: {
       location: location
       tags: allTags
-      count: int(pool.?sessionHostCount ?? sessionHostCount)
-      namePrefix: !empty(pool.?sessionHostNamePrefix ?? '')
-        ? take(string(pool.sessionHostNamePrefix), 11)
-        : take('${cleanPrefix}${take(environmentName, 1)}p${i + 2}sh', 11)
-      vmSize: string(pool.?sessionHostVmSize ?? sessionHostVmSize)
-      availabilityZones: pool.?availabilityZones ?? availabilityZones
-      imageReference: !empty(pool.?sessionHostImageId ?? '')
-        ? { id: string(pool.sessionHostImageId) }
-        : (pool.?sessionHostImage ?? hostImageReference)
-      encryptionAtHost: bool(pool.?encryptionAtHost ?? encryptionAtHost)
-      subnetResourceId: network.outputs.sessionHostSubnetResourceId
-      enrollInIntune: bool(pool.?enrollInIntune ?? enrollInIntune)
-      localAdminUsername: localAdminUsername
-      localAdminPassword: localAdminPassword
+      count: extraPoolHostSpecs[i].count
+      namePrefix: extraPoolHostSpecs[i].namePrefix
       hostPoolRegistrationToken: additionalControlPlanePools[i].outputs.registrationToken
-      dataCollectionRuleResourceId: monitoring.outputs.avdInsightsDataCollectionRuleResourceId
-      profileShareUncPath: storage.outputs.profileShareUncPath
-      fslogixProfileSizeMiB: int(pool.?fslogixProfileSizeMiB ?? fslogixProfileSizeMiB)
-      usersGroupObjectId: avdUsersGroupObjectId
-      adminsGroupObjectId: avdAdminsGroupObjectId
-      avdServicePrincipalObjectId: avdServicePrincipalObjectId
-      deployRoleAssignments: false
     }
   }
 ]
