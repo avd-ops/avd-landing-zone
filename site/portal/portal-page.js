@@ -71,6 +71,9 @@
     FIELDS.forEach(function (k) { var el = $(k); if (el && el.value !== cfg[k]) el.value = cfg[k] || ''; });
     $('region-summary').textContent = cfg.location + (ranked && ranked.length ? (ranked[0] === cfg.location ? ' (closest measured)' : '') : ' (not measured yet)');
     $('region-skip').textContent = 'I already know: use ' + cfg.location;
+    var lcUrl = 'https://linecheck.avd-ops.dev/?pack=avd&region=' + encodeURIComponent(cfg.location);
+    if ($('region-linecheck')) $('region-linecheck').href = lcUrl;
+    if ($('verify-linecheck')) $('verify-linecheck').href = lcUrl;
   }
   function showRejected(names) {
     var w = $('settings-warning');

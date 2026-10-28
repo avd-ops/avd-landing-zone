@@ -315,7 +315,7 @@
         </div>
         <button type="button" class="linkbtn hidden" id="more" aria-controls="rows" aria-expanded="false"></button>
       </div>
-      <details class="more"><summary>How regions are rated</summary><p>Round-trip time from this browser, so run it where your users work, not from Cloud Shell or over a VPN. Under 100&nbsp;ms is good for AVD, 100 to 150&nbsp;ms is usable, above 150&nbsp;ms feels sluggish. Each region gets a warm-up request and 5 timed ones; the median counts.</p></details>
+      <details class="more"><summary>How regions are rated</summary><p>Round-trip time from this browser, so run it where your users work, not from Cloud Shell or over a VPN. Under 100&nbsp;ms is good for AVD, 100 to 150&nbsp;ms is usable, above 150&nbsp;ms feels sluggish. Each region gets a warm-up request and 5 timed ones; the median counts. For a full end-user check with jitter, stalls, download sufficiency and a shareable helpdesk report, open <a id="region-linecheck" href="https://linecheck.avd-ops.dev/?pack=avd&amp;region=northcentralus" target="_blank" rel="noopener noreferrer">AVD Line Check</a>.</p></details>
     </section>
     <section class="slide wz-stage" id="size-panel" data-step="size" aria-label="Size the host pool">
       <h2><span class="n"></span>Topology &amp; sizing <span class="muted" style="font-weight:400"><span class="sr-only">, </span><span id="size-summary"></span></span></h2>
@@ -487,6 +487,7 @@
         <h3>Can this device reach AVD?</h3>
         <div class="row">
           <button id="reach-run">Check reachability</button>
+          <a id="verify-linecheck" class="btnlink secondary" href="https://linecheck.avd-ops.dev/?pack=avd&amp;region=northcentralus" target="_blank" rel="noopener noreferrer">Open AVD Line Check</a>
           <span class="status" id="reach-status" role="status">A few seconds: each host gets a warm-up request and 5 timed ones. Nothing you paste or measure leaves this browser.</span>
         </div>
         <div id="reach-results" class="hidden" style="margin-top:12px">

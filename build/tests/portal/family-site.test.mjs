@@ -12,7 +12,7 @@ const pages = readdirSync(join(root, 'site/family')).filter((f) => f.endsWith('.
 const read = (f) => readFileSync(join(root, f), 'utf8');
 
 test('every old page of the site still exists', () => {
-  for (const r of ['avd-landing-zone', 'avd-current-state', 'avd-swarm', 'avd-second-brain', 'avd-liquidware']) {
+  for (const r of ['avd-landing-zone', 'avd-current-state', 'avd-swarm', 'avd-second-brain', 'avd-liquidware', 'avd-linecheck']) {
     assert.ok(pages.includes(`site/family/${r}.html`), r);
   }
 });
