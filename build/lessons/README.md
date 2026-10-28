@@ -42,6 +42,8 @@ Add a lesson whenever a real run fails for a reason the tests didn't catch. The 
 | 0034 | [A read of a resource in a missing resource group fails with ResourceGroupNotFound, not ResourceNotFound](0034-vm-show-missing-group.md) | deploy.sh | #117 | Offline scenario: Deploy (jumpbox-new, jumpbox-rg-only) |
 | 0035 | [The run recorder prices the parameter file's default size unless sizing reaches the plan through -Sizing](0035-recorder-prices-deploy-size.md) | Run recorder | #114 | Offline scenario: RunRecorder `start-sized` |
 | 0036 | [A teardown that waits for a second block, run by hand, isn't part of the batch](0036-teardown-needs-no-second-block.md) | Sandbox runs | decision 0021 | Offline scenario: SandboxDeadline; Pester: deadline teardown |
+| 0037 | [A second Bicep module reference to the AVM virtual-machine module pushes the subscription template past ARM's 4 MB request limit](0037-subscription-template-4mb-limit.md) | Bicep | — | Template test: 4 MB limit and VM module count |
+| 0038 | [When an operator deploys the storage account with Entra Kerberos, Entra sets that operator as the storage app's owner](0038-storage-kerberos-app-operator-owner.md) | Preflight | — | PostDeployment scenario (`storage-app-imposter`) + Pester (`Get-AvdStorageKerberosApp`) |
 
 ## Template
 

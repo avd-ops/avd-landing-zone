@@ -1083,3 +1083,54 @@ Describe 'Five control planes orchestrator and pin manifest (decision 0009)' {
     $sh | Should -Match 'avd-ops-azure-outputs/v1'
   }
 }
+
+Describe 'Get-AvdStorageKerberosApp (build/lessons/0038)' {
+  BeforeEach {
+    $script:lz = [pscustomobject]@{ StorageFqdn = 'stavdlzdev000.file.core.windows.net' }
+    Mock -ModuleName AvdLandingZone Get-AvdDirectoryAdminId { @('admin-1') }
+  }
+
+  It 'accepts an app with no owners or owned by a directory administrator or the signed-in operator' {
+    foreach ($owner in @($null, @{ id = 'admin-1'; userPrincipalName = 'admin@contoso.com' }, @{ id = 'me-1'; userPrincipalName = 'operator@contoso.com' })) {
+      $script:currentOwner = $owner
+      Mock -ModuleName AvdLandingZone Invoke-AvdGraph {
+        if ($Uri -match '^v1\.0/applications\?') { return @([pscustomobject]@{ id = 'app-1'; appId = '11111111-1111-1111-1111-111111111111'; displayName = '[Storage Account] stavdlzdev000.file.core.windows.net'; createdDateTime = '2026-10-28T01:12:20Z' }) }
+        if ($Uri -match '/owners\?') { return $(if ($script:currentOwner) { @([pscustomobject]$script:currentOwner) } else { @() }) }
+        if ($Uri -match '^v1\.0/me\?') { return [pscustomobject]@{ id = 'me-1' } }
+        if ($Uri -match '^v1\.0/servicePrincipals\?') { return @([pscustomobject]@{ id = 'sp-1'; appId = '11111111-1111-1111-1111-111111111111' }) }
+      }
+      $res = Get-AvdStorageKerberosApp -Lz $script:lz
+      $res.Rejected | Should -BeNullOrEmpty
+      $res.Application.appId | Should -Be '11111111-1111-1111-1111-111111111111'
+    }
+  }
+
+  It 'rejects an app owned by a non-administrator and selects the administrator-owned app when both exist' {
+    Mock -ModuleName AvdLandingZone Invoke-AvdGraph {
+      if ($Uri -match '^v1\.0/applications\?') {
+        return @(
+          [pscustomobject]@{ id = 'app-real'; appId = '11111111-1111-1111-1111-111111111111'; displayName = '[Storage Account] stavdlzdev000.file.core.windows.net'; createdDateTime = '2026-10-28T01:12:20Z' }
+          [pscustomobject]@{ id = 'app-fake'; appId = '66666666-6666-6666-6666-666666666666'; displayName = '[Storage Account] stavdlzdev000.file.core.windows.net'; createdDateTime = '2026-10-28T01:00:00Z' }
+        )
+      }
+      if ($Uri -match 'applications/app-real/owners\?') { return @([pscustomobject]@{ id = 'me-1'; userPrincipalName = 'operator@contoso.com' }) }
+      if ($Uri -match 'applications/app-fake/owners\?') { return @([pscustomobject]@{ id = 'u-eve'; userPrincipalName = 'eve@contoso.com' }) }
+      if ($Uri -match '^v1\.0/me\?') { return [pscustomobject]@{ id = 'me-1' } }
+      if ($Uri -match '^v1\.0/servicePrincipals\?') { return @([pscustomobject]@{ id = 'sp-1'; appId = '11111111-1111-1111-1111-111111111111' }) }
+    }
+    $beside = Get-AvdStorageKerberosApp -Lz $script:lz
+    $beside.Rejected | Should -BeNullOrEmpty
+    $beside.Application.appId | Should -Be '11111111-1111-1111-1111-111111111111'
+
+    Mock -ModuleName AvdLandingZone Invoke-AvdGraph {
+      if ($Uri -match '^v1\.0/applications\?') {
+        return @([pscustomobject]@{ id = 'app-fake'; appId = '66666666-6666-6666-6666-666666666666'; displayName = '[Storage Account] stavdlzdev000.file.core.windows.net'; createdDateTime = '2026-10-28T01:00:00Z' })
+      }
+      if ($Uri -match 'applications/app-fake/owners\?') { return @([pscustomobject]@{ id = 'u-eve'; userPrincipalName = 'eve@contoso.com' }) }
+      if ($Uri -match '^v1\.0/me\?') { return [pscustomobject]@{ id = 'me-1' } }
+    }
+    $only = Get-AvdStorageKerberosApp -Lz $script:lz
+    $only.Application | Should -BeNullOrEmpty
+    $only.Rejected | Should -Match 'eve@contoso\.com'
+  }
+}

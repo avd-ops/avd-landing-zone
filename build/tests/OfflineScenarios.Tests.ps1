@@ -43,7 +43,7 @@ Describe 'Post-deployment: preflight, demo and cleanup' {
   It 'reports the profile backup''s access, last status and age, as warnings' {
     $out | Should -Match 'RESULT profile-backup healthy=True access=True failedWarned=True keyHint=True stale=True never=True stillReady=True'
   }
-  It 'tells the storage app Azure created from a user-registered one of the same name by its owners' { $out | Should -Match 'RESULT storage-app-imposter besideReady=True besideApp=True onlyFailed=True onlyExcluded=0' }
+  It 'tells the storage app Azure created from a user-registered one of the same name by its owners' { $out | Should -Match 'RESULT storage-app-imposter besideReady=True besideApp=True unownedReady=True onlyFailed=True onlyExcluded=0' }
   It 'fails the demo host check by name when a Kerberos client service is stopped' { $out | Should -Match 'RESULT kerberos-services failed=True named=True' }
   It 'deploys and validates the demo, then removes it' {
     Get-StepExit $out 'demo' | Should -Be 0

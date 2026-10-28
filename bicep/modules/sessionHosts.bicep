@@ -37,6 +37,9 @@ param autoShutdownTimeZone string = 'UTC'
 @description('Create the resource-group role assignments for VM sign-in and power management. Set to false on additional pool modules targeting the same resource group.')
 param deployRoleAssignments bool = true
 
+@description('Additional host pools whose session hosts share this resource group (created and FSLogix-configured here; registered by registerPoolHosts.bicep).')
+param additionalPools array = []
+
 var roles = {
   vmUserLogin: 'fb879df8-f326-4884-b1cf-06f3ad86be52'
   vmAdminLogin: '1c0163c0-47e6-4577-8991-ea5c82e286e4'
@@ -45,26 +48,54 @@ var roles = {
 
 // 11-char prefix + '-' + 3-digit index = 15 chars, the Windows computer-name limit.
 var vmNames = [for i in range(0, count): '${namePrefix}-${padLeft(i + 1, 3, '0')}']
+var primaryHosts = [
+  for i in range(0, count): {
+    name: vmNames[i]
+    hostIndex: i
+    vmSize: vmSize
+    availabilityZones: availabilityZones
+    imageReference: imageReference
+    encryptionAtHost: encryptionAtHost
+    enrollInIntune: enrollInIntune
+    fslogixProfileSizeMiB: fslogixProfileSizeMiB
+  }
+]
+var extraHostsByPool = [
+  for pool in additionalPools: map(
+    range(0, int(pool.?count ?? count)),
+    hIdx => {
+      name: '${string(pool.?namePrefix ?? namePrefix)}-${padLeft(hIdx + 1, 3, '0')}'
+      hostIndex: hIdx
+      vmSize: string(pool.?vmSize ?? vmSize)
+      availabilityZones: pool.?availabilityZones ?? availabilityZones
+      imageReference: pool.?imageReference ?? imageReference
+      encryptionAtHost: bool(pool.?encryptionAtHost ?? encryptionAtHost)
+      enrollInIntune: bool(pool.?enrollInIntune ?? enrollInIntune)
+      fslogixProfileSizeMiB: int(pool.?fslogixProfileSizeMiB ?? fslogixProfileSizeMiB)
+    }
+  )
+]
+var allHosts = empty(additionalPools) ? primaryHosts : concat(primaryHosts, flatten(extraHostsByPool))
 var intuneMdmId = '0000000a-0000-0000-c000-000000000000'
 
 module vm 'br/public:avm/res/compute/virtual-machine:0.22.3' = [
-  for (vmName, i) in vmNames: {
-    name: 'vm-${vmName}'
+  for (h, i) in allHosts: {
+    name: 'vm-${h.name}'
     params: {
-      name: vmName
+      name: h.name
       location: location
       tags: tags
-      vmSize: vmSize
+      vmSize: h.vmSize
       autoShutdownConfig: empty(autoShutdownTime) ? {} : { status: 'Enabled', dailyRecurrenceTime: autoShutdownTime, timeZone: autoShutdownTimeZone }
       osType: 'Windows'
       // AVD multi-session: Windows client licensing via the user's M365/Windows E3+ entitlement.
       licenseType: 'Windows_Client'
-      availabilityZone: empty(availabilityZones) ? -1 : availabilityZones[i % length(availabilityZones)]
-      imageReference: imageReference
+      availabilityZone: empty(h.availabilityZones) ? -1 : h.availabilityZones[h.hostIndex % length(h.availabilityZones)]
+      imageReference: h.imageReference
       securityType: 'TrustedLaunch'
       secureBootEnabled: true
       vTpmEnabled: true
-      encryptionAtHost: encryptionAtHost
+      encryptionAtHost: h.encryptionAtHost
       // Premium SSD for the OS disk: multi-session hosts page, log on and update many users at once.
       osDisk: {
         caching: 'ReadWrite'
@@ -94,7 +125,7 @@ module vm 'br/public:avm/res/compute/virtual-machine:0.22.3' = [
       bootDiagnostics: true
       extensionAadJoinConfig: {
         enabled: true
-        settings: enrollInIntune
+        settings: h.enrollInIntune
           ? {
               mdmId: intuneMdmId
             }
@@ -122,13 +153,13 @@ module vm 'br/public:avm/res/compute/virtual-machine:0.22.3' = [
 ]
 
 resource sessionHost 'Microsoft.Compute/virtualMachines@2024-07-01' existing = [
-  for vmName in vmNames: {
-    name: vmName
+  for h in allHosts: {
+    name: h.name
   }
 ]
 
 resource configureFslogix 'Microsoft.Compute/virtualMachines/runCommands@2024-07-01' = [
-  for (vmName, i) in vmNames: {
+  for (h, i) in allHosts: {
     parent: sessionHost[i]
     name: 'Configure-FSLogix'
     location: location
@@ -144,7 +175,7 @@ resource configureFslogix 'Microsoft.Compute/virtualMachines/runCommands@2024-07
         }
         {
           name: 'ProfileSizeMiB'
-          value: string(fslogixProfileSizeMiB)
+          value: string(h.fslogixProfileSizeMiB)
         }
         {
           name: 'LocalAdminUsername'
