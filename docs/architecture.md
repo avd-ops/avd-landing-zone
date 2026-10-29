@@ -61,6 +61,10 @@ In **hub-peered** mode your firewall must allow the [AVD required FQDNs](https:/
 | Azure Virtual Desktop SP | Desktop Virtualization Power On Off Contributor | `avd` and `hosts` RGs |
 | Tag-inheritance policy identities | Tag Contributor | Subscription |
 
+## Agent updates
+
+The host pool takes AVD agent updates in one window, Saturday 02:00 in each host's local time (`controlPlane.bicep`). [Scheduled Agent Updates](https://learn.microsoft.com/azure/virtual-desktop/scheduled-agent-updates) (git_commit_id 4dcb5ff, 2025-06-25) asks that every host be on during the window: an update fails on a host that is off, the broker tries again in the next windows and installs by force after the fourth, and a critical update is always forced. The scaling plan's weekend minimum is 0% and the optional auto shutdown deallocates hosts at night, so in this landing zone most hosts are off in that window and take updates when the broker forces them. That is fine for the one-host demo. For a real pool, choose one of these before relying on the window: start the hosts for the window and exclude them from scaling while it runs, or add the optional second window at a time your hosts are on. Either one changes the scaling and power design and needs a mock path and a scenario assertion.
+
 ## Deployment order
 
 `monitoring` → `network` → `privateDns` → `keyVault`, `storage` (→ `backup`), `controlPlane` → `sessionHosts` (VMs → FSLogix run command → agent run command). `governance` runs as soon as the workspace exists.

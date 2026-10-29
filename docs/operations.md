@@ -65,6 +65,8 @@ In Cloud Shell, a Microsoft Graph sign-in uses a device code: the script prints 
 
 Scopes: `Application.ReadWrite.All`, `DelegatedPermissionGrant.ReadWrite.All`, `Policy.Read.All`, `Policy.ReadWrite.ConditionalAccess`, `Group.ReadWrite.All`, `Directory.Read.All`, `Device.ReadWrite.All`, `DeviceManagementManagedDevices.ReadWrite.All`. These are delegated: a script can do no more than your Entra ID roles allow (the table below).
 
+**A check-only run asks for the write scopes too.** The preflight without `-Fix` changes nothing, but it signs in with the same set, ReadWrite scopes included, so a later `-Fix`, demo or cleanup in the same session needs no second device code. That is decision 0016's trade-off: one sign-in per session instead of one per purpose. What protects a read-only reviewer is that the scopes are delegated: a Global Reader who signs in still can't change anything, because the token never exceeds their roles. Through Microsoft's shared app the ReadWrite scopes need an administrator's consent first; the operator app below removes that prompt. There is no read-only scope set today; a reviewer who needs one should run the check with an account that holds only reader roles.
+
 **The operator app (recommended).** Without it, the scripts sign in through Microsoft's shared "Microsoft Graph Command Line Tools" app, which needs consent for these scopes: an administrator's, for the ReadWrite ones. An administrator runs this once per tenant:
 
 ```powershell

@@ -43,7 +43,7 @@ test('entry-point code carries the notice', () => {
     'bicep/images/main.bicep', 'bicep/images/build.bicep', 'scripts/ops/Start-AvdImageBuild.ps1', 'scripts/ops/Connect-AvdLandingZone.ps1', 'scripts/ops/Initialize-AvdGraphApp.ps1', 'scripts/ops/ConvertFrom-AvdTargetState.ps1', 'scripts/ops/AvdTargetState.psm1', 'scripts/image/Invoke-Wdot.ps1', 'scripts/image/Test-GoldenImage.ps1', 'scripts/ops/Publish-AvdPortal.ps1', 'bicep/portal/main.bicep', 'site/portal/portal-config.js',
     'scripts/ops/AvdSpend.psm1', 'scripts/ops/AvdSandboxBatch.psm1', 'scripts/ops/Start-AvdSpendRun.ps1', 'scripts/ops/Stop-AvdSpendRun.ps1', 'scripts/ops/Set-AvdSpendBudget.ps1',
     'scripts/ops/New-AvdSandboxBatch.ps1', 'scripts/ops/Approve-AvdSandboxBatch.ps1', 'scripts/ops/Invoke-AvdSandboxBatch.ps1', 'scripts/ops/Get-AvdSandboxBatchStatus.ps1',
-    'scripts/ops/Test-AvdSandboxHealth.ps1'];
+    'scripts/ops/Test-AvdSandboxHealth.ps1', 'scripts/ops/image-build-issue.cjs'];
   for (const f of files) {
     const head = read(f).split('\n').slice(0, 5).join('\n');
     assert.match(head, /Personal project, not for production use\. Provided as is, without warranty of any kind \(MIT License, see LICENSE\)\. Not affiliated with the author's employer or with Microsoft\./, f);
