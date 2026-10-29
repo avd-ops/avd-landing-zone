@@ -23,6 +23,7 @@ pwsh -c "Invoke-Pester -Path ./build/tests -CI"            # unit tests, offline
 shellcheck scripts/deploy/deploy.sh .claude/hooks/session-start.sh .githooks/pre-commit build/snapshot-diff.sh
 gitleaks git --redact .                              # secret scan, as the secret-scan workflow runs it
 node --test "build/tests/portal/*.test.mjs"                # deployment portal engine
+node --test "build/tests/workflows/*.test.mjs"             # image build issue step
 ```
 
 Without Pester, run an offline scenario directly: `pwsh -File build/tests/offline/PostDeployment.Scenario.ps1` and read its `RESULT` lines.

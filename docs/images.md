@@ -112,6 +112,8 @@ A build takes 1–4 hours. Each one opens an issue labeled `image-build` with:
 
 The customization log is kept as the run's artifact for 90 days. A run that finds nothing new ends without an issue.
 
+A failed build keeps one issue open: the next failure with the same title adds a comment to it, and the next build that reaches Azure (built or unchanged) closes it. Until the **images** environment has its three secrets (Setup above), a scheduled run skips the build, writes the setup steps to the run's summary and closes any failure issue an unconfigured run left open.
+
 From Cloud Shell instead of GitHub Actions:
 
 ```powershell
