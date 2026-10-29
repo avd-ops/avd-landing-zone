@@ -75,6 +75,12 @@ test('a failed summary with no failure issue open opens one', async () => {
   assert.equal(f.of('create')[0].args.title, 'Image build 1.2.3: failed');
 });
 
+test('validation details keep backslashes and pipes literal in the table', async () => {
+  const f = fakeGitHub([]);
+  await reportBuild({ github: f.github, context, core, summary: { ...summary('failed'), validation: [{ check: 'path', status: 'Fail', detail: 'C:\\Temp|x' }] } });
+  assert.match(f.of('create')[0].args.body, /\| path \| Fail \| C:\\\\Temp\\\|x \|/);
+});
+
 test('a succeeded build closes open failure issues, never pull requests or result issues, and opens its result', async () => {
   const f = fakeGitHub([
     { number: 51, title: NO_SUMMARY },
@@ -113,7 +119,8 @@ test('an unconfigured run closes failure issues with a pointer to the setup step
 test('the workflow skips the Azure steps until the images environment has its identity', () => {
   const wf = readFileSync(root + '.github/workflows/image-build.yml', 'utf8');
   for (const step of ['Install Bicep', "Azure login (OIDC, the images environment's identity)", 'Build']) {
-    const m = wf.match(new RegExp(`- name: ${step.replace(/[()]/g, '\\$&')}\\n\\s+if: ([^\\n]+)`));
+    const name = step.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const m = wf.match(new RegExp(`- name: ${name}\\n\\s+if: ([^\\n]+)`));
     assert.ok(m, step);
     assert.equal(m[1], "steps.setup.outputs.run == 'true'", step);
   }

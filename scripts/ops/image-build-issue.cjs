@@ -44,7 +44,7 @@ async function reportFailure(github, repo, title, body) {
 }
 
 function resultBody(s, run) {
-  const rows = (s.validation || []).map((v) => `| ${v.check} | ${v.status} | ${String(v.detail).replace(/\|/g, '\\|')} |`).join('\n');
+  const rows = (s.validation || []).map((v) => `| ${v.check} | ${v.status} | ${String(v.detail).replace(/\\/g, '\\\\').replace(/\|/g, '\\|')} |`).join('\n');
   return [
     `**Status:** ${s.status}${s.emergency ? ' (emergency build)' : ''}`,
     `**Version:** \`${s.version}\` (excluded from latest until automated validation passes; spec section 6.3)`,
