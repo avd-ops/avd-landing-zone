@@ -48,7 +48,7 @@ param runUrl string = ''
 @description('A security build (spec section 5.7): recorded on the version.')
 param emergency bool = false
 
-@description('Regions to replicate to, one per environment region, with ZRS where the region has availability zones: [{ name, storageAccountType, replicaCount }].')
+@description('Regions to replicate to, one per environment region: [{ name, storageAccountType, replicaCount }]. The default, one Standard_LRS replica, fits a region without availability zones such as North Central US (lesson 0001); use Standard_ZRS in a zone region and one replica per 20 hosts created at once (spec section 4.2).')
 param replicaRegions array = [
   {
     name: location

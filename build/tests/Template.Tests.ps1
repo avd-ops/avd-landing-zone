@@ -564,6 +564,57 @@ Describe 'Operator jumpbox through Bastion Developer (decision 0019)' {
   }
 }
 
+Describe 'Session host baseline: Trusted Launch, network rules, role assignments (security review gap security-run-evidence)' {
+  BeforeAll {
+    function Get-ModuleTemplate([string] $Path) {
+      $raw = (& $script:bicep build $Path --stdout) -join "`n"
+      if ($LASTEXITCODE -ne 0) { throw "bicep build $Path failed" }
+      $raw | ConvertFrom-Json -Depth 100 -AsHashtable
+    }
+    function Get-Resource($Template) { if ($Template['resources'] -is [System.Collections.IDictionary]) { @($Template['resources'].Values) } else { @($Template['resources']) } }
+    $script:hosts = Get-ModuleTemplate 'bicep/modules/sessionHosts.bicep'
+    $script:net = Get-ModuleTemplate 'bicep/modules/network.bicep'
+  }
+
+  It 'builds every host as Trusted Launch with secure boot and vTPM' {
+    $vm = @(Get-Resource $script:hosts | Where-Object { $_['type'] -eq 'Microsoft.Resources/deployments' -and $_['properties']['parameters'].Keys -contains 'securityType' })
+    $vm.Count | Should -Be 1
+    $p = $vm[0]['properties']['parameters']
+    $p['securityType']['value'] | Should -Be 'TrustedLaunch'
+    $p['secureBootEnabled']['value'] | Should -BeTrue
+    $p['vTpmEnabled']['value'] | Should -BeTrue
+  }
+
+  It 'gives the host subnet an NSG with no allow rule that denies internet inbound and onward RDP and SSH' {
+    $rules = $script:net['resources']['sessionHostNsg']['properties']['parameters']['securityRules']['value']
+    @($rules | Where-Object { $_['properties']['access'] -eq 'Allow' }).Count | Should -Be 0
+    ($rules | ForEach-Object { $_['name'] }) | Should -Be @('Deny-Internet-Inbound', 'Deny-VirtualNetwork-RDP-SSH-Outbound')
+    $in = $rules[0]['properties']
+    $in['direction'] | Should -Be 'Inbound'; $in['sourceAddressPrefix'] | Should -Be 'Internet'; $in['destinationPortRange'] | Should -Be '*'
+    $out = $rules[1]['properties']
+    $out['direction'] | Should -Be 'Outbound'; $out['destinationAddressPrefix'] | Should -Be 'VirtualNetwork'
+    $out['destinationPortRanges'] | Should -Be @('22', '3389')
+  }
+
+  It 'grants exactly three roles on the hosts resource group: user login, admin login, power on/off for the AVD service principal' {
+    $ra = @(Get-Resource $script:hosts | Where-Object { $_['type'] -eq 'Microsoft.Authorization/roleAssignments' })
+    $ra.Count | Should -Be 3
+    $ra | ForEach-Object { $_['condition'] | Should -Be "[parameters('deployRoleAssignments')]"; $_.Keys | Should -Not -Contain 'scope' }
+    $roles = $script:hosts['variables']['roles']
+    # Built-in role IDs from Microsoft's role reference (PUBLIC_IDS).
+    $roles['vmUserLogin'] | Should -Be 'fb879df8-f326-4884-b1cf-06f3ad86be52'
+    $roles['vmAdminLogin'] | Should -Be '1c0163c0-47e6-4577-8991-ea5c82e286e4'
+    $roles['powerOnOffContributor'] | Should -Be '40c5ff49-9181-41f8-ae61-143b0e78555e'
+    $byRole = @{}
+    foreach ($r in $ra) { $byRole[[regex]::Match($r['properties']['roleDefinitionId'], "variables\('roles'\)\.(\w+)").Groups[1].Value] = $r['properties'] }
+    $byRole.Keys | Sort-Object | Should -Be @('powerOnOffContributor', 'vmAdminLogin', 'vmUserLogin')
+    $byRole['vmUserLogin']['principalId'] | Should -Be "[parameters('usersGroupObjectId')]"
+    $byRole['vmAdminLogin']['principalId'] | Should -Be "[parameters('adminsGroupObjectId')]"
+    $byRole['powerOnOffContributor']['principalId'] | Should -Be "[parameters('avdServicePrincipalObjectId')]"
+    $byRole['powerOnOffContributor']['principalType'] | Should -Be 'ServicePrincipal'
+  }
+}
+
 Describe 'Deadline teardown for sandbox batches (decision 0021)' {
   BeforeAll {
     $raw = & $script:bicep build bicep/recorder/main.bicep --stdout 2>&1
