@@ -58,11 +58,21 @@ test('a repeat failure comments on the open issue instead of opening a duplicate
   assert.deepEqual(r, { commented: 51 });
 });
 
-test('a failed summary opens its own issue next to a different open failure', async () => {
-  const f = fakeGitHub([{ number: 51, title: NO_SUMMARY }]);
+test('a failure with another title adds its full report to the one open failure issue', async () => {
+  const f = fakeGitHub([{ number: 52, title: 'Image build 1.2.2: failed' }]);
+  const r = await reportBuild({ github: f.github, context, core, summary: { ...summary('failed'), runState: 'Failed', message: 'customizer error' } });
+  assert.equal(f.of('create').length, 0);
+  assert.equal(f.of('update').length, 0);
+  const body = f.of('createComment')[0].args.body;
+  assert.match(body, /Image build 1\.2\.3: failed/);
+  assert.match(body, /\*\*Run status:\*\* Failed: customizer error/);
+  assert.deepEqual(r, { commented: 52 });
+});
+
+test('a failed summary with no failure issue open opens one', async () => {
+  const f = fakeGitHub([{ number: 53, title: 'Image build 1.2.1: succeeded' }]);
   await reportBuild({ github: f.github, context, core, summary: summary('failed') });
   assert.equal(f.of('create')[0].args.title, 'Image build 1.2.3: failed');
-  assert.equal(f.of('update').length, 0);
 });
 
 test('a succeeded build closes open failure issues, never pull requests or result issues, and opens its result', async () => {
@@ -79,15 +89,21 @@ test('a succeeded build closes open failure issues, never pull requests or resul
   assert.deepEqual(r, { opened: 100, closed: [51, 52] });
 });
 
-test('an unchanged build closes failure issues and opens nothing', async () => {
-  const f = fakeGitHub([{ number: 51, title: NO_SUMMARY }]);
+test('an unchanged build closes only the sign-in failure: it proves nothing about a failed version', async () => {
+  const f = fakeGitHub([{ number: 51, title: NO_SUMMARY }, { number: 52, title: 'Image build 1.2.2: failed' }]);
   const r = await reportBuild({ github: f.github, context, core, summary: summary('unchanged') });
   assert.equal(f.of('create').length, 0);
   assert.deepEqual(r, { closed: [51] });
 });
 
+test('a whatif summary closes no failed version and opens its result', async () => {
+  const f = fakeGitHub([{ number: 52, title: 'Image build 1.2.2: failed' }]);
+  const r = await reportBuild({ github: f.github, context, core, summary: summary('whatif') });
+  assert.deepEqual(r, { opened: 100, closed: [] });
+});
+
 test('an unconfigured run closes failure issues with a pointer to the setup steps', async () => {
-  const f = fakeGitHub([{ number: 51, title: NO_SUMMARY }, { number: 53, title: 'Image build 1.2.1: succeeded' }]);
+  const f = fakeGitHub([{ number: 51, title: NO_SUMMARY }, { number: 52, title: 'Image build 1.2.2: failed' }, { number: 53, title: 'Image build 1.2.1: succeeded' }]);
   const r = await closeUnconfigured({ github: f.github, context });
   assert.deepEqual(r, { closed: [51] });
   assert.match(f.of('createComment')[0].args.body, /docs\/images\.md/);
@@ -103,5 +119,7 @@ test('the workflow skips the Azure steps until the images environment has its id
   }
   assert.match(wf, /if: steps\.setup\.outputs\.run == 'false'\n[^\n]+\n[\s\S]*?closeUnconfigured/);
   assert.match(wf, /GITHUB_STEP_SUMMARY/);
+  // A run started by hand fails when unconfigured, so a forced or emergency build never looks green.
+  assert.match(wf, /if \[ "\$GITHUB_EVENT_NAME" = "workflow_dispatch" \]; then\n\s+echo "::error::[^\n]+\n\s+exit 1/);
   assert.match(wf, /require\(`\$\{process\.env\.GITHUB_WORKSPACE\}\/scripts\/ops\/image-build-issue\.cjs`\)/);
 });
