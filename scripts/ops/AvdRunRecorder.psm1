@@ -315,6 +315,119 @@ function Get-AvdRunManifest {
   }
 }
 
+function Get-AvdStandingRegionMovePlan {
+  <#
+    Decides whether the standing subscription resources (avdlz-runs-rg, rg-<prefix>-images,
+    rg-<prefix>-images-staging, and NetworkWatcher_<source>) may move from SourceLocation to
+    TargetLocation, and which stacks need to be staged, removed, or redeployed.
+  #>
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)][string] $SourceLocation,
+    [Parameter(Mandatory)][string] $TargetLocation,
+    [ValidateLength(2, 8)][string] $NamePrefix = 'avdlz',
+    [AllowEmptyCollection()][object[]] $ResourceGroup = @(),
+    [AllowEmptyCollection()][string[]] $ActiveLandingZoneGroup = @(),
+    [AllowEmptyCollection()][string[]] $ArmedSchedule = @(),
+    [AllowEmptyCollection()][string[]] $ImageVersion = @(),
+    [AllowEmptyCollection()][object[]] $NetworkWatcher = @(),
+    [switch] $DiscardImageVersions,
+    [switch] $KeepNetworkWatcher,
+    [switch] $Resume
+  )
+  $norm = { param([string] $s) ($s -replace '\s+', '').ToLowerInvariant() }
+  $src = & $norm $SourceLocation
+  $dst = & $norm $TargetLocation
+  $cleanPrefix = ($NamePrefix -replace '-', '').ToLowerInvariant()
+  $blockers = @()
+  if ($src -eq $dst) {
+    $blockers += 'SourceLocation and TargetLocation are the same region.'
+  }
+  $activeLz = @($ActiveLandingZoneGroup | Where-Object { $_ })
+  if ($activeLz.Count) {
+    $blockers += "Active landing zone resource groups exist ($($activeLz -join ', ')). Tear them down before moving standing resources."
+  }
+  $armed = @($ArmedSchedule | Where-Object { $_ })
+  if ($armed.Count) {
+    $blockers += "Armed deadline teardown schedules exist ($($armed -join ', ')). Wait for the batch group to finish before moving the run store."
+  }
+  $versions = @($ImageVersion | Where-Object { $_ })
+  if ($versions.Count -and -not $DiscardImageVersions) {
+    $blockers += "Compute Gallery gal$cleanPrefix has published image version(s) ($($versions -join ', ')). Replicate them or pass -DiscardImageVersions."
+  }
+
+  $runsRg = $ResourceGroup | Where-Object { $_.name -eq 'avdlz-runs-rg' } | Select-Object -First 1
+  $imagesRg = $ResourceGroup | Where-Object { $_.name -eq "rg-$cleanPrefix-images" } | Select-Object -First 1
+  $stagingRg = $ResourceGroup | Where-Object { $_.name -eq "rg-$cleanPrefix-images-staging" } | Select-Object -First 1
+
+  $moveRunStore = [bool]($runsRg -and (& $norm $runsRg.location) -eq $src)
+  $deployRunStore = $moveRunStore -or [bool]($Resume -and (-not $runsRg -or (& $norm $runsRg.location) -eq $dst))
+
+  $moveImages = [bool](($imagesRg -and (& $norm $imagesRg.location) -eq $src) -or ($stagingRg -and (& $norm $stagingRg.location) -eq $src))
+  $deployImages = $moveImages -or [bool]($Resume -and ((-not $imagesRg -and -not $stagingRg) -or ($imagesRg -and (& $norm $imagesRg.location) -eq $dst)))
+
+  $sourceWatchers = @($NetworkWatcher | Where-Object { $_ -and (& $norm $_.location) -eq $src } | ForEach-Object { [string]$_.name })
+  $removeWatchers = if ($KeepNetworkWatcher) { @() } else { $sourceWatchers }
+
+  [pscustomobject]@{
+    SourceLocation        = $src
+    TargetLocation        = $dst
+    CleanPrefix           = $cleanPrefix
+    Allowed               = ($blockers.Count -eq 0)
+    Blockers              = $blockers
+    MoveRunStore          = $moveRunStore
+    DeployRunStore        = $deployRunStore
+    MoveImages            = $moveImages
+    DeployImages          = $deployImages
+    RemoveNetworkWatchers = $removeWatchers
+  }
+}
+
+function Test-AvdStandingBlobBundle {
+  <#
+    Verifies that every blob in a run-store move manifest has a verified copy (matching byte size
+    and SHA-256 hash) before the source run store is deleted or after the target run store is
+    restored (spec R9: never delete the last copy).
+  #>
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)][AllowEmptyCollection()][object[]] $Manifest,
+    [Parameter(Mandatory)][hashtable] $Observed
+  )
+  $results = foreach ($m in @($Manifest | Where-Object { $_ })) {
+    $key = "$($m.container)/$($m.name)"
+    $got = $Observed[$key]
+    $gotSha = if ($got -is [System.Collections.IDictionary] -or $got -is [pscustomobject]) { "$($got.sha256)" } else { "$got" }
+    $gotBytes = if (($got -is [System.Collections.IDictionary] -or $got -is [pscustomobject]) -and $null -ne $got.bytes) { [long]$got.bytes } else { $null }
+    $reason = if (-not $got) {
+      'missing'
+    }
+    elseif ($null -ne $m.bytes -and $null -ne $gotBytes -and [long]$m.bytes -ne $gotBytes) {
+      'size mismatch'
+    }
+    elseif (-not $gotSha -or $gotSha.ToLowerInvariant() -ne "$($m.sha256)".ToLowerInvariant()) {
+      'hash mismatch'
+    }
+    else {
+      $null
+    }
+    [pscustomobject]@{
+      Key      = $key
+      Verified = (-not $reason)
+      Reason   = $reason
+    }
+  }
+  $results = @($results)
+  $failed = @($results | Where-Object { -not $_.Verified })
+  [pscustomobject]@{
+    Verified = ($failed.Count -eq 0)
+    Count    = $results.Count
+    Failed   = $failed
+    Results  = $results
+  }
+}
+
 Export-ModuleMember -Function Get-AvdRunId, Get-AvdRunStoreName, Get-AvdRunRecord, Get-AvdRunCostExpected, Add-AvdRunCostReading,
 Get-AvdRunFileRoute, Test-AvdCopyReceipt, Get-AvdTeardownLogPlan, Test-AvdPrivateRepoName, Get-AvdCostQueryBody, Get-AvdCostQueryReading,
-Get-AvdRunLogQuery, Get-AvdGitBlobSha, Get-AvdRunManifest, Get-AvdPinnedRunbookUri, Test-AvdPinnedRunbookUri
+Get-AvdRunLogQuery, Get-AvdGitBlobSha, Get-AvdRunManifest, Get-AvdPinnedRunbookUri, Test-AvdPinnedRunbookUri,
+Get-AvdStandingRegionMovePlan, Test-AvdStandingBlobBundle
