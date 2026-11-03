@@ -114,8 +114,16 @@ function Invoke-StandingArm {
       $Body | ConvertTo-Json -Depth 30 -Compress | Set-Content -LiteralPath $tmpBody -Encoding utf8NoBOM
       $azArgs += @('--body', "@$tmpBody", '--headers', 'Content-Type=application/json')
     }
-    $out = & az @azArgs 2>&1
-    if ($LASTEXITCODE) {
+    $oldEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+      $out = & az @azArgs 2>&1
+      $exitCode = $LASTEXITCODE
+    }
+    finally {
+      $ErrorActionPreference = $oldEap
+    }
+    if ($exitCode) {
       $msg = ($out | Out-String).Trim()
       if ($AllowNotFound -and $msg -match '404|NotFound|ResourceGroupNotFound|ResourceNotFound') {
         $global:LASTEXITCODE = 0
@@ -123,7 +131,8 @@ function Invoke-StandingArm {
       }
       throw "ARM $Method $Path failed: $msg"
     }
-    $text = ($out | Out-String).Trim()
+    $stdout = @($out | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] })
+    $text = ($stdout | Out-String).Trim()
     if ($text) { return ($text | ConvertFrom-Json -Depth 30) }
     return $null
   }
