@@ -229,3 +229,55 @@ Describe 'Closing a run' {
     $m[0].PSObject.Properties.Name | Should -Not -Contain 'copies'
   }
 }
+
+Describe 'Standing region move plan and blob bundle verification' {
+  It 'plans moving the run store, golden image pipeline, and source Network Watcher when idle' {
+    $rgs = @(
+      [pscustomobject]@{ name = 'avdlz-runs-rg'; location = 'northcentralus' }
+      [pscustomobject]@{ name = 'rg-avdlz-images'; location = 'northcentralus' }
+      [pscustomobject]@{ name = 'rg-avdlz-images-staging'; location = 'northcentralus' }
+      [pscustomobject]@{ name = 'NetworkWatcherRG'; location = 'centralus' }
+    )
+    $watchers = @(
+      [pscustomobject]@{ name = 'NetworkWatcher_northcentralus'; location = 'northcentralus' }
+      [pscustomobject]@{ name = 'NetworkWatcher_centralus'; location = 'centralus' }
+    )
+    $p = Get-AvdStandingRegionMovePlan -SourceLocation 'North Central US' -TargetLocation 'Central US' -NamePrefix 'avdlz' -ResourceGroup $rgs -NetworkWatcher $watchers
+    $p.Allowed | Should -BeTrue
+    $p.Blockers.Count | Should -Be 0
+    $p.MoveRunStore | Should -BeTrue
+    $p.DeployRunStore | Should -BeTrue
+    $p.MoveImages | Should -BeTrue
+    $p.DeployImages | Should -BeTrue
+    $p.RemoveNetworkWatchers | Should -Be @('NetworkWatcher_northcentralus')
+  }
+
+  It 'blocks the move when landing zones are deployed, deadline schedules are armed, or gallery versions exist without -DiscardImageVersions' {
+    $p = Get-AvdStandingRegionMovePlan -SourceLocation 'northcentralus' -TargetLocation 'centralus' `
+      -ActiveLandingZoneGroup @('rg-avdlz-dev-hosts') -ArmedSchedule @('deadline-b20261102-0100-G1') -ImageVersion @('1.0.1')
+    $p.Allowed | Should -BeFalse
+    $p.Blockers.Count | Should -Be 3
+    (Get-AvdStandingRegionMovePlan -SourceLocation 'northcentralus' -TargetLocation 'centralus' -ImageVersion @('1.0.1') -DiscardImageVersions).Allowed | Should -BeTrue
+  }
+
+  It 'verifies a staged blob bundle only when every blob matches both byte size and SHA-256 hash' {
+    $manifest = @(
+      [pscustomobject]@{ container = 'records'; name = 'batches/b1/batch.json'; bytes = 120; sha256 = ('a' * 64) }
+      [pscustomobject]@{ container = 'runs'; name = 'run-1/run.json'; bytes = 250; sha256 = ('b' * 64) }
+    )
+    $ok = Test-AvdStandingBlobBundle -Manifest $manifest -Observed @{
+      'records/batches/b1/batch.json' = @{ bytes = 120; sha256 = ('A' * 64) }
+      'runs/run-1/run.json'           = @{ bytes = 250; sha256 = ('b' * 64) }
+    }
+    $ok.Verified | Should -BeTrue
+    $ok.Count | Should -Be 2
+
+    $bad = Test-AvdStandingBlobBundle -Manifest $manifest -Observed @{
+      'records/batches/b1/batch.json' = @{ bytes = 99; sha256 = ('a' * 64) }
+    }
+    $bad.Verified | Should -BeFalse
+    $bad.Failed.Count | Should -Be 2
+    ($bad.Results | Where-Object Key -eq 'records/batches/b1/batch.json').Reason | Should -Be 'size mismatch'
+    ($bad.Results | Where-Object Key -eq 'runs/run-1/run.json').Reason | Should -Be 'missing'
+  }
+}
