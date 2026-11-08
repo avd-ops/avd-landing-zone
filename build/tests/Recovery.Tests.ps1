@@ -138,7 +138,7 @@ Describe 'Copies read back' {
   }
 }
 
-Describe 'Recovery test plan and restore request' {
+Describe 'Recovery test plan, result evaluation and restore request' {
   It 'restores into new names in the vault''s region and subscription, and prices only what it can match' {
     $p = Get-AvdRecoveryTestPlan -NamePrefix avdlz -Environment dev -RunId 'run-20261020-1900-ab12' -VaultLocation northcentralus -SourceSubscriptionId 's1' -TargetSubscriptionId 's2' -ShareGiB 100 -Hours 2 -Price @{ premiumFilesGiBMonth = 0.2 }
     $p.ResourceGroup | Should -Be 'rg-avdlz-dev-rtest-ab12'
@@ -147,6 +147,57 @@ Describe 'Recovery test plan and restore request' {
     $p.CrossSubscription | Should -BeTrue
     $p.Total | Should -Be 0.05
     (Get-AvdRecoveryTestPlan -NamePrefix avdlz -Environment dev -RunId 'run-20261020-1900-ab12' -VaultLocation northcentralus -SourceSubscriptionId 's1').Unpriced | Should -Be 1
+  }
+  It 'plans T-config, T-image and T-signin with isolated test names and retail meter lines' {
+    $cfg = Get-AvdRecoveryTestPlan -Test 'T-config' -NamePrefix avdlz -Environment dev -RunId 'run-20261020-1900-ab12' -VaultLocation northcentralus -SourceSubscriptionId 's1' -TargetSubscriptionId 's2'
+    $cfg.Test | Should -Be 'T-config'
+    $cfg.TestPrefix | Should -Be 'rtab12'
+    $cfg.SubscriptionId | Should -Be 's2'
+    $cfg.Total | Should -Be 0
+    $cfg.Unpriced | Should -Be 0
+
+    $img = Get-AvdRecoveryTestPlan -Test 'T-image' -NamePrefix avdlz -Environment dev -RunId 'run-20261020-1900-ab12' -VaultLocation southcentralus -SourceSubscriptionId 's1' -Hours 2 -Price @{ vmHour = 0.252; osDiskMonth = 19.71 }
+    $img.Test | Should -Be 'T-image'
+    $img.HostPool | Should -Be 'vdpool-avdlz-dev-rtest-ab12'
+    $img.SessionHost | Should -Be 'vmrtab12'
+    $img.Total | Should -Be 0.55
+    $img.Unpriced | Should -Be 0
+
+    $si = Get-AvdRecoveryTestPlan -Test 'T-signin' -NamePrefix avdlz -Environment dev -RunId 'run-20261020-1900-ab12' -VaultLocation northcentralus -SourceSubscriptionId 's1' -ShareGiB 100 -Hours 2 -Price @{ premiumFilesGiBMonth = 0.2; vmHour = 0.252; osDiskMonth = 19.71 }
+    $si.Test | Should -Be 'T-signin'
+    $si.StorageAccount | Should -Match '^strtavdlzab12$'
+    $si.HostPool | Should -Be 'vdpool-avdlz-dev-rtest-ab12'
+    $si.Lines.Count | Should -Be 4
+    $si.Total | Should -Be 0.60
+    $si.Unpriced | Should -Be 0
+  }
+  It 'evaluates T-profile, T-config, T-image and T-signin drill outcomes' {
+    $t0 = [datetime]'2026-10-20T12:00:00Z'
+    $t1 = [datetime]'2026-10-20T12:18:00Z'
+    $rp = [datetime]'2026-10-20T06:00:00Z'
+    $jobOk = [pscustomobject]@{ properties = [pscustomobject]@{ status = 'Completed'; extendedInfo = [pscustomobject]@{ propertyBag = [pscustomobject]@{ 'Number Of Restored Files' = '12'; 'Number Of Failed Files' = '0' } } } }
+
+    $rProf = Get-AvdRecoveryTestResult -Test 'T-profile' -Started $t0 -Completed $t1 -RecoveryPointTime $rp -RestoreJob $jobOk
+    $rProf.Outcome | Should -Be 'passed'
+    $rProf.Measured.rpoMinutes | Should -Be 360
+    $rProf.Measured.rtoMinutes | Should -Be 18
+
+    $rCfgPass = Get-AvdRecoveryTestResult -Test 'T-config' -Started $t0 -Completed $t1 -ReferenceSnapshot @{ name = 'hp'; properties = @{ maxSessionLimit = 8 } } -CandidateSnapshot @{ name = 'hp'; properties = @{ maxSessionLimit = 8 } }
+    $rCfgPass.Outcome | Should -Be 'passed'
+    $rCfgPass.Measured.driftCount | Should -Be 0
+
+    $rCfgFail = Get-AvdRecoveryTestResult -Test 'T-config' -Started $t0 -Completed $t1 -ReferenceSnapshot @{ name = 'hp'; properties = @{ maxSessionLimit = 8 } } -CandidateSnapshot @{ name = 'hp'; properties = @{ maxSessionLimit = 4 } }
+    $rCfgFail.Outcome | Should -Be 'failed'
+    $rCfgFail.Measured.driftCount | Should -Be 1
+
+    $hostOk = [pscustomobject]@{ properties = [pscustomobject]@{ status = 'Available'; agentVersion = '1.0.9000.1' } }
+    $rImg = Get-AvdRecoveryTestResult -Test 'T-image' -Started $t0 -Completed $t1 -SessionHost $hostOk
+    $rImg.Outcome | Should -Be 'passed'
+    $rImg.Measured.hostStatus | Should -Be 'Available'
+
+    $rSign = Get-AvdRecoveryTestResult -Test 'T-signin' -Started $t0 -Completed $t1 -RecoveryPointTime $rp -RestoreJob $jobOk -SessionHost $hostOk -SignInVerified $true
+    $rSign.Outcome | Should -Be 'passed'
+    $rSign.Measured.signInVerified | Should -BeTrue
   }
   It 'builds an alternate-location restore and refuses one over the source' {
     $b = Get-AvdRecoveryRestoreRequest -SourceStorageAccountId '/s/sa1' -TargetStorageAccountId '/s/sa2' -TargetShare 'profiles-restored'

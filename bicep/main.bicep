@@ -297,6 +297,23 @@ param allowedLocations string[] = union([location], empty(recoveryLocation) ? []
 @description('Optional multi-pool, multi-workspace, multi-app-group, Private Link and Private DNS topology manifest (JSON object). Empty = single host pool, app group and workspace using the top-level parameters.')
 param topology object = {}
 
+// ---------- Estate tripwires (avd-swarm/docs/tripwires.md) ----------
+@description('Deploy estate tripwires: a decoy secret in Key Vault (when tripwireSecretName is set) and a free Activity Log alert on storage key listing (when allowSharedKeyAccess is false). Off by default.')
+param deployTripwires bool = false
+
+@description('Caller-chosen name for the decoy Key Vault secret when deployTripwires is true. Stored as a secure parameter so deployment history does not show the name; empty = no decoy secret.')
+@secure()
+param tripwireSecretName string = ''
+
+@description('Evaluation frequency in minutes for the optional Key Vault tripwire scheduled query alert (0 = no scheduled query rule; 5, 15, or 30 = deploy alert).')
+@allowed([
+  0
+  5
+  15
+  30
+])
+param tripwireAlertMinutes int = 0
+
 // =====================================================================
 // Derived values
 // =====================================================================
@@ -304,6 +321,7 @@ var cleanPrefix = toLower(replace(namePrefix, '-', ''))
 // The same condition as the budget in modules/governance.bicep.
 var deployBudget = monthlyBudgetAmount > 0 && !empty(budgetStartDate) && !empty(alertEmailAddresses)
 var autoShutdownOnBudget = enableAutoShutdown && deployBudget && autoShutdownBudgetAction != 'None'
+var allowStorageSharedKey = enableProfileBackup && profileBackupTier == 'Vaulted'
 // Built-in roles for the runbook's identity (Microsoft's role definitions).
 var roleIds = {
   desktopVirtualizationContributor: '082f0a83-3be5-4ba1-904c-961cca79b387'
@@ -344,6 +362,7 @@ var names = {
 }
 
 var profileShareName = 'profiles'
+var storageAccountResourceId = '/subscriptions/${subscription().subscriptionId}/resourceGroups/${names.rgStorage}/providers/Microsoft.Storage/storageAccounts/${names.storage}'
 // Rotation (image pipeline spec section 6.1): the image and the names of this deployment's hosts.
 var hostImageReference = empty(sessionHostImageId) ? sessionHostImage : { id: sessionHostImageId }
 var hostNamePrefix = empty(sessionHostGeneration) ? sessionHostNamePrefix : '${take(sessionHostNamePrefix, 10)}${sessionHostGeneration}'
@@ -533,6 +552,11 @@ module monitoring 'modules/monitoring.bicep' = {
     logAnalyticsName: names.logAnalytics
     retentionInDays: logRetentionDays
     alertEmailAddresses: alertEmailAddresses
+    deployTripwires: deployTripwires
+    tripwireSecretName: tripwireSecretName
+    tripwireAlertMinutes: tripwireAlertMinutes
+    allowSharedKeyAccess: allowStorageSharedKey
+    storageAccountResourceId: storageAccountResourceId
   }
 }
 
@@ -600,6 +624,8 @@ module keyVault 'modules/keyVault.bicep' = {
     adminsGroupObjectId: avdAdminsGroupObjectId
     localAdminUsername: localAdminUsername
     localAdminPassword: localAdminPassword
+    deployTripwires: deployTripwires
+    tripwireSecretName: tripwireSecretName
   }
 }
 

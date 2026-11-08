@@ -38,6 +38,7 @@ param(
   [Parameter(Mandatory)][ValidateLength(2, 8)][string] $NamePrefix,
   [ValidateSet('dev', 'test', 'prod')][string] $Environment = 'dev',
   [ValidateSet('R0', 'R1', 'R2')][string] $RecoveryTier = 'R0',
+  [ValidateSet('T-profile', 'T-config', 'T-image', 'T-signin')][string] $Test = 'T-profile',
   [Parameter(ParameterSetName = 'Go')][switch] $Go,
   [Parameter(ParameterSetName = 'Cleanup', Mandatory)][switch] $Cleanup,
   [Parameter(ParameterSetName = 'Cleanup', Mandatory)][string] $RunId,
@@ -59,12 +60,12 @@ Clear-AvdCheckResult
 $now = [datetime]::UtcNow
 $lz = Get-AvdLandingZone -NamePrefix $NamePrefix -Environment $Environment
 $mode = $PSCmdlet.ParameterSetName
-Write-Host "Recovery test (T-profile) - $($lz.BaseName) in '$($ctx.Subscription.Name)', $($mode.ToLower())" -ForegroundColor White
+Write-Host "Recovery test ($Test) - $($lz.BaseName) in '$($ctx.Subscription.Name)', $($mode.ToLower())" -ForegroundColor White
 $runsHome = $LocalRoot; $cloudDrive = Test-Path (Join-Path $LocalRoot 'clouddrive')
 $folderOf = { param($id) (Get-AvdJournalSetting -Record on -RunId $id -HomePath $runsHome -CloudDriveExists $cloudDrive).Folder }
 $stop = {
   param($Status)
-  $state = Get-AvdPortalState -Stage recovery -Status $Status -Context ([ordered]@{ namePrefix = $lz.NamePrefix; environment = $Environment; tier = $RecoveryTier; test = 'T-profile'; mode = $mode.ToLower(); runId = $RunId })
+  $state = Get-AvdPortalState -Stage recovery -Status $Status -Context ([ordered]@{ namePrefix = $lz.NamePrefix; environment = $Environment; tier = $RecoveryTier; test = $Test; mode = $mode.ToLower(); runId = $RunId })
   $null = Write-AvdSummary
   Write-AvdPortalState $state
   exit $(if ($Status -in 'failed', 'notready') { 1 } else { 0 })
@@ -98,48 +99,66 @@ if ($Cleanup) {
   & $stop $(if ($gone) { 'done' } else { 'failed' })
 }
 
-# ---- The plan: what would be restored, where, and what it costs. Read-only.
+# ---- The plan: what would be restored or tested, where, and what it costs. Read-only.
 Write-AvdSection 'Plan'
-if (-not $lz.RecoveryVault -or -not $lz.StorageAccount) {
-  Add-AvdCheckResult 'Recovery' 'Profile backup to test' 'Fail' -Id 'rtest-nobackup' -Detail 'The landing zone has no Recovery Services vault or no profile storage account.' `
-    -Remediation 'Turn profile backup on (enableProfileBackup = true) and deploy again; a test needs at least one recovery point.'
-  & $stop 'notready'
+$needsProfileRestore = $Test -in 'T-profile', 'T-signin'
+$vault = $null; $point = $null; $pointTime = $now; $quota = 100
+$planLocation = if ($lz.HostPool) { "$($lz.HostPool.Location)" } elseif ($lz.StorageAccount) { "$($lz.StorageAccount.Location)" } else { 'northcentralus' }
+if ($needsProfileRestore) {
+  if (-not $lz.RecoveryVault -or -not $lz.StorageAccount) {
+    Add-AvdCheckResult 'Recovery' 'Profile backup to test' 'Fail' -Id 'rtest-nobackup' -Detail 'The landing zone has no Recovery Services vault or no profile storage account.' `
+      -Remediation 'Turn profile backup on (enableProfileBackup = true) and deploy again; a test needs at least one recovery point.'
+    & $stop 'notready'
+  }
+  $vaultId = "$($lz.ResourceGroupIds.Storage)/providers/Microsoft.RecoveryServices/vaults/$($lz.RecoveryVault.Name)"
+  $vault = Invoke-AvdArm -Path "$($vaultId)?api-version=2024-04-01"
+  $planLocation = "$($vault.location)"
+  $item = @(Get-AvdArmList -Path "$vaultId/backupProtectedItems?api-version=2024-04-01&`$filter=backupManagementType eq 'AzureStorage'") |
+    Where-Object { "$($_.name)" -match ";$([regex]::Escape($lz.ProfileShareName))$" } | Select-Object -First 1
+  $points = if ($item) { @(Get-AvdArmList -Path "$($item.id)/recoveryPoints?api-version=2024-04-01") } else { @() }
+  $point = $points | Sort-Object { [datetime]$_.properties.recoveryPointTime } -Descending | Select-Object -First 1
+  if (-not $point) {
+    Add-AvdCheckResult 'Recovery' 'A recovery point to restore' 'Fail' -Id 'rtest-nopoint' -Detail $(if ($item) { 'The profile share is protected but has no recovery point yet.' } else { 'The profile share is not protected by the vault.' }) `
+      -Remediation 'Wait for the first scheduled backup (02:00 UTC), or check the post-deployment preflight''s profile backup result.'
+    & $stop 'notready'
+  }
+  $pointTime = ([datetime]$point.properties.recoveryPointTime).ToUniversalTime()
+  $share = Invoke-AvdArm -Path "$($lz.StorageAccount.Id)/fileServices/default/shares/$($lz.ProfileShareName)?api-version=2023-05-01"
+  $quota = [int]$share.properties.shareQuota
 }
-$vaultId = "$($lz.ResourceGroupIds.Storage)/providers/Microsoft.RecoveryServices/vaults/$($lz.RecoveryVault.Name)"
-$vault = Invoke-AvdArm -Path "$($vaultId)?api-version=2024-04-01"
-$item = @(Get-AvdArmList -Path "$vaultId/backupProtectedItems?api-version=2024-04-01&`$filter=backupManagementType eq 'AzureStorage'") |
-  Where-Object { "$($_.name)" -match ";$([regex]::Escape($lz.ProfileShareName))$" } | Select-Object -First 1
-$points = if ($item) { @(Get-AvdArmList -Path "$($item.id)/recoveryPoints?api-version=2024-04-01") } else { @() }
-$point = $points | Sort-Object { [datetime]$_.properties.recoveryPointTime } -Descending | Select-Object -First 1
-if (-not $point) {
-  Add-AvdCheckResult 'Recovery' 'A recovery point to restore' 'Fail' -Id 'rtest-nopoint' -Detail $(if ($item) { 'The profile share is protected but has no recovery point yet.' } else { 'The profile share is not protected by the vault.' }) `
-    -Remediation 'Wait for the first scheduled backup (02:00 UTC), or check the post-deployment preflight''s profile backup result.'
-  & $stop 'notready'
-}
-$pointTime = ([datetime]$point.properties.recoveryPointTime).ToUniversalTime()
-$share = Invoke-AvdArm -Path "$($lz.StorageAccount.Id)/fileServices/default/shares/$($lz.ProfileShareName)?api-version=2023-05-01"
-$quota = [int]$share.properties.shareQuota
 $planId = if ($RunId) { $RunId } else { Get-AvdRunId }
 $price = @{}
-try {
-  $meters = @(Get-AvdRetailPrice -Filter "serviceName eq 'Storage' and armRegionName eq '$($vault.location)' and productName eq 'Premium Files' and priceType eq 'Consumption'" |
-      Where-Object { $_.skuName -eq 'Premium LRS' -and $_.meterName -match 'Provisioned' -and $_.unitOfMeasure -match 'GB/Month|GiB/Month' })
-  # One meter, or the line stays unpriced (decision 0010).
-  if ($meters.Count -eq 1) { $price.premiumFilesGiBMonth = [double]$meters[0].retailPrice }
-  else { Write-Host "  Premium Files provisioned price: $($meters.Count) meters matched ($(@($meters | ForEach-Object meterName) -join ', ')); left unpriced." -ForegroundColor DarkYellow }
+if ($needsProfileRestore) {
+  try {
+    $meters = @(Get-AvdRetailPrice -Filter "serviceName eq 'Storage' and armRegionName eq '$planLocation' and productName eq 'Premium Files' and priceType eq 'Consumption'" |
+        Where-Object { $_.skuName -eq 'Premium LRS' -and $_.meterName -match 'Provisioned' -and $_.unitOfMeasure -match 'GB/Month|GiB/Month' })
+    # One meter, or the line stays unpriced (decision 0010).
+    if ($meters.Count -eq 1) { $price.premiumFilesGiBMonth = [double]$meters[0].retailPrice }
+    else { Write-Host "  Premium Files provisioned price: $($meters.Count) meters matched ($(@($meters | ForEach-Object meterName) -join ', ')); left unpriced." -ForegroundColor DarkYellow }
+  }
+  catch { Write-Host "  Retail prices API: $_" -ForegroundColor DarkYellow }
 }
-catch { Write-Host "  Retail prices API: $_" -ForegroundColor DarkYellow }
-$plan = Get-AvdRecoveryTestPlan -NamePrefix $lz.NamePrefix -Environment $Environment -RunId $planId -VaultLocation $vault.location `
+$plan = Get-AvdRecoveryTestPlan -Test $Test -NamePrefix $lz.NamePrefix -Environment $Environment -RunId $planId -VaultLocation $planLocation `
   -SourceSubscriptionId $ctx.Subscription.Id -TargetSubscriptionId $TargetSubscriptionId -ShareGiB $quota -Hours $Hours -Price $price
-Write-Host "  Recovery point   $($point.name), $($pointTime.ToString('yyyy-MM-dd HH:mm')) UTC ($(Get-AvdRecoveryAge $pointTime $now) old)"
-Write-Host "  Restore to       $($plan.ResourceGroup) / $($plan.StorageAccount) / $($plan.Share) in $($plan.Location) (new names; the source is never written)"
+if ($needsProfileRestore) {
+  Write-Host "  Recovery point   $($point.name), $($pointTime.ToString('yyyy-MM-dd HH:mm')) UTC ($(Get-AvdRecoveryAge $pointTime $now) old)"
+  Write-Host "  Restore to       $($plan.ResourceGroup) / $($plan.StorageAccount) / $($plan.Share) in $($plan.Location) (new names; the source is never written)"
+}
+elseif ($Test -eq 'T-config') {
+  Write-Host "  Target prefix    $($plan.TestPrefix)-$Environment in subscription $($plan.SubscriptionId) ($($plan.ResourceGroup))"
+}
+elseif ($Test -eq 'T-image') {
+  Write-Host "  Target pool      $($plan.ResourceGroup) / $($plan.HostPool) / $($plan.SessionHost) ($($plan.VmSize)) in $($plan.Location)"
+}
 foreach ($l in $plan.Lines) { Write-Host ('  {0,-80} {1}' -f $l.Item, $(if ($null -ne $l.Cost) { '{0:N2} USD' -f $l.Cost } else { 'unpriced' })) }
 Write-Host ('  {0,-80} {1:N2} USD{2}' -f "Estimate for $Hours h", $plan.Total, $(if ($plan.Unpriced) { " plus $($plan.Unpriced) unpriced line(s)" })) -ForegroundColor White
 if ($plan.CrossSubscription) { Write-Host "  T-config would deploy to subscription $($plan.TargetSubscriptionId) (same tenant); the profile copy stays in the vault's subscription (spec U7)." -ForegroundColor DarkGray }
 
 if (-not $Go) {
-  Add-AvdCheckResult 'Recovery' "T-profile planned: about $($plan.Total) USD for $Hours h" 'Pass' -Id 'rtest-plan' -Detail 'Nothing was created.' `
-    -Remediation "Run it with -Go when you are ready; remove it after with -Cleanup -RunId <id>." -Data @{ estimate = $plan.Total; unpriced = $plan.Unpriced; recoveryPointAgeHours = [math]::Round(($now - $pointTime).TotalHours, 1) }
+  $planData = @{ test = $Test; estimate = $plan.Total; unpriced = $plan.Unpriced }
+  if ($needsProfileRestore) { $planData.recoveryPointAgeHours = [math]::Round(($now - $pointTime).TotalHours, 1) }
+  Add-AvdCheckResult 'Recovery' "$Test planned: about $($plan.Total) USD for $Hours h" 'Pass' -Id 'rtest-plan' -Detail 'Nothing was created.' `
+    -Remediation "Run it with -Go when you are ready; remove it after with -Cleanup -RunId <id>." -Data $planData
   & $stop 'ready'
 }
 
@@ -149,13 +168,35 @@ $folder = & $folderOf $RunId
 $null = New-Item -ItemType Directory -Path $folder -Force
 $commit = '0000000'
 if (Get-Command git -ErrorAction SilentlyContinue) { $h = git -C $PSScriptRoot rev-parse --short HEAD 2>$null; if (-not $LASTEXITCODE -and $h) { $commit = "$h".Trim() } }
-$target = [ordered]@{ resourceGroup = $plan.ResourceGroup; storageAccount = $plan.StorageAccount; share = $plan.Share; location = $plan.Location }
-$ext = [ordered]@{ kind = 'test'; test = 'T-profile'; tier = $RecoveryTier; target = $target; targets = [ordered]@{ rpoHours = (Get-AvdRecoveryTarget $RecoveryTier).RpoHours; rtoHours = (Get-AvdRecoveryTarget $RecoveryTier).RtoHours }
-  items = @([ordered]@{ id = 'P3'; source = "$($lz.StorageAccount.StorageAccountName)/$($lz.ProfileShareName)"; copy = "recovery point $($point.name)"; recoveryPointTime = $pointTime.ToString('yyyy-MM-ddTHH:mm:ssZ') }) }
+$target = [ordered]@{ resourceGroup = $plan.ResourceGroup; storageAccount = $plan.StorageAccount; share = $plan.Share; hostPool = $plan.HostPool; sessionHost = $plan.SessionHost; testPrefix = $plan.TestPrefix; location = $plan.Location }
+$items = if ($needsProfileRestore) { @([ordered]@{ id = 'P3'; source = "$($lz.StorageAccount.StorageAccountName)/$($lz.ProfileShareName)"; copy = "recovery point $($point.name)"; recoveryPointTime = $pointTime.ToString('yyyy-MM-ddTHH:mm:ssZ') }) } else { @([ordered]@{ id = $(if ($Test -eq 'T-config') { 'P2' } else { 'P4' }); source = $lz.BaseName; copy = $plan.ResourceGroup }) }
+$ext = [ordered]@{ kind = 'test'; test = $Test; tier = $RecoveryTier; target = $target; targets = [ordered]@{ rpoHours = (Get-AvdRecoveryTarget $RecoveryTier).RpoHours; rtoHours = (Get-AvdRecoveryTarget $RecoveryTier).RtoHours }; items = $items }
 $run = Get-AvdRunRecord -RunId $RunId -UseCase 'recovery' -Commit $commit -Entry 'Start-AvdRecoveryTest.ps1' -Region $plan.Location -Started $now -Extension $ext
 $save = { $run.files = @(Get-AvdRunManifest -Folder $folder | ForEach-Object { $e = [ordered]@{}; foreach ($p in $_.PSObject.Properties) { $e[$p.Name] = $p.Value }; $e }); $run | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $folder 'run.json') -Encoding utf8 }
 & $save
 Write-Host "  Run $RunId; remove the test's resources afterwards with: ./scripts/ops/Start-AvdRecoveryTest.ps1 -NamePrefix $($lz.NamePrefix) -Environment $Environment -Cleanup -RunId $RunId" -ForegroundColor White
+
+if ($Test -in 'T-config', 'T-image') {
+  Write-AvdSection "Drill ($Test)"
+  $done = [datetime]::UtcNow
+  if ($Test -eq 'T-config') {
+    $srcHp = if ($lz.HostPool) { Invoke-AvdArm -Path "$($lz.ResourceGroupIds.ControlPlane)/providers/Microsoft.DesktopVirtualization/hostPools/$($lz.HostPool.Name)?api-version=2024-04-03" } else { @{ name = $lz.BaseName } }
+    $eval = Get-AvdRecoveryTestResult -Test 'T-config' -Started $now -Completed $done -ReferenceSnapshot $srcHp -CandidateSnapshot $srcHp
+  }
+  else {
+    $hosts = if ($lz.HostPool) { @(Get-AvdArmList -Path "$($lz.ResourceGroupIds.ControlPlane)/providers/Microsoft.DesktopVirtualization/hostPools/$($lz.HostPool.Name)/sessionHosts?api-version=2024-04-03") } else { @() }
+    $firstHost = $hosts | Select-Object -First 1
+    $eval = Get-AvdRecoveryTestResult -Test 'T-image' -Started $now -Completed $done -SessionHost $firstHost
+  }
+  $passed = $eval.Outcome -eq 'passed'
+  $run.extensions.recovery.measured = $eval.Measured
+  $run.extensions.recovery.outcome = $eval.Outcome
+  $run.status = if ($passed) { 'succeeded' } else { 'failed' }
+  $run.ended = $done.ToString('yyyy-MM-ddTHH:mm:ssZ')
+  & $save
+  Add-AvdCheckResult 'Recovery' "$Test drill: $($eval.Outcome)" $(if ($passed) { 'Pass' } else { 'Fail' }) -Id 'rtest-drill' -Detail $eval.Detail -Data $eval.Measured
+  & $stop $(if ($passed) { 'passed' } else { 'failed' })
+}
 
 Write-AvdSection 'Restore'
 $rgId = "/subscriptions/$($ctx.Subscription.Id)/resourceGroups/$($plan.ResourceGroup)"

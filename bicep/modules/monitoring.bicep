@@ -7,6 +7,14 @@ param baseName string
 param logAnalyticsName string
 param retentionInDays int
 param alertEmailAddresses string[]
+param deployTripwires bool = false
+
+@secure()
+param tripwireSecretName string = ''
+
+param tripwireAlertMinutes int = 0
+param allowSharedKeyAccess bool = false
+param storageAccountResourceId string = ''
 
 module workspace 'br/public:avm/res/operational-insights/workspace:0.16.1' = {
   name: 'law'
@@ -270,6 +278,80 @@ resource serviceHealthAlert 'Microsoft.Insights/activityLogAlerts@2023-01-01-pre
             'Azure Files'
             'Key Vault'
           ]
+        }
+      ]
+    }
+    actions: {
+      actionGroups: [
+        {
+          actionGroupId: actionGroup!.outputs.resourceId
+        }
+      ]
+    }
+  }
+}
+
+resource tripwireKeyVaultAlert 'Microsoft.Insights/scheduledQueryRules@2023-03-15-preview' = if (deployTripwires && !empty(tripwireSecretName) && tripwireAlertMinutes > 0 && hasReceivers) {
+  name: 'alert-${baseName}-tripwire-keyvault'
+  location: location
+  tags: tags
+  properties: {
+    displayName: 'AVD: Key Vault canary credential accessed'
+    description: 'An identity read or backed up a secret in Key Vault outside break-glass operations (tripwire T1).'
+    severity: 1
+    enabled: true
+    evaluationFrequency: 'PT${tripwireAlertMinutes}M'
+    windowSize: 'PT${tripwireAlertMinutes}M'
+    scopes: [
+      workspace.outputs.resourceId
+    ]
+    skipQueryValidation: true
+    autoMitigate: true
+    criteria: {
+      allOf: [
+        {
+          query: '''
+AzureDiagnostics
+| where ResourceProvider == "MICROSOFT.KEYVAULT" and Category == "AuditEvent"
+| where OperationName in ("SecretGet", "SecretBackup")
+| where id_s !endswith "/secrets/sessionhost-localadmin-username" and id_s !endswith "/secrets/sessionhost-localadmin-password"
+| project TimeGenerated, OperationName, ResultSignature, CallerIPAddress, identity_claim_upn_s, identity_claim_appid_g, id_s
+'''
+          timeAggregation: 'Count'
+          operator: 'GreaterThan'
+          threshold: 0
+          failingPeriods: {
+            numberOfEvaluationPeriods: 1
+            minFailingPeriodsToAlert: 1
+          }
+        }
+      ]
+    }
+    actions: {
+      actionGroups: actionGroupIds
+    }
+  }
+}
+
+resource tripwireStorageKeysAlert 'Microsoft.Insights/activityLogAlerts@2023-01-01-preview' = if (deployTripwires && !allowSharedKeyAccess && !empty(storageAccountResourceId) && hasReceivers) {
+  name: 'alert-${baseName}-tripwire-storage-keys'
+  location: 'global'
+  tags: tags
+  properties: {
+    enabled: true
+    description: 'An identity called listKeys on the profile storage account while shared key access is disabled (tripwire T2).'
+    scopes: [
+      storageAccountResourceId
+    ]
+    condition: {
+      allOf: [
+        {
+          field: 'category'
+          equals: 'Administrative'
+        }
+        {
+          field: 'operationName'
+          equals: 'Microsoft.Storage/storageAccounts/listKeys/action'
         }
       ]
     }
