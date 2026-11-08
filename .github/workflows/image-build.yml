@@ -52,13 +52,42 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # Until the images environment has its Azure identity (Setup above), a scheduled run skips cleanly
+      # instead of failing every third Monday with an issue nobody can act on (lesson 0039).
+      - name: Images environment set up?
+        id: setup
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          if [ -n "$CLIENT_ID" ] && [ -n "$TENANT_ID" ] && [ -n "$SUBSCRIPTION_ID" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Image build skipped: the images environment is not set up"
+              echo
+              echo "Deploy \`bicep/images/main.bicep\`, then give the GitHub Environment **images** the secrets"
+              echo "\`AZURE_CLIENT_ID\` (the output buildIdentityClientId), \`AZURE_TENANT_ID\` and \`AZURE_SUBSCRIPTION_ID\`."
+              echo "Steps: docs/images.md. Any open failure issue from an unconfigured run is closed."
+            } >> "$GITHUB_STEP_SUMMARY"
+            # A person who runs it by hand (force, emergency) must see it didn't build.
+            if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+              echo "::error::The images environment is not set up (docs/images.md); nothing was built."
+              exit 1
+            fi
+            echo "Images environment not set up; skipping the build."
+          fi
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         if: steps.gate.outputs.skip != 'true'
         with:
           persist-credentials: false
 
       - name: Install Bicep
-        if: steps.gate.outputs.skip != 'true'
+        if: steps.setup.outputs.run == 'true'
         run: |
           mkdir -p "$RUNNER_TEMP/bin"
           curl -fsSL -o "$RUNNER_TEMP/bin/bicep" https://github.com/Azure/bicep/releases/download/v0.48.1/bicep-linux-x64
@@ -66,7 +95,7 @@ jobs:
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
       - name: Azure login (OIDC, the images environment's identity)
-        if: steps.gate.outputs.skip != 'true'
+        if: steps.setup.outputs.run == 'true'
         uses: azure/login@8216e11d8cd9b42fe925c852af8e76311ff067ac # v2.3.1
         with:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
@@ -75,7 +104,7 @@ jobs:
           enable-AzPSSession: true
 
       - name: Build
-        if: steps.gate.outputs.skip != 'true'
+        if: steps.setup.outputs.run == 'true'
         shell: pwsh
         env:
           FORCE: ${{ inputs.force }}
@@ -93,7 +122,7 @@ jobs:
           ./scripts/ops/Start-AvdImageBuild.ps1 @p
 
       - name: Keep the customization logs
-        if: always() && steps.gate.outputs.skip != 'true'
+        if: always() && steps.setup.outputs.run == 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: image-build-logs
@@ -101,37 +130,23 @@ jobs:
           if-no-files-found: ignore
           retention-days: 90
 
+      - name: Close failure issues while the images environment is not set up
+        if: steps.setup.outputs.run == 'false'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+        with:
+          script: |
+            const { closeUnconfigured } = require(`${process.env.GITHUB_WORKSPACE}/scripts/ops/image-build-issue.cjs`);
+            core.info(JSON.stringify(await closeUnconfigured({ github, context })));
+
+      # One open failure issue at a time; a succeeded build closes it (scripts/ops/image-build-issue.cjs).
       - name: Open an issue with the result
-        if: always() && steps.gate.outputs.skip != 'true'
+        if: always() && steps.setup.outputs.run == 'true'
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
         env:
           SUMMARY: ${{ runner.temp }}/image-summary.json
         with:
           script: |
             const fs = require('fs');
-            try { await github.rest.issues.getLabel({ ...context.repo, name: 'image-build' }); }
-            catch (e) {
-              if (e.status !== 404) throw e;
-              await github.rest.issues.createLabel({ ...context.repo, name: 'image-build', color: '5319e7', description: 'Golden image build results (image-build.yml)' });
-            }
-            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            if (!fs.existsSync(process.env.SUMMARY)) {
-              await github.rest.issues.create({ ...context.repo, title: 'Image build: failed before a summary', labels: ['image-build'],
-                body: `The build stopped before writing its summary. See the run: ${run}\n\n---\n_Opened by image-build.yml_` });
-              return;
-            }
-            const s = JSON.parse(fs.readFileSync(process.env.SUMMARY, 'utf8'));
-            if (s.status === 'unchanged') { core.info(`Nothing changed: ${s.version}`); return; }
-            const rows = (s.validation || []).map(v => `| ${v.check} | ${v.status} | ${String(v.detail).replace(/\|/g, '\\|')} |`).join('\n');
-            const body = [
-              `**Status:** ${s.status}${s.emergency ? ' (emergency build)' : ''}`,
-              `**Version:** \`${s.version}\` (excluded from latest until automated validation passes; spec section 6.3)`,
-              `**Source image:** \`${s.sourceImageVersion}\`  **Commit:** \`${s.commit}\``,
-              s.message ? `**Run status:** ${s.runState}: ${s.message}` : `**Run status:** ${s.runState}`,
-              s.removedOrphans && s.removedOrphans.length ? `**Removed leftover templates:** ${s.removedOrphans.join(', ')}` : '',
-              '', '### Build-time validation (Test-GoldenImage.ps1)', '',
-              rows ? `| Check | Result | Detail |\n|---|---|---|\n${rows}` : '_No validation lines in the log (see the run and its artifacts)._',
-              '', `Run and customization log: ${run}`,
-              '', '---', '_Opened by image-build.yml_'
-            ].join('\n');
-            await github.rest.issues.create({ ...context.repo, title: `Image build ${s.version}: ${s.status}`, body, labels: ['image-build'] });
+            const { reportBuild } = require(`${process.env.GITHUB_WORKSPACE}/scripts/ops/image-build-issue.cjs`);
+            const summary = fs.existsSync(process.env.SUMMARY) ? JSON.parse(fs.readFileSync(process.env.SUMMARY, 'utf8')) : null;
+            core.info(JSON.stringify(await reportBuild({ github, context, core, summary })));

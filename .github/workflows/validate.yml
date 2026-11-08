@@ -18,6 +18,7 @@ on:
       - '.ps-rule/**'
       - 'build/snapshot-diff.sh'
       - '.github/workflows/validate.yml'
+      - '.github/workflows/image-build.yml'
   push:
     branches:
       - master
@@ -35,6 +36,7 @@ on:
       - '.ps-rule/**'
       - 'build/snapshot-diff.sh'
       - '.github/workflows/validate.yml'
+      - '.github/workflows/image-build.yml'
   workflow_dispatch:
 
 permissions:
@@ -197,9 +199,10 @@ jobs:
         with:
           node-version: 22
       # The portal engine against real Cloud Shell output and the scripts' state lines,
-      # plus a guard that its commands only use parameters the scripts define.
+      # plus a guard that its commands only use parameters the scripts define, and the
+      # image build's issue step (build/tests/workflows).
       - name: node --test
-        run: node --test "build/tests/portal/*.test.mjs"
+        run: node --test "build/tests/portal/*.test.mjs" "build/tests/workflows/*.test.mjs"
 
   portal-browser:
     name: Deployment portal in a browser
