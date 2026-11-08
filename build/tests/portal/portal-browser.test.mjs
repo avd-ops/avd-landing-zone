@@ -277,3 +277,21 @@ test('portal UI: Region and Verify steps link to AVD Line Check with the active 
   assert.equal(getEl('verify-linecheck').href, 'https://linecheck.avd-ops.dev/?pack=avd&region=westeurope');
 });
 
+test('portal UI: Target-state architecture & network diagram updates with control-plane presets and exports SVG, Mermaid, and Draw.io', () => {
+  const { getEl } = createPortalDomHarness();
+  assert.match(getEl('arch-diag-summary').textContent, /1 pool \(1 host\), 3 Private Endpoints, 1 control plane/);
+  assert.match(getEl('arch-diag-svg').innerHTML, /<svg class="arch-svg"/);
+
+  getEl('cp-preset-greenfield').click();
+  assert.match(getEl('arch-diag-summary').textContent, /5 control planes/);
+  assert.match(getEl('arch-diag-svg').innerHTML, /Control-Plane Pipeline \(5 stages\)/);
+
+  getEl('arch-export-svg').click();
+  assert.equal(getEl('arch-export-status').textContent, 'Exported avd-architecture-avdlz-dev.svg.');
+  getEl('arch-export-mmd').click();
+  assert.equal(getEl('arch-export-status').textContent, 'Exported avd-architecture-avdlz-dev.mmd.');
+  getEl('arch-export-drawio').click();
+  assert.equal(getEl('arch-export-status').textContent, 'Exported avd-architecture-avdlz-dev.drawio.');
+});
+
+

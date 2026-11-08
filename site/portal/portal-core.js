@@ -1993,7 +1993,213 @@
     return a;
   }
 
-  return { STEPS: STEPS, newRunId: newRunId, recording: recording, recordActions: recordActions, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, isCommit: isCommit, siteConfig: siteConfig, SETTINGS: SETTINGS, SETTING_NAMES: SETTING_NAMES, validSettings: validSettings, contextSettings: contextSettings, validSizing: validSizing, validPower: validPower, validEstimate: validEstimate, validTopology: validTopology, hasCustomTopology: hasCustomTopology, buildTopologyManifest: buildTopologyManifest, CONTROL_PLANE_ORDER: CONTROL_PLANE_ORDER, CONTROL_PLANES: CONTROL_PLANES, CONTROL_PLANE_DEFAULTS: CONTROL_PLANE_DEFAULTS, CONTROL_PLANE_PRESETS: CONTROL_PLANE_PRESETS, validControlPlanes: validControlPlanes, applyControlPlanePreset: applyControlPlanePreset, enabledControlPlanes: enabledControlPlanes, controlPlanesCsv: controlPlanesCsv, controlPlaneActions: controlPlaneActions, versionNote: versionNote, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, DEFAULT_RDP_PROPERTIES: DEFAULT_RDP_PROPERTIES, LOCKED_DOWN_RDP_PROPERTIES: LOCKED_DOWN_RDP_PROPERTIES, POOL_TEMPLATES: POOL_TEMPLATES, WORKSPACE_DEFAULTS: WORKSPACE_DEFAULTS, APP_GROUP_DEFAULTS: APP_GROUP_DEFAULTS, DNS_ZONE_DEFINITIONS: DNS_ZONE_DEFINITIONS, PRIVATE_LINK_DEFAULTS: PRIVATE_LINK_DEFAULTS, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_WORKSPACES: MAX_WORKSPACES, MAX_APP_GROUPS: MAX_APP_GROUPS, MAX_HOSTS: MAX_HOSTS, applyPoolTemplate: applyPoolTemplate, computePool: computePool, computeTopology: computeTopology, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
+  // ---------------------------------------------------------------- C14 target-state architecture & network diagrams
+  function xmlEsc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function buildArchitectureDiagramModel(comp, config) {
+    var cfg = merge(DEFAULTS, config);
+    var top = comp && comp.pools ? comp : computeTopology({}, cfg.environment);
+    var base = (cfg.namePrefix || 'avdlz') + '-' + (cfg.environment || 'dev');
+    var enabledIds = enabledControlPlanes(cfg);
+    var planes = enabledIds.map(function (id, idx) {
+      var p = CONTROL_PLANES[id];
+      return {
+        stage: idx + 1,
+        id: p.id,
+        label: p.label,
+        repo: p.repo,
+        shortCommit: p.shortCommit,
+        output: p.output
+      };
+    });
+    var peList = [
+      { id: 'file', label: 'pe-fslogix (file)', zone: 'privatelink.file.core.windows.net', mode: top.privateLink.dnsZones.file.mode },
+      { id: 'keyVault', label: 'pe-kv (vault)', zone: 'privatelink.vaultcore.azure.net', mode: top.privateLink.dnsZones.keyVault.mode }
+    ];
+    if (top.privateLink.enableAvdConnectionPrivateLink) {
+      peList.push({ id: 'avdConn', label: 'pe-vdpool (connection)', zone: 'privatelink.wvd.microsoft.com', mode: top.privateLink.dnsZones.avd.mode });
+    }
+    if (top.privateLink.enableAvdFeedPrivateLink) {
+      peList.push({ id: 'avdFeed', label: 'pe-vdws (feed)', zone: 'privatelink.wvd.microsoft.com', mode: top.privateLink.dnsZones.avd.mode });
+    }
+    if (top.privateLink.enableAvdGlobalPrivateLink) {
+      peList.push({ id: 'avdGlobal', label: 'pe-vdws-global (global)', zone: 'privatelink-global.wvd.microsoft.com', mode: top.privateLink.dnsZones.avdGlobal.mode });
+    }
+    var dnsSummary = ['file', 'keyVault', 'avd', 'avdGlobal'].map(function (k) {
+      var z = top.privateLink.dnsZones[k];
+      if (!z || z.mode === 'disabled') return null;
+      return { key: k, zoneName: DNS_ZONE_DEFINITIONS[k].zoneName, mode: z.mode === 'existing' ? 'existing' : 'new' };
+    }).filter(Boolean);
+
+    return {
+      base: base,
+      location: cfg.location || 'eastus2',
+      environment: cfg.environment || 'dev',
+      namePrefix: cfg.namePrefix || 'avdlz',
+      vnetName: 'vnet-' + base,
+      vnetCidr: '10.100.0.0/22',
+      subnets: {
+        sessionHosts: { name: 'snet-session-hosts', cidr: '10.100.0.0/24', nsg: 'nsg-' + base + '-hosts', nat: 'nat-' + base },
+        privateEndpoints: { name: 'snet-private-endpoints', cidr: '10.100.1.0/26', nsg: 'nsg-' + base + '-pe' }
+      },
+      controlPlanes: planes,
+      workspaces: top.workspaces.map(function (ws) {
+        return {
+          name: 'vdws-' + base + (ws.name === 'default' ? '' : '-' + ws.name),
+          slug: ws.name,
+          publicNetworkAccess: ws.publicNetworkAccess
+        };
+      }),
+      appGroups: top.appGroups.map(function (ag) {
+        return {
+          name: 'vdag-' + base + '-' + ag.name,
+          slug: ag.name,
+          type: ag.applicationGroupType,
+          hostPool: ag.hostPool,
+          workspace: ag.workspace
+        };
+      }),
+      pools: top.pools.map(function (hp) {
+        return {
+          name: 'vdpool-' + base + (hp.poolKey === 'general' && top.pools.length === 1 ? '' : '-' + hp.poolKey),
+          slug: hp.poolKey,
+          hostPoolType: hp.hostPoolType,
+          loadBalancerType: hp.loadBalancerType,
+          hosts: hp.hosts,
+          vmSize: hp.vmSize,
+          sessionsPerHost: hp.sessionsPerHost,
+          capacity: hp.capacity,
+          publicNetworkAccess: hp.publicNetworkAccess,
+          enablePrivateEndpoint: hp.enablePrivateEndpoint
+        };
+      }),
+      totals: top.totals,
+      privateEndpoints: peList,
+      dnsZones: dnsSummary
+    };
+  }
+
+  function buildArchitectureMermaid(comp, config) {
+    var m = buildArchitectureDiagramModel(comp, config);
+    var lines = [
+      'flowchart LR',
+      '  subgraph CP["Control-Plane Pipeline (' + m.controlPlanes.length + ' enabled)"]'
+    ];
+    m.controlPlanes.forEach(function (p, i) {
+      lines.push('    CP_' + p.id + '["' + p.stage + '. ' + p.label + ' (' + p.repo + '@' + p.shortCommit + ')"]');
+      if (i > 0) {
+        var prev = m.controlPlanes[i - 1];
+        lines.push('    CP_' + prev.id + ' -->|"' + prev.output + '"| CP_' + p.id);
+      }
+    });
+    lines.push('  end');
+    lines.push('  subgraph AVD["rg-' + m.base + '-avd (' + m.location + ')"]');
+    m.workspaces.forEach(function (ws, idx) {
+      lines.push('    WS_' + idx + '["' + ws.name + ' (public: ' + ws.publicNetworkAccess + ')"]');
+    });
+    m.appGroups.forEach(function (ag, idx) {
+      lines.push('    AG_' + idx + '["' + ag.name + ' (' + ag.type + ')"]');
+    });
+    m.pools.forEach(function (hp, idx) {
+      lines.push('    HP_' + idx + '["' + hp.name + ' (' + hp.hostPoolType + ', ' + hp.hosts + 'x ' + hp.vmSize.replace('Standard_', '') + ', max ' + hp.sessionsPerHost + ')"]');
+    });
+    lines.push('  end');
+
+    lines.push('  subgraph VNET["' + m.vnetName + ' (' + m.vnetCidr + ') in rg-' + m.base + '-network"]');
+    lines.push('    subgraph SNET_SH["' + m.subnets.sessionHosts.name + ' (' + m.subnets.sessionHosts.cidr + ')"]');
+    lines.push('      SH["' + m.totals.hosts + ' Session Host(s) (' + m.totals.vcpus + ' vCPUs, ' + m.totals.capacity + ' sessions)"]');
+    lines.push('      NAT["' + m.subnets.sessionHosts.nat + ' + ' + m.subnets.sessionHosts.nsg + '"]');
+    lines.push('    end');
+    lines.push('    subgraph SNET_PE["' + m.subnets.privateEndpoints.name + ' (' + m.subnets.privateEndpoints.cidr + ')"]');
+    m.privateEndpoints.forEach(function (pe, idx) {
+      lines.push('      PE_' + idx + '["' + pe.label + ' -> ' + pe.zone + ' (' + pe.mode + ')"]');
+    });
+    lines.push('    end');
+    lines.push('  end');
+
+    lines.push('  SH -->|"Reverse Connect WSS 443"| HP_0');
+    lines.push('  SH -->|"SMB 445 (' + m.totals.profileQuotaGiB + ' GiB FSLogix)"| PE_0');
+    lines.push('  SH -->|"Outbound SNAT"| NAT');
+    return lines.join('\n') + '\n';
+  }
+
+  function buildArchitectureDrawio(comp, config) {
+    var m = buildArchitectureDiagramModel(comp, config);
+    var poolLines = m.pools.map(function (p) {
+      return p.name + ' (' + p.hostPoolType + ', ' + p.hosts + 'x ' + p.vmSize.replace('Standard_', '') + ')';
+    }).join(' | ');
+    var peLines = m.privateEndpoints.map(function (pe) {
+      return pe.label + ' [' + pe.mode + ' DNS]';
+    }).join(' | ');
+    var cpLines = m.controlPlanes.map(function (p) {
+      return p.stage + '. ' + p.label + ' (' + p.shortCommit + ')';
+    }).join(' -> ');
+
+    var cells = [
+      '<mxCell id="0"/>',
+      '<mxCell id="1" parent="0"/>',
+      '<mxCell id="cp" value="' + xmlEsc('Control Planes: ' + cpLines) + '" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0f2ef;strokeColor=#0b7a6e;fontColor=#152232;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="30" y="20" width="860" height="50" as="geometry"/></mxCell>',
+      '<mxCell id="avd" value="' + xmlEsc('AVD Control Plane (rg-' + m.base + '-avd in ' + m.location + '): ' + m.workspaces.length + ' workspace(s), ' + m.appGroups.length + ' app group(s) | ' + poolLines) + '" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eef2f6;strokeColor=#0b7a6e;fontColor=#152232;" vertex="1" parent="1"><mxGeometry x="30" y="90" width="860" height="65" as="geometry"/></mxCell>',
+      '<mxCell id="vnet" value="' + xmlEsc(m.vnetName + ' (' + m.vnetCidr + ') - rg-' + m.base + '-network') + '" style="swimlane;startSize=28;fillColor=#f4f6f9;strokeColor=#566578;fontColor=#152232;fontStyle=1;rounded=1;" vertex="1" parent="1"><mxGeometry x="30" y="180" width="860" height="190" as="geometry"/></mxCell>',
+      '<mxCell id="snet_sh" value="' + xmlEsc(m.subnets.sessionHosts.name + ' (' + m.subnets.sessionHosts.cidr + '): ' + m.totals.hosts + ' host(s), ' + m.totals.capacity + ' session capacity, ' + m.totals.vcpus + ' vCPUs | ' + m.subnets.sessionHosts.nat + ' + ' + m.subnets.sessionHosts.nsg) + '" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e0f2ef;strokeColor=#0b7a6e;fontColor=#152232;" vertex="1" parent="vnet"><mxGeometry x="20" y="45" width="390" height="120" as="geometry"/></mxCell>',
+      '<mxCell id="snet_pe" value="' + xmlEsc(m.subnets.privateEndpoints.name + ' (' + m.subnets.privateEndpoints.cidr + '): ' + peLines + ' | FSLogix ' + m.totals.profileQuotaGiB + ' GiB') + '" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1f3e9;strokeColor=#18794e;fontColor=#152232;" vertex="1" parent="vnet"><mxGeometry x="440" y="45" width="395" height="120" as="geometry"/></mxCell>',
+      '<mxCell id="e1" value="Reverse Connect (TCP 443)" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#0b7a6e;strokeWidth=2;" edge="1" parent="1" source="snet_sh" target="avd"><mxGeometry relative="1" as="geometry"/></mxCell>',
+      '<mxCell id="e2" value="SMB 445 / Private Link" style="edgeStyle=orthogonalEdgeStyle;rounded=1;strokeColor=#18794e;strokeWidth=2;" edge="1" parent="vnet" source="snet_sh" target="snet_pe"><mxGeometry relative="1" as="geometry"/></mxCell>'
+    ];
+    return '<mxfile host="avd-ops.dev" version="1.0"><diagram id="avd-c14" name="AVD Target Architecture"><mxGraphModel dx="960" dy="420" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="940" pageHeight="400">' +
+      '<root>' + cells.join('') + '</root></mxGraphModel></diagram></mxfile>\n';
+  }
+
+  function buildArchitectureSvg(comp, config) {
+    var m = buildArchitectureDiagramModel(comp, config);
+    var cpLabel = m.controlPlanes.map(function (p) { return p.stage + '. ' + p.label + ' (@' + p.shortCommit + ')'; }).join(' -> ');
+    var firstPool = m.pools[0] || { name: 'vdpool-' + m.base, hostPoolType: 'Pooled', hosts: 1, vmSize: 'Standard_E4as_v5', sessionsPerHost: 16 };
+    var poolTitle = m.pools.length === 1
+      ? firstPool.name + ' (' + firstPool.hostPoolType + ')'
+      : m.pools.length + ' Host Pools (' + m.pools.map(function (p) { return p.slug; }).join(', ') + ')';
+    var poolSub = m.totals.hosts + ' host(s) x ' + firstPool.vmSize.replace('Standard_', '') + ' (' + m.totals.capacity + ' sessions, ' + m.totals.vcpus + ' vCPUs)';
+    var peSummary = m.privateEndpoints.map(function (p) { return p.label.replace(/^pe-/, ''); }).join(', ');
+    var dnsNewCount = m.dnsZones.filter(function (z) { return z.mode === 'new'; }).length;
+    var dnsExistCount = m.dnsZones.filter(function (z) { return z.mode === 'existing'; }).length;
+    var dnsBadge = dnsNewCount + ' new DNS zone(s)' + (dnsExistCount ? ', ' + dnsExistCount + ' existing hub zone(s)' : '');
+
+    return [
+      '<svg class="arch-svg" viewBox="0 0 920 310" role="img" aria-label="Target state AVD network and architecture diagram for ' + xmlEsc(m.base) + '" xmlns="http://www.w3.org/2000/svg">',
+      '<g class="arch-box arch-accent"><rect x="16" y="14" width="888" height="48" rx="6"/>',
+      '<text x="30" y="34" class="arch-t">Control-Plane Pipeline (' + m.controlPlanes.length + ' stage' + (m.controlPlanes.length === 1 ? '' : 's') + ')</text>',
+      '<text x="30" y="51" class="arch-m">' + xmlEsc(cpLabel) + '</text></g>',
+
+      '<g class="arch-box"><rect x="16" y="76" width="888" height="58" rx="6"/>',
+      '<text x="30" y="98" class="arch-t">AVD Control Plane: rg-' + xmlEsc(m.base) + '-avd (' + xmlEsc(m.location) + ')</text>',
+      '<text x="30" y="118" class="arch-m">' + m.workspaces.length + ' workspace(s), ' + m.appGroups.length + ' app group(s) | ' + xmlEsc(poolTitle) + ' — ' + xmlEsc(poolSub) + '</text></g>',
+
+      '<g class="arch-zone"><rect x="16" y="148" width="888" height="148" rx="8"/>',
+      '<text x="30" y="170" class="arch-t">Azure VNet: ' + xmlEsc(m.vnetName) + ' (' + m.vnetCidr + ') in rg-' + xmlEsc(m.base) + '-network</text>',
+
+      '<g class="arch-box arch-accent"><rect x="30" y="184" width="415" height="96" rx="6"/>',
+      '<text x="44" y="206" class="arch-t">' + xmlEsc(m.subnets.sessionHosts.name) + ' (' + m.subnets.sessionHosts.cidr + ')</text>',
+      '<text x="44" y="226" class="arch-m">Session Hosts: ' + xmlEsc(poolSub) + '</text>',
+      '<text x="44" y="244" class="arch-m">Egress: ' + xmlEsc(m.subnets.sessionHosts.nat) + ' + ' + xmlEsc(m.subnets.sessionHosts.nsg) + ' (no public IP on hosts)</text>',
+      '<text x="44" y="262" class="arch-m">Reverse Connect WSS 443 + UDP 3478 Shortpath</text></g>',
+
+      '<g class="arch-box arch-good"><rect x="475" y="184" width="415" height="96" rx="6"/>',
+      '<text x="489" y="206" class="arch-t">' + xmlEsc(m.subnets.privateEndpoints.name) + ' (' + m.subnets.privateEndpoints.cidr + ')</text>',
+      '<text x="489" y="226" class="arch-m">Private Endpoints (' + m.privateEndpoints.length + '): ' + xmlEsc(peSummary) + '</text>',
+      '<text x="489" y="244" class="arch-m">FSLogix Profile Share: ' + m.totals.profileQuotaGiB + ' GiB over Private Link (SMB 445)</text>',
+      '<text x="489" y="262" class="arch-m">Private DNS: ' + xmlEsc(dnsBadge) + '</text></g>',
+
+      '<line x1="445" y1="232" x2="475" y2="232" class="arch-edge"/></g></svg>'
+    ].join('');
+  }
+
+  return { STEPS: STEPS, newRunId: newRunId, recording: recording, recordActions: recordActions, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, isCommit: isCommit, siteConfig: siteConfig, SETTINGS: SETTINGS, SETTING_NAMES: SETTING_NAMES, validSettings: validSettings, contextSettings: contextSettings, validSizing: validSizing, validPower: validPower, validEstimate: validEstimate, validTopology: validTopology, hasCustomTopology: hasCustomTopology, buildTopologyManifest: buildTopologyManifest, CONTROL_PLANE_ORDER: CONTROL_PLANE_ORDER, CONTROL_PLANES: CONTROL_PLANES, CONTROL_PLANE_DEFAULTS: CONTROL_PLANE_DEFAULTS, CONTROL_PLANE_PRESETS: CONTROL_PLANE_PRESETS, validControlPlanes: validControlPlanes, applyControlPlanePreset: applyControlPlanePreset, enabledControlPlanes: enabledControlPlanes, controlPlanesCsv: controlPlanesCsv, controlPlaneActions: controlPlaneActions, buildArchitectureDiagramModel: buildArchitectureDiagramModel, buildArchitectureMermaid: buildArchitectureMermaid, buildArchitectureDrawio: buildArchitectureDrawio, buildArchitectureSvg: buildArchitectureSvg, versionNote: versionNote, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, DEFAULT_RDP_PROPERTIES: DEFAULT_RDP_PROPERTIES, LOCKED_DOWN_RDP_PROPERTIES: LOCKED_DOWN_RDP_PROPERTIES, POOL_TEMPLATES: POOL_TEMPLATES, WORKSPACE_DEFAULTS: WORKSPACE_DEFAULTS, APP_GROUP_DEFAULTS: APP_GROUP_DEFAULTS, DNS_ZONE_DEFINITIONS: DNS_ZONE_DEFINITIONS, PRIVATE_LINK_DEFAULTS: PRIVATE_LINK_DEFAULTS, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_WORKSPACES: MAX_WORKSPACES, MAX_APP_GROUPS: MAX_APP_GROUPS, MAX_HOSTS: MAX_HOSTS, applyPoolTemplate: applyPoolTemplate, computePool: computePool, computeTopology: computeTopology, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
     PLATFORMS: PLATFORMS, RUNIN_DEFAULT: RUNIN_DEFAULT, PLACES: PLACES, validRunIn: validRunIn, isDefaultRunIn: isDefaultRunIn, scriptsIn: scriptsIn, support: support, forRunIn: forRunIn,
     REACHABILITY_HOSTS: REACHABILITY_HOSTS, rateLatency: rateLatency, classifyReachability: classifyReachability, launchTarget: launchTarget, launchUrl: launchUrl };
 });
+
