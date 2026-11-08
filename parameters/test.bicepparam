@@ -92,4 +92,4 @@ param topology = json(empty(readEnvironmentVariable('AVD_TOPOLOGY_JSON', '')) ? 
 // ---- Estate tripwires (avd-swarm/docs/tripwires.md, optional) ----
 param deployTripwires = empty(readEnvironmentVariable('AVD_DEPLOY_TRIPWIRES', '')) ? false : bool(readEnvironmentVariable('AVD_DEPLOY_TRIPWIRES', ''))
 param tripwireSecretName = readEnvironmentVariable('AVD_TRIPWIRE_SECRET_NAME', '')
-param tripwireAlertMinutes = empty(readEnvironmentVariable('AVD_TRIPWIRE_ALERT_MINUTES', '')) ? 0 : int(readEnvironmentVariable('AVD_TRIPWIRE_ALERT_MINUTES', ''))
+param tripwireAlertMinutes = readEnvironmentVariable('AVD_TRIPWIRE_ALERT_MINUTES', '') == '5' ? 5 : (readEnvironmentVariable('AVD_TRIPWIRE_ALERT_MINUTES', '') == '15' ? 15 : (readEnvironmentVariable('AVD_TRIPWIRE_ALERT_MINUTES', '') == '30' ? 30 : 0))
