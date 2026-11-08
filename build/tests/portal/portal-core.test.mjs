@@ -1419,3 +1419,16 @@ test('control planes: analyze() parses <<<AVDLZ-STATE ... AVDLZ-STATE>>> for sta
   assert.match(rTear.actions[0].why, /Reverse-order teardown completed/);
   assertSelfContained(rTear);
 });
+
+test('supply chain & security review: SECURITY.md, docs/threat-model.md, and 40-char SHA action pins in .github/workflows', () => {
+  assert.match(readFileSync(new URL('../../../SECURITY.md', import.meta.url), 'utf8'), /# Security policy/);
+  assert.match(readFileSync(new URL('../../../docs/threat-model.md', import.meta.url), 'utf8'), /# Threat model: avd-landing-zone/);
+  const wfDir = new URL('../../../.github/workflows/', import.meta.url);
+  for (const f of readdirSync(wfDir).filter((n) => n.endsWith('.yml') || n.endsWith('.yaml'))) {
+    const text = readFileSync(new URL(f, wfDir), 'utf8');
+    for (const m of text.matchAll(/^\s*-?\s*uses:\s*([^\s#]+)/gm)) {
+      assert.match(m[1], /@[0-9a-f]{40}$/, `${f} uses unpinned action reference: ${m[1]}`);
+    }
+  }
+});
+
