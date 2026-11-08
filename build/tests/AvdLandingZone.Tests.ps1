@@ -986,8 +986,8 @@ Describe 'Five control planes orchestrator and pin manifest (decision 0009)' {
     @($script:cpManifest.teardownOrder) | Should -Be @('power-platform', 'azure', 'm365', 'intune', 'entra')
 
     $expected = @(
-      @{ Key = 'entra'; Repo = 'avd-entra'; Short = '3a6132c'; Entry = 'scripts/Deploy-AvdEntra.ps1'; Teardown = 'scripts/Remove-AvdEntra.ps1'; Manifest = 'entra-manifest.json' }
-      @{ Key = 'intune'; Repo = 'avd-intune'; Short = 'f64c56a'; Entry = 'scripts/Deploy-AvdIntune.ps1'; Teardown = 'scripts/Remove-AvdIntune.ps1'; Manifest = 'intune-manifest.json' }
+      @{ Key = 'entra'; Repo = 'avd-entra'; Short = '67cdff7'; Entry = 'scripts/Deploy-AvdEntra.ps1'; Teardown = 'scripts/Remove-AvdEntra.ps1'; Manifest = 'entra-manifest.json' }
+      @{ Key = 'intune'; Repo = 'avd-intune'; Short = 'aa82bc5'; Entry = 'scripts/Deploy-AvdIntune.ps1'; Teardown = 'scripts/Remove-AvdIntune.ps1'; Manifest = 'intune-manifest.json' }
       @{ Key = 'm365'; Repo = 'avd-m365'; Short = 'f18b14f'; Entry = 'scripts/Deploy-AvdM365.ps1'; Teardown = 'scripts/Remove-AvdM365.ps1'; Manifest = 'm365-manifest.json' }
       @{ Key = 'azure'; Repo = 'avd-azure'; Short = 'ac01bc4'; Entry = 'scripts/deploy/deploy.sh'; Teardown = $null; Manifest = 'azure-outputs.json' }
       @{ Key = 'power-platform'; Repo = 'avd-power-platform'; Short = '4543356'; Entry = 'scripts/Deploy-AvdPowerPlatform.ps1'; Teardown = 'scripts/Remove-AvdPowerPlatform.ps1'; Manifest = 'power-platform-manifest.json' }
@@ -1060,12 +1060,18 @@ Describe 'Five control planes orchestrator and pin manifest (decision 0009)' {
       $res.teardown | Should -BeTrue
       @($res.completedPlanes) | Should -Be @('power-platform', 'azure', 'm365', 'intune', 'entra')
 
-      # Also verify DryRun deploy and teardown when no sibling repos exist in WorkspaceDirectory (CI environment)
+      # Also verify DryRun deploy (with -IncludeWin365) and teardown when no sibling repos exist in WorkspaceDirectory (CI environment)
       $emptyWs = Join-Path $outDir 'empty-ws'
       New-Item -ItemType Directory -Path $emptyWs -Force | Out-Null
-      $ciDeploy = & $script:orchestratorPath -Preset greenfield -ManifestDirectory $outDir -WorkspaceDirectory $emptyWs -DryRun 6>$null
+      $ciDeploy = & $script:orchestratorPath -Preset greenfield -ManifestDirectory $outDir -WorkspaceDirectory $emptyWs -IncludeWin365 -DryRun 6>$null
       $ciDeploy.status | Should -Be 'succeeded'
       @($ciDeploy.completedPlanes) | Should -Be @('entra', 'intune', 'm365', 'azure', 'power-platform')
+      $entraDoc = Get-Content -Raw -Path (Join-Path $outDir 'entra-manifest.json') | ConvertFrom-Json
+      $entraDoc.groups.win365UsersGroupId | Should -Not -BeNullOrEmpty
+      $entraDoc.groups.cloudPcDynamicGroupId | Should -Not -BeNullOrEmpty
+      $intuneDoc = Get-Content -Raw -Path (Join-Path $outDir 'intune-manifest.json') | ConvertFrom-Json
+      $intuneDoc.assignmentFilters.'win365-cloudpc' | Should -Not -BeNullOrEmpty
+      $intuneDoc.win365.provisioningPolicyIds.Count | Should -BeGreaterThan 0
       $ciTeardown = & $script:orchestratorPath -Preset greenfield -ManifestDirectory $outDir -WorkspaceDirectory $emptyWs -Teardown -DiscardLastCopy -DryRun 6>$null
       $ciTeardown.status | Should -Be 'succeeded'
       @($ciTeardown.completedPlanes) | Should -Be @('power-platform', 'azure', 'm365', 'intune', 'entra')
@@ -1075,10 +1081,11 @@ Describe 'Five control planes orchestrator and pin manifest (decision 0009)' {
     }
   }
 
-  It 'wires --planes, --azure-outputs, --teardown, and --discard-last-copy in deploy.sh' {
+  It 'wires --planes, --azure-outputs, --include-win365, --teardown, and --discard-last-copy in deploy.sh' {
     $sh = Get-Content -Raw -Path $script:deployShPath
     $sh | Should -Match '--planes\)'
     $sh | Should -Match '--azure-outputs\)'
+    $sh | Should -Match '--include-win365\)'
     $sh | Should -Match 'Invoke-AvdControlPlanes\.ps1'
     $sh | Should -Match 'avd-ops-azure-outputs/v1'
   }

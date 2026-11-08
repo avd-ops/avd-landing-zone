@@ -1,5 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://assess.avd-ops.dev/schemas/avd-run-cost/v1.json",
   "title": "avd-run-cost/v1: expected and actual cost of one run (cost.json)",
   "description": "Contract C17. Written before anything is deployed (expected) and appended to as Cost Management readings arrive (actuals); never overwritten. A line that matched no retail meter, or several, says so instead of carrying a guessed price. Holds no subscription or resource IDs, so its totals and per-meter differences may go into a public report.",
   "type": "object",

@@ -81,6 +81,9 @@ param(
   [switch] $DiscardLastCopy,
 
   [Parameter()]
+  [switch] $IncludeWin365,
+
+  [Parameter()]
   [switch] $DryRun,
 
   [Parameter()]
@@ -279,7 +282,8 @@ function Write-AvdDryRunPlaneManifest {
     [Parameter(Mandatory)][string] $RunManifestPath,
     [Parameter(Mandatory)][string] $Prefix,
     [Parameter(Mandatory)][string] $EnvName,
-    [string] $EntraManifestFile = ''
+    [string] $EntraManifestFile = '',
+    [switch] $WithWin365
   )
   $parentDir = Split-Path -Parent $OutputPath
   if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
@@ -287,16 +291,21 @@ function Write-AvdDryRunPlaneManifest {
   }
   switch ($PlaneId) {
     'entra' {
+      $groupsMap = [ordered]@{
+        avdUsersGroupId            = '00000000-0000-0000-0000-000000000000'
+        avdAdminsGroupId           = '00000000-0000-0000-0000-000000000000'
+        sessionHostsDynamicGroupId = '00000000-0000-0000-0000-000000000000'
+        breakGlassExcludeGroupId   = '00000000-0000-0000-0000-000000000000'
+      }
+      if ($WithWin365) {
+        $groupsMap['win365UsersGroupId'] = '00000000-0000-0000-0000-000000000000'
+        $groupsMap['cloudPcDynamicGroupId'] = '00000000-0000-0000-0000-000000000000'
+      }
       $manifest = [ordered]@{
         schema             = 'avd-ops-entra-manifest/v1'
         environment        = $EnvName
         prefix             = $Prefix
-        groups             = [ordered]@{
-          avdUsersGroupId            = '00000000-0000-0000-0000-000000000000'
-          avdAdminsGroupId           = '00000000-0000-0000-0000-000000000000'
-          sessionHostsDynamicGroupId = '00000000-0000-0000-0000-000000000000'
-          breakGlassExcludeGroupId   = '00000000-0000-0000-0000-000000000000'
-        }
+        groups             = $groupsMap
         conditionalAccess  = @(
           [ordered]@{
             displayName = "$Prefix-$EnvName-avd-mfa"
@@ -325,6 +334,18 @@ function Write-AvdDryRunPlaneManifest {
           "$Prefix-$EnvName-avd-security-baseline"
         )
         compliancePolicyId      = '00000000-0000-0000-0000-000000000000'
+        assignmentFilters       = [ordered]@{
+          'avd-multisession' = '00000000-0000-0000-0000-000000000000'
+          'avd-personal'     = '00000000-0000-0000-0000-000000000000'
+          'win365-cloudpc'   = '00000000-0000-0000-0000-000000000000'
+          'physical-desktop' = '00000000-0000-0000-0000-000000000000'
+        }
+      }
+      if ($WithWin365) {
+        $manifest['win365'] = [ordered]@{
+          provisioningPolicyIds = @('00000000-0000-0000-0000-000000000000')
+          userSettingsIds       = @('00000000-0000-0000-0000-000000000000')
+        }
       }
       $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $OutputPath -Encoding utf8
     }
@@ -470,7 +491,7 @@ foreach ($planeId in $sequenceOrder) {
     'entra' {
       if (-not (Test-Path -LiteralPath $entryScriptPath)) {
         if ($DryRun) {
-          Write-AvdDryRunPlaneManifest -PlaneId 'entra' -OutputPath $handoffPath -RunManifestPath $runManifestPath -Prefix $NamePrefix -EnvName $Environment
+          Write-AvdDryRunPlaneManifest -PlaneId 'entra' -OutputPath $handoffPath -RunManifestPath $runManifestPath -Prefix $NamePrefix -EnvName $Environment -WithWin365:$IncludeWin365
         }
         else {
           throw "Entry-point script not found for avd-entra: $entryScriptPath"
@@ -482,6 +503,7 @@ foreach ($planeId in $sequenceOrder) {
           & $entryScriptPath `
             -Prefix $NamePrefix `
             -Environment $Environment `
+            -IncludeWin365:$IncludeWin365 `
             -OutputPath $handoffPath `
             -RunManifestPath $runManifestPath `
             -DryRun:$DryRun | Out-Null
@@ -494,7 +516,7 @@ foreach ($planeId in $sequenceOrder) {
     'intune' {
       if (-not (Test-Path -LiteralPath $entryScriptPath)) {
         if ($DryRun) {
-          Write-AvdDryRunPlaneManifest -PlaneId 'intune' -OutputPath $handoffPath -RunManifestPath $runManifestPath -Prefix $NamePrefix -EnvName $Environment -EntraManifestFile $entraManifestPath
+          Write-AvdDryRunPlaneManifest -PlaneId 'intune' -OutputPath $handoffPath -RunManifestPath $runManifestPath -Prefix $NamePrefix -EnvName $Environment -EntraManifestFile $entraManifestPath -WithWin365:$IncludeWin365
         }
         else {
           throw "Entry-point script not found for avd-intune: $entryScriptPath"
@@ -508,6 +530,7 @@ foreach ($planeId in $sequenceOrder) {
             -OutputPath $handoffPath `
             -RunManifestPath $runManifestPath `
             -Prefix $NamePrefix `
+            -IncludeWin365:$IncludeWin365 `
             -DryRun:$DryRun | Out-Null
         }
         finally {
