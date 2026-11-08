@@ -1217,7 +1217,51 @@
     var s = cfg.sizing, mine = P.toSizing(comp);
     if (s && (s.hosts !== mine.hosts || s.vmSize !== mine.vmSize || s.maxSessions !== mine.maxSessions || s.profileQuotaGiB !== mine.profileQuotaGiB))
       ul.appendChild(el('li', '', 'The commands use ' + s.hosts + ' × ' + s.vmSize.replace('Standard_', '') + ' with ' + s.maxSessions + ' sessions each (the last sizing applied or checked by a pasted preflight). Select Use this sizing & topology to switch to the one above.'));
+    renderArchitectureDiagram(comp);
     renderSizeSummary();
+  }
+  function renderArchitectureDiagram(comp) {
+    comp = comp || currentTopologyComputed();
+    var m = P.buildArchitectureDiagramModel(comp, Object.assign({}, cfg, { controlPlanes: controlPlanes }));
+    if ($('arch-diag-summary')) {
+      $('arch-diag-summary').textContent = m.pools.length + ' pool' + (m.pools.length === 1 ? '' : 's') + ' (' + m.totals.hosts + ' host' + (m.totals.hosts === 1 ? '' : 's') + '), ' + m.privateEndpoints.length + ' Private Endpoints, ' + m.controlPlanes.length + ' control plane' + (m.controlPlanes.length === 1 ? '' : 's');
+    }
+    if ($('arch-diag-svg')) {
+      $('arch-diag-svg').innerHTML = P.buildArchitectureSvg(comp, Object.assign({}, cfg, { controlPlanes: controlPlanes }));
+    }
+  }
+  function downloadDiagramFile(filename, content, mimeType) {
+    var a = document.createElement('a');
+    a.href = 'data:' + mimeType + ';charset=utf-8,' + encodeURIComponent(content);
+    a.download = filename;
+    a.click();
+    if ($('arch-export-status')) $('arch-export-status').textContent = 'Exported ' + filename + '.';
+  }
+  if ($('arch-export-svg')) {
+    $('arch-export-svg').addEventListener('click', function () {
+      var comp = currentTopologyComputed();
+      var diagCfg = Object.assign({}, cfg, { controlPlanes: controlPlanes });
+      var base = (cfg.namePrefix || 'avdlz') + '-' + (cfg.environment || 'dev');
+      downloadDiagramFile('avd-architecture-' + base + '.svg', P.buildArchitectureSvg(comp, diagCfg), 'image/svg+xml');
+    });
+    $('arch-export-mmd').addEventListener('click', function () {
+      var comp = currentTopologyComputed();
+      var diagCfg = Object.assign({}, cfg, { controlPlanes: controlPlanes });
+      var base = (cfg.namePrefix || 'avdlz') + '-' + (cfg.environment || 'dev');
+      downloadDiagramFile('avd-architecture-' + base + '.mmd', P.buildArchitectureMermaid(comp, diagCfg), 'text/plain');
+    });
+    $('arch-export-drawio').addEventListener('click', function () {
+      var comp = currentTopologyComputed();
+      var diagCfg = Object.assign({}, cfg, { controlPlanes: controlPlanes });
+      var base = (cfg.namePrefix || 'avdlz') + '-' + (cfg.environment || 'dev');
+      downloadDiagramFile('avd-architecture-' + base + '.drawio', P.buildArchitectureDrawio(comp, diagCfg), 'application/xml');
+    });
+    $('arch-copy-mmd').addEventListener('click', function () {
+      var comp = currentTopologyComputed();
+      var diagCfg = Object.assign({}, cfg, { controlPlanes: controlPlanes });
+      copy(P.buildArchitectureMermaid(comp, diagCfg), $('arch-copy-mmd'));
+      if ($('arch-export-status')) $('arch-export-status').textContent = 'Copied Mermaid diagram to clipboard.';
+    });
   }
   function renderSizeSummary() {
     var s = cfg.sizing, t = cfg.topology;

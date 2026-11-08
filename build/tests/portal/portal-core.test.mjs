@@ -1432,3 +1432,63 @@ test('supply chain & security review: SECURITY.md, docs/threat-model.md, and 40-
   }
 });
 
+test('architecture diagrams: C14 target-state model, SVG, Mermaid, and Draw.io reflect topology, Private Link, DNS zones, and control planes', () => {
+  const existingAvdDns = '/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-hub-dns/providers/Microsoft.Network/privateDnsZones/privatelink.wvd.microsoft.com';
+  const comp = P.computeTopology({
+    hostPools: [
+      { ...P.HOST_POOL_DEFAULTS, poolKey: 'general', name: 'General Pool', users: 40, workload: 'medium', hostCount: 2 },
+      { ...P.HOST_POOL_DEFAULTS, poolKey: 'vip', name: 'VIP Personal', hostPoolType: 'Personal', users: 3, hostCount: 'auto', vmSize: 'Standard_D4as_v5' }
+    ],
+    workspaces: [
+      { name: 'default', friendlyName: 'Staff Workspace', publicNetworkAccess: 'Disabled', enableFeedPrivateEndpoint: true }
+    ],
+    appGroups: [
+      { name: 'general-desktop', friendlyName: 'General Desktop', applicationGroupType: 'Desktop', hostPool: 'general', workspace: 'default' }
+    ],
+    privateLink: {
+      enableAvdConnectionPrivateLink: true,
+      enableAvdFeedPrivateLink: true,
+      enableAvdGlobalPrivateLink: true,
+      hostPoolPublicNetworkAccess: 'Disabled',
+      workspacePublicNetworkAccess: 'Disabled',
+      dnsZones: {
+        file: { mode: 'new', existingResourceId: '' },
+        keyVault: { mode: 'new', existingResourceId: '' },
+        avd: { mode: 'existing', existingResourceId: existingAvdDns },
+        avdGlobal: { mode: 'new', existingResourceId: '' }
+      }
+    }
+  }, 'prod');
+  const cfg = { ...P.DEFAULTS, location: 'westeurope', namePrefix: 'avdlz', environment: 'prod', controlPlanes: P.applyControlPlanePreset('greenfield') };
+
+  const model = P.buildArchitectureDiagramModel(comp, cfg);
+  assert.equal(model.base, 'avdlz-prod');
+  assert.equal(model.location, 'westeurope');
+  assert.equal(model.vnetName, 'vnet-avdlz-prod');
+  assert.equal(model.vnetCidr, '10.100.0.0/22');
+  assert.equal(model.subnets.sessionHosts.cidr, '10.100.0.0/24');
+  assert.equal(model.subnets.privateEndpoints.cidr, '10.100.1.0/26');
+  assert.equal(model.controlPlanes.length, 5);
+  assert.equal(model.pools.length, 2);
+  assert.equal(model.privateEndpoints.length, 5);
+
+  const mmd = P.buildArchitectureMermaid(comp, cfg);
+  assert.match(mmd, /^flowchart LR/m);
+  assert.match(mmd, /Control-Plane Pipeline \(5 enabled\)/);
+  assert.match(mmd, /rg-avdlz-prod-avd \(westeurope\)/);
+  assert.match(mmd, /snet-session-hosts \(10\.100\.0\.0\/24\)/);
+  assert.match(mmd, /snet-private-endpoints \(10\.100\.1\.0\/26\)/);
+  assert.match(mmd, /privatelink-global\.wvd\.microsoft\.com/);
+
+  const drawio = P.buildArchitectureDrawio(comp, cfg);
+  assert.match(drawio, /^<mxfile host="avd-ops\.dev"/);
+  assert.match(drawio, /vnet-avdlz-prod \(10\.100\.0\.0\/22\)/);
+  assert.match(drawio, /pe-vdpool \(connection\) \[existing DNS\]/);
+
+  const svg = P.buildArchitectureSvg(comp, cfg);
+  assert.match(svg, /^<svg class="arch-svg" viewBox="0 0 920 310"/);
+  assert.match(svg, /Control-Plane Pipeline \(5 stages\)/);
+  assert.match(svg, /1 existing hub zone\(s\)/);
+});
+
+
