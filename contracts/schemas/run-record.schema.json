@@ -1,5 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://assess.avd-ops.dev/schemas/avd-run-record/v1.json",
   "title": "avd-run-record/v1: one recorded run (run.json)",
   "description": "Contract C17 (docs/contracts.md). The envelope of a run folder runs/<runId>/: what ran, who produced it, every file with its hashes and verified copies, and how teardown ended. Shared by every family repo that records a run; a use case adds its own fields under extensions.<useCase> and is listed in contracts/run-use-cases.json. Within v1 changes are additive and readers ignore what they don't know. Private level by default: secrets never, tenant names and IDs only in level private.",
   "type": "object",

@@ -48,6 +48,12 @@
         },
         "breakGlassExcludeGroupId": {
           "type": "string"
+        },
+        "win365UsersGroupId": {
+          "type": "string"
+        },
+        "cloudPcDynamicGroupId": {
+          "type": "string"
         }
       }
     },

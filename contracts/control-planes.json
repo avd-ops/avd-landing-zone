@@ -19,7 +19,7 @@
   ],
   "presets": {
     "greenfield": {
-      "label": "Greenfield — all 5 control planes",
+      "label": "Greenfield \u2014 all 5 control planes",
       "planes": [
         "entra",
         "intune",
@@ -29,7 +29,7 @@
       ]
     },
     "brownfield": {
-      "label": "Brownfield — Entra + Intune + Azure",
+      "label": "Brownfield \u2014 Entra + Intune + Azure",
       "planes": [
         "entra",
         "intune",
@@ -53,8 +53,8 @@
       "repo": "avd-ops/avd-entra",
       "url": "https://github.com/avd-ops/avd-entra",
       "branch": "main",
-      "commit": "3a6132c2146a58a7c5feb44cbeab3581d750d3fc",
-      "shortCommit": "3a6132c",
+      "commit": "67cdff7c9af4b6dcb8b7c10d80fec3ff16abef62",
+      "shortCommit": "67cdff7",
       "entryPoint": "scripts/Deploy-AvdEntra.ps1",
       "teardownScript": "scripts/Remove-AvdEntra.ps1",
       "dependsOn": [],
@@ -73,8 +73,8 @@
       "repo": "avd-ops/avd-intune",
       "url": "https://github.com/avd-ops/avd-intune",
       "branch": "main",
-      "commit": "f64c56a84f7f53bcb7aeb398a456e0853d877633",
-      "shortCommit": "f64c56a",
+      "commit": "aa82bc5568078347babe5a461c17acc0695b60a1",
+      "shortCommit": "aa82bc5",
       "entryPoint": "scripts/Deploy-AvdIntune.ps1",
       "teardownScript": "scripts/Remove-AvdIntune.ps1",
       "dependsOn": [

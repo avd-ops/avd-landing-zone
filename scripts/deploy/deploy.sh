@@ -73,6 +73,7 @@ NAME_PREFIX_ARG=""
 ENVIRONMENT_ARG=""
 TEARDOWN=false
 DISCARD_LAST_COPY=false
+INCLUDE_WIN365=false
 DRY_RUN=false
 AVD_APP_ID="9cdead84-a844-4324-93f2-b2e6bb768d07"   # Azure Virtual Desktop first-party app
 
@@ -110,6 +111,7 @@ while [[ $# -gt 0 ]]; do
     --environment) ENVIRONMENT_ARG="$2"; shift 2 ;;
     --teardown) TEARDOWN=true; shift ;;
     --discard-last-copy) DISCARD_LAST_COPY=true; shift ;;
+    --include-win365) INCLUDE_WIN365=true; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
     *) usage ;;
   esac
@@ -140,6 +142,7 @@ if [[ -n "$PLANES" ]] || $TEARDOWN || $DRY_RUN; then
   [[ -n "$SUBSCRIPTION" ]] && orch_args+=(-SubscriptionId "$SUBSCRIPTION")
   $TEARDOWN && orch_args+=(-Teardown)
   $DISCARD_LAST_COPY && orch_args+=(-DiscardLastCopy)
+  $INCLUDE_WIN365 && orch_args+=(-IncludeWin365)
   $DRY_RUN && orch_args+=(-DryRun)
   $WHATIF && orch_args+=(-WhatIf)
   exec pwsh "${orch_args[@]}"

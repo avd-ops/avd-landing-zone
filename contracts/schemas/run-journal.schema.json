@@ -1,5 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://assess.avd-ops.dev/schemas/avd-run-journal/v1.json",
   "title": "avd-run-record/v1 journal line (journal.jsonl)",
   "description": "Contract C17. One line of a run's journal.jsonl, one JSON object per line. Core events are checked here; a use case adds events named x.<useCase>.<name>, which readers keep and don't reject. Private level: secrets never appear (parameters named like secrets are '<set>').",
   "type": "object",

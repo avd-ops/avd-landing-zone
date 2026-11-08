@@ -1,5 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://assess.avd-ops.dev/schemas/avd-fact-register/v1.json",
   "title": "avd-fact-register/v1: every fact a repo may cite, and the design decisions they evidence",
   "description": "Contract C15. The one list of fact IDs used by the target-state manifest (C14), avd-swarm's gate and the brain's agents. Each fact names its tier, the contract and JSON path it comes from, its grain, unit and privacy class, and the C14 decisions it can evidence. Tests in tests/Connectors.Tests.ps1 resolve every built fact's path in its contract's schema.",
   "type": "object",
@@ -22,6 +23,26 @@
     "decisionId": {
       "type": "string",
       "pattern": "^[a-z][A-Za-z.]{1,40}$"
+    },
+    "deprecated": {
+      "type": "object",
+      "description": "Marks an ID that a later major release may remove (docs/distribution-spec.md section 6): the release that first carried the mark and the ID that replaces it, if any. Readers keep using a deprecated ID until it is gone.",
+      "required": [
+        "since"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "since": {
+          "type": "string",
+          "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+        },
+        "replacedBy": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     }
   },
   "properties": {
@@ -69,6 +90,9 @@
               "$ref": "#/$defs/tier"
             },
             "description": "Tiers whose facts alone can justify this decision; avd-current-state's manifest coverage counts the ones that include azure"
+          },
+          "deprecated": {
+            "$ref": "#/$defs/deprecated"
           }
         }
       }
@@ -161,6 +185,9 @@
             "items": {
               "$ref": "#/$defs/decisionId"
             }
+          },
+          "deprecated": {
+            "$ref": "#/$defs/deprecated"
           }
         }
       }

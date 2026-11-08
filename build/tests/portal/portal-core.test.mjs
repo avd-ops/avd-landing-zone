@@ -1281,8 +1281,8 @@ test('control planes: pinned commits in portal-core.js match contracts/control-p
   assert.equal(cpManifest.schema, 'avd-ops-control-planes-pins/v1');
   assert.equal(cpManifest.decision, '0009-split-landing-zone-into-five-control-planes');
   const expected = [
-    ['entra', 'avd-entra', 'avd-ops/avd-entra', '3a6132c', 'scripts/Deploy-AvdEntra.ps1', 'scripts/Remove-AvdEntra.ps1', 'schemas/entra-manifest.schema.json', 'entra-manifest.json'],
-    ['intune', 'avd-intune', 'avd-ops/avd-intune', 'f64c56a', 'scripts/Deploy-AvdIntune.ps1', 'scripts/Remove-AvdIntune.ps1', 'schemas/intune-manifest.schema.json', 'intune-manifest.json'],
+    ['entra', 'avd-entra', 'avd-ops/avd-entra', '67cdff7', 'scripts/Deploy-AvdEntra.ps1', 'scripts/Remove-AvdEntra.ps1', 'schemas/entra-manifest.schema.json', 'entra-manifest.json'],
+    ['intune', 'avd-intune', 'avd-ops/avd-intune', 'aa82bc5', 'scripts/Deploy-AvdIntune.ps1', 'scripts/Remove-AvdIntune.ps1', 'schemas/intune-manifest.schema.json', 'intune-manifest.json'],
     ['m365', 'avd-m365', 'avd-ops/avd-m365', 'f18b14f', 'scripts/Deploy-AvdM365.ps1', 'scripts/Remove-AvdM365.ps1', 'schemas/m365-manifest.schema.json', 'm365-manifest.json'],
     ['azure', 'avd-azure', 'avd-ops/avd-azure', 'ac01bc4', 'scripts/deploy/deploy.sh', null, 'schemas/azure-outputs.schema.json', 'azure-outputs.json'],
     ['powerPlatform', 'avd-power-platform', 'avd-ops/avd-power-platform', '4543356', 'scripts/Deploy-AvdPowerPlatform.ps1', 'scripts/Remove-AvdPowerPlatform.ps1', 'schemas/power-platform-manifest.schema.json', 'power-platform-manifest.json']
