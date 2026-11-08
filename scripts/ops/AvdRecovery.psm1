@@ -294,14 +294,14 @@ function Get-AvdConfigurationSnapshot {
   if ($null -eq $InputObject) { return $null }
   if ($InputObject -is [string] -or $InputObject -is [ValueType]) { return $InputObject }
   if ($InputObject -is [System.Collections.IDictionary] -or $InputObject -is [System.Management.Automation.PSCustomObject]) {
-    $pairs = if ($InputObject -is [System.Collections.IDictionary]) { @($InputObject.Keys | ForEach-Object { , @($_, $InputObject[$_]) }) }
-    else { @($InputObject.PSObject.Properties | ForEach-Object { , @($_.Name, $_.Value) }) }
+    $keys = if ($InputObject -is [System.Collections.IDictionary]) { @($InputObject.Keys) } else { @($InputObject.PSObject.Properties.Name) }
     $o = [ordered]@{}
-    foreach ($p in ($pairs | Sort-Object { "$($_[0])" })) {
-      $name = "$($p[0])"
+    foreach ($k in ($keys | Sort-Object { "$_" })) {
+      $name = "$k"
+      $val = if ($InputObject -is [System.Collections.IDictionary]) { $InputObject[$k] } else { $InputObject.$name }
       if ($name -match $script:VolatileProperty) { continue }
-      if ($name -match $script:SecretProperty) { if ($null -ne $p[1] -and "$($p[1])" -ne '') { $o[$name] = '<present>' }; continue }
-      $o[$name] = Get-AvdConfigurationSnapshot -InputObject $p[1]
+      if ($name -match $script:SecretProperty) { if ($null -ne $val -and "$val" -ne '') { $o[$name] = '<present>' }; continue }
+      $o[$name] = Get-AvdConfigurationSnapshot -InputObject $val
     }
     return $o
   }
@@ -321,8 +321,8 @@ function Get-AvdConfigurationDrift {
   $key = { param($x, $i) if ((& $isMap $x)) { $m = & $toMap $x; if ($m['id']) { "$($m['id'])".ToLower() } elseif ($m['name']) { "$($m['name'])" } else { "[$i]" } } else { "[$i]" } }
   if ((& $isMap $Reference) -and (& $isMap $Current)) {
     $a = & $toMap $Reference; $b = & $toMap $Current
-    foreach ($k in @(@($a.Keys) + @($b.Keys) | Select-Object -Unique)) {
-      Get-AvdConfigurationDrift -Reference $a[$k] -Current $b[$k] -Path $(if ($Path) { "$Path.$k" } else { "$k" })
+    foreach ($k in @(@($a.Keys) + @($b.Keys) | ForEach-Object { "$_" } | Select-Object -Unique)) {
+      Get-AvdConfigurationDrift -Reference $a["$k"] -Current $b["$k"] -Path $(if ($Path) { "$Path.$k" } else { "$k" })
     }
     return
   }
@@ -365,12 +365,10 @@ function Get-AvdCopyCheck {
 
 function Get-AvdRecoveryTestPlan {
   <#
-    A profile recovery test (T-profile, spec section 8): where the restored copy goes and what it
-    costs, before anything is created. The copy always goes to new names (D2): a new resource group
-    and storage account in the vault's subscription and region, because Azure Files restores to an
-    alternate location only in the vault's region (spec F19) and, through the API, only in the same
-    subscription (U7). -TargetSubscriptionId names where the redeploy half of a test (T-config) goes:
-    any subscription in the same tenant.
+    A recovery test plan (T-profile, T-config, T-image, or T-signin; spec section 8): where the test
+    resources go and what they cost, before anything is created. The test always uses new names (D2):
+    a new resource group in the vault's subscription and region for T-profile/T-image/T-signin, or a
+    new prefix in -TargetSubscriptionId for T-config.
   #>
   [CmdletBinding()]
   param(
@@ -383,30 +381,168 @@ function Get-AvdRecoveryTestPlan {
     [double] $ShareGiB = 100,
     [double] $Hours = 2,
     # Retail prices (USD) for the test's lines; a missing price leaves the line unpriced, never guessed (decision 0010).
-    [hashtable] $Price = @{}
+    [hashtable] $Price = @{},
+    [ValidateSet('T-profile', 'T-config', 'T-image', 'T-signin')][string] $Test = 'T-profile',
+    [string] $VmSize = 'Standard_E4as_v5',
+    [string] $ImageId = ''
   )
   $suffix = $RunId.Substring($RunId.Length - 4)
   $rg = "rg-$NamePrefix-$Environment-rtest-$suffix"
   $sa = ("strt$NamePrefix$suffix" -replace '[^a-z0-9]', '').ToLower()
   if ($sa.Length -gt 24) { $sa = $sa.Substring(0, 24) }
+  $testPrefix = ("rt$suffix" -replace '[^a-z0-9]', '').ToLower()
+  if ($testPrefix.Length -gt 8) { $testPrefix = $testPrefix.Substring(0, 8) }
+  $hostPool = "vdpool-$NamePrefix-$Environment-rtest-$suffix"
+  $vmName = ("vmrt$suffix" -replace '[^a-z0-9]', '').ToLower()
+  if ($vmName.Length -gt 15) { $vmName = $vmName.Substring(0, 15) }
   $hoursPerMonth = 730
-  $lines = @(
-    [pscustomobject]@{ Item = "Premium file share, $ShareGiB GiB provisioned, $Hours h"; Meter = 'premiumFilesGiBMonth'; Cost = $(if ($Price.ContainsKey('premiumFilesGiBMonth')) { [math]::Round($Price.premiumFilesGiBMonth * $ShareGiB * $Hours / $hoursPerMonth, 2) } else { $null }) }
-    [pscustomobject]@{ Item = 'Restore operation (Azure Backup charges no restore fee; data stays in the region)'; Meter = 'none'; Cost = 0 }
-  )
+  $lines = switch ($Test) {
+    'T-profile' {
+      @(
+        [pscustomobject]@{ Item = "Premium file share, $ShareGiB GiB provisioned, $Hours h"; Meter = 'premiumFilesGiBMonth'; Cost = $(if ($Price.ContainsKey('premiumFilesGiBMonth')) { [math]::Round($Price.premiumFilesGiBMonth * $ShareGiB * $Hours / $hoursPerMonth, 2) } else { $null }) }
+        [pscustomobject]@{ Item = 'Restore operation (Azure Backup charges no restore fee; data stays in the region)'; Meter = 'none'; Cost = 0 }
+      )
+    }
+    'T-config' {
+      $rg = "rg-$testPrefix-$Environment-avd"
+      @(
+        [pscustomobject]@{ Item = "Control-plane redeploy ($testPrefix-$Environment, sessionHostCount = 0) and snapshot comparison"; Meter = 'none'; Cost = 0 }
+      )
+    }
+    'T-image' {
+      @(
+        [pscustomobject]@{ Item = "Session host VM ($VmSize), 1 host, $Hours h"; Meter = 'vmHour'; Cost = $(if ($Price.ContainsKey('vmHour')) { [math]::Round($Price.vmHour * $Hours, 2) } else { $null }) }
+        [pscustomobject]@{ Item = "OS disk (Premium SSD P10, 128 GiB), $Hours h"; Meter = 'osDiskMonth'; Cost = $(if ($Price.ContainsKey('osDiskMonth')) { [math]::Round($Price.osDiskMonth * $Hours / $hoursPerMonth, 2) } else { $null }) }
+      )
+    }
+    'T-signin' {
+      @(
+        [pscustomobject]@{ Item = "Premium file share, $ShareGiB GiB provisioned, $Hours h"; Meter = 'premiumFilesGiBMonth'; Cost = $(if ($Price.ContainsKey('premiumFilesGiBMonth')) { [math]::Round($Price.premiumFilesGiBMonth * $ShareGiB * $Hours / $hoursPerMonth, 2) } else { $null }) }
+        [pscustomobject]@{ Item = "Session host VM ($VmSize), 1 host, $Hours h"; Meter = 'vmHour'; Cost = $(if ($Price.ContainsKey('vmHour')) { [math]::Round($Price.vmHour * $Hours, 2) } else { $null }) }
+        [pscustomobject]@{ Item = "OS disk (Premium SSD P10, 128 GiB), $Hours h"; Meter = 'osDiskMonth'; Cost = $(if ($Price.ContainsKey('osDiskMonth')) { [math]::Round($Price.osDiskMonth * $Hours / $hoursPerMonth, 2) } else { $null }) }
+        [pscustomobject]@{ Item = 'Restore operation (Azure Backup charges no restore fee; data stays in the region)'; Meter = 'none'; Cost = 0 }
+      )
+    }
+  }
   $priced = @($lines | Where-Object { $null -ne $_.Cost })
   [pscustomobject]@{
-    Test                 = 'T-profile'
+    Test                 = $Test
     ResourceGroup        = $rg
-    StorageAccount       = $sa
-    Share                = 'profiles-restored'
+    StorageAccount       = $(if ($Test -in 'T-profile', 'T-signin') { $sa } else { $null })
+    Share                = $(if ($Test -in 'T-profile', 'T-signin') { 'profiles-restored' } else { $null })
+    TestPrefix           = $(if ($Test -eq 'T-config') { $testPrefix } else { $null })
+    HostPool             = $(if ($Test -in 'T-image', 'T-signin') { $hostPool } else { $null })
+    SessionHost          = $(if ($Test -in 'T-image', 'T-signin') { $vmName } else { $null })
+    VmSize               = $(if ($Test -in 'T-image', 'T-signin') { $VmSize } else { $null })
+    ImageId              = $(if ($Test -in 'T-image', 'T-signin') { $ImageId } else { $null })
     Location             = $VaultLocation
-    SubscriptionId       = $SourceSubscriptionId
+    SubscriptionId       = $(if ($Test -eq 'T-config' -and $TargetSubscriptionId) { $TargetSubscriptionId } else { $SourceSubscriptionId })
     TargetSubscriptionId = $(if ($TargetSubscriptionId) { $TargetSubscriptionId } else { $SourceSubscriptionId })
     CrossSubscription    = [bool]($TargetSubscriptionId -and $TargetSubscriptionId -ne $SourceSubscriptionId)
     Lines                = $lines
     Total                = [math]::Round((@($priced | ForEach-Object Cost) | Measure-Object -Sum).Sum, 2)
     Unpriced             = @($lines).Count - $priced.Count
+  }
+}
+
+function Get-AvdRecoveryTestResult {
+  <#
+    Evaluates the outcome and measurements of a recovery test run (T-profile, T-config, T-image,
+    or T-signin; spec section 8) from the Azure responses collected during the drill.
+  #>
+  [CmdletBinding()]
+  param(
+    [ValidateSet('T-profile', 'T-config', 'T-image', 'T-signin')][string] $Test = 'T-profile',
+    [Parameter(Mandatory)][datetime] $Started,
+    [Parameter(Mandatory)][datetime] $Completed,
+    [datetime] $RecoveryPointTime,
+    [object] $RestoreJob,
+    [object] $ReferenceSnapshot,
+    [object] $CandidateSnapshot,
+    [object] $SessionHost,
+    [bool] $SignInVerified = $false
+  )
+  $rtoMinutes = [math]::Max(0, [math]::Round(($Completed.ToUniversalTime() - $Started.ToUniversalTime()).TotalMinutes, 1))
+  switch ($Test) {
+    'T-profile' {
+      $status = "$($RestoreJob.properties.status)"
+      $bag = $RestoreJob.properties.extendedInfo.propertyBag
+      $failedFiles = [int]"0$($bag.'Number Of Failed Files')"
+      $restoredFiles = [int]"0$($bag.'Number Of Restored Files')"
+      $rpoMinutes = if ($RecoveryPointTime) { [math]::Max(0, [math]::Round(($Started.ToUniversalTime() - $RecoveryPointTime.ToUniversalTime()).TotalMinutes)) } else { $null }
+      $passed = $status -eq 'Completed' -and $failedFiles -eq 0
+      return [pscustomobject]@{
+        Test     = 'T-profile'
+        Outcome  = $(if ($passed) { 'passed' } else { 'failed' })
+        Measured = [ordered]@{
+          rpoMinutes     = $rpoMinutes
+          restoreMinutes = $rtoMinutes
+          rtoMinutes     = $rtoMinutes
+          restoredFiles  = $restoredFiles
+          failedFiles    = $failedFiles
+        }
+        Detail   = "Profile share restore: $status, $restoredFiles file(s), $failedFiles failed (RPO $rpoMinutes min, RTO $rtoMinutes min)."
+      }
+    }
+    'T-config' {
+      $refSnap = Get-AvdConfigurationSnapshot -InputObject $ReferenceSnapshot
+      $candSnap = Get-AvdConfigurationSnapshot -InputObject $CandidateSnapshot
+      $drift = @(if ($null -eq $ReferenceSnapshot -or $null -eq $CandidateSnapshot) {
+          [pscustomobject]@{ Path = '$'; Change = 'missing'; Before = $null; After = $null }
+        }
+        else {
+          Get-AvdConfigurationDrift -Reference $refSnap -Current $candSnap
+        })
+      $passed = $null -ne $ReferenceSnapshot -and $null -ne $CandidateSnapshot -and $drift.Count -eq 0
+      return [pscustomobject]@{
+        Test     = 'T-config'
+        Outcome  = $(if ($passed) { 'passed' } else { 'failed' })
+        Measured = [ordered]@{
+          rtoMinutes = $rtoMinutes
+          driftCount = $drift.Count
+        }
+        Drift    = $drift
+        Detail   = $(if ($passed) { "Control-plane redeploy matches reference snapshot with 0 unexpected drift items (RTO $rtoMinutes min)." } else { "Control-plane redeploy found $($drift.Count) drift item(s) against reference snapshot." })
+      }
+    }
+    'T-image' {
+      $hostStatus = "$($SessionHost.properties.status)"
+      $agentVersion = "$($SessionHost.properties.agentVersion)"
+      $passed = $hostStatus -eq 'Available'
+      return [pscustomobject]@{
+        Test     = 'T-image'
+        Outcome  = $(if ($passed) { 'passed' } else { 'failed' })
+        Measured = [ordered]@{
+          rtoMinutes   = $rtoMinutes
+          hostStatus   = $hostStatus
+          agentVersion = $agentVersion
+        }
+        Detail   = $(if ($passed) { "Test session host joined pool and reached Available (agent $agentVersion, RTO $rtoMinutes min)." } else { "Test session host status is '$hostStatus' (expected Available)." })
+      }
+    }
+    'T-signin' {
+      $status = "$($RestoreJob.properties.status)"
+      $bag = $RestoreJob.properties.extendedInfo.propertyBag
+      $failedFiles = [int]"0$($bag.'Number Of Failed Files')"
+      $restoredFiles = [int]"0$($bag.'Number Of Restored Files')"
+      $rpoMinutes = if ($RecoveryPointTime) { [math]::Max(0, [math]::Round(($Started.ToUniversalTime() - $RecoveryPointTime.ToUniversalTime()).TotalMinutes)) } else { $null }
+      $hostStatus = "$($SessionHost.properties.status)"
+      $passed = $status -eq 'Completed' -and $failedFiles -eq 0 -and $hostStatus -eq 'Available' -and $SignInVerified
+      return [pscustomobject]@{
+        Test     = 'T-signin'
+        Outcome  = $(if ($passed) { 'passed' } else { 'failed' })
+        Measured = [ordered]@{
+          rpoMinutes     = $rpoMinutes
+          restoreMinutes = $rtoMinutes
+          rtoMinutes     = $rtoMinutes
+          restoredFiles  = $restoredFiles
+          failedFiles    = $failedFiles
+          hostStatus     = $hostStatus
+          signInVerified = $SignInVerified
+        }
+        Detail   = $(if ($passed) { "End-to-end recovery verified: profile restored ($restoredFiles files), host Available, and test sign-in succeeded (RPO $rpoMinutes min, RTO $rtoMinutes min)." } else { "End-to-end recovery incomplete: restore='$status' ($failedFiles failed), host='$hostStatus', signInVerified=$SignInVerified." })
+      }
+    }
   }
 }
 
@@ -437,4 +573,4 @@ function Get-AvdRecoveryRestoreRequest {
 }
 
 Export-ModuleMember -Function Get-AvdRecoveryTarget, Get-AvdDeployedCommit, Get-AvdRecoveryRun, Get-AvdRecoveryAge, Get-AvdRecoveryVerdict,
-Get-AvdRecoverySummary, Get-AvdConfigurationSnapshot, Get-AvdConfigurationDrift, Get-AvdCopyCheck, Get-AvdRecoveryTestPlan, Get-AvdRecoveryRestoreRequest
+Get-AvdRecoverySummary, Get-AvdConfigurationSnapshot, Get-AvdConfigurationDrift, Get-AvdCopyCheck, Get-AvdRecoveryTestPlan, Get-AvdRecoveryTestResult, Get-AvdRecoveryRestoreRequest

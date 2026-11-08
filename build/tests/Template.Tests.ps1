@@ -690,3 +690,22 @@ Describe 'Multi-pool topology, Private Link and per-zone Private DNS' {
     }
   }
 }
+
+Describe 'Estate tripwires (avd-swarm/docs/tripwires.md)' {
+  It 'is off by default, and reads AVD_DEPLOY_TRIPWIRES, AVD_TRIPWIRE_SECRET_NAME and AVD_TRIPWIRE_ALERT_MINUTES when set' {
+    foreach ($file in 'parameters/dev.bicepparam', 'parameters/test.bicepparam', 'parameters/prod.bicepparam') {
+      $env:AVD_DEPLOY_TRIPWIRES = 'true'
+      $env:AVD_TRIPWIRE_SECRET_NAME = 'svc-legacy-sql-ro'
+      $env:AVD_TRIPWIRE_ALERT_MINUTES = '15'
+      try { $p = ((& $script:bicep build-params $file --stdout | ConvertFrom-Json).parametersJson | ConvertFrom-Json).parameters }
+      finally { $env:AVD_DEPLOY_TRIPWIRES = ''; $env:AVD_TRIPWIRE_SECRET_NAME = ''; $env:AVD_TRIPWIRE_ALERT_MINUTES = '' }
+      $p.deployTripwires.value | Should -BeTrue -Because $file
+      $p.tripwireSecretName.value | Should -Be 'svc-legacy-sql-ro' -Because $file
+      $p.tripwireAlertMinutes.value | Should -Be 15 -Because $file
+      $off = ((& $script:bicep build-params $file --stdout | ConvertFrom-Json).parametersJson | ConvertFrom-Json).parameters
+      $off.deployTripwires.value | Should -BeFalse -Because "$file default"
+      $off.tripwireSecretName.value | Should -Be '' -Because "$file default"
+      $off.tripwireAlertMinutes.value | Should -Be 0 -Because "$file default"
+    }
+  }
+}

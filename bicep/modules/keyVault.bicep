@@ -13,7 +13,32 @@ param localAdminUsername string
 @secure()
 param localAdminPassword string
 
+param deployTripwires bool = false
+
+@secure()
+param tripwireSecretName string = ''
+
 var keyVaultSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
+var baseSecrets = [
+  {
+    name: 'sessionhost-localadmin-username'
+    value: localAdminUsername
+  }
+  {
+    name: 'sessionhost-localadmin-password'
+    value: localAdminPassword
+    contentType: 'Break-glass local administrator for AVD session hosts'
+  }
+]
+var tripwireSecrets = deployTripwires && !empty(tripwireSecretName)
+  ? [
+      {
+        name: tripwireSecretName
+        value: guid(subscription().id, resourceGroup().id, name, 'tripwire')
+        contentType: 'Canary credential — do not use'
+      }
+    ]
+  : []
 
 module vault 'br/public:avm/res/key-vault/vault:0.14.2' = {
   name: 'key-vault'
@@ -45,17 +70,7 @@ module vault 'br/public:avm/res/key-vault/vault:0.14.2' = {
         }
       }
     ]
-    secrets: [
-      {
-        name: 'sessionhost-localadmin-username'
-        value: localAdminUsername
-      }
-      {
-        name: 'sessionhost-localadmin-password'
-        value: localAdminPassword
-        contentType: 'Break-glass local administrator for AVD session hosts'
-      }
-    ]
+    secrets: concat(baseSecrets, tripwireSecrets)
     roleAssignments: [
       {
         principalId: adminsGroupObjectId
@@ -66,6 +81,11 @@ module vault 'br/public:avm/res/key-vault/vault:0.14.2' = {
     diagnosticSettings: [
       {
         workspaceResourceId: logAnalyticsWorkspaceResourceId
+        logCategoriesAndGroups: [
+          {
+            categoryGroup: 'allLogs'
+          }
+        ]
       }
     ]
   }
