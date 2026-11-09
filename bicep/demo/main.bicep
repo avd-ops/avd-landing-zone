@@ -125,6 +125,7 @@ module sessionHosts '../modules/sessionHosts.bicep' = {
     localAdminUsername: localAdminUsername
     localAdminPassword: localAdminPassword
     hostPoolRegistrationToken: controlPlane.outputs.registrationToken
+    hostPoolResourceId: controlPlane.outputs.hostPoolResourceId
     dataCollectionRuleResourceId: dataCollectionRuleResourceId
     profileShareUncPath: profileShareUncPath
     fslogixProfileSizeMiB: 30720

@@ -11,6 +11,9 @@ param namePrefix string
 @secure()
 param hostPoolRegistrationToken string
 
+@description('Resource ID of the host pool these session hosts belong to, used for the cm-resource-parent cost allocation tag.')
+param hostPoolResourceId string = ''
+
 var vmNames = [for i in range(0, count): '${namePrefix}-${padLeft(i + 1, 3, '0')}']
 
 resource sessionHost 'Microsoft.Compute/virtualMachines@2024-07-01' existing = [
@@ -24,7 +27,7 @@ resource registerAgent 'Microsoft.Compute/virtualMachines/runCommands@2024-07-01
     parent: sessionHost[i]
     name: 'Register-AvdAgent'
     location: location
-    tags: tags
+    tags: empty(hostPoolResourceId) ? tags : union(tags, { 'cm-resource-parent': hostPoolResourceId })
     properties: {
       source: {
         script: loadTextContent('../../scripts/sessionhost/Register-AvdAgent.ps1')
