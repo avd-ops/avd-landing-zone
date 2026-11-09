@@ -45,6 +45,8 @@ Add a lesson whenever a real run fails for a reason the tests didn't catch. The 
 | 0037 | [A second Bicep module reference to the AVM virtual-machine module pushes the subscription template past ARM's 4 MB request limit](0037-subscription-template-4mb-limit.md) | Bicep | — | Template test: 4 MB limit and VM module count |
 | 0038 | [When an operator deploys the storage account with Entra Kerberos, Entra sets that operator as the storage app's owner](0038-storage-kerberos-app-operator-owner.md) | Preflight | — | PostDeployment scenario (`storage-app-imposter`) + Pester (`Get-AvdStorageKerberosApp`) |
 | 0039 | [A scheduled workflow that needs secrets nobody has set yet must skip, not fail and open issues](0039-scheduled-workflow-unconfigured-secrets.md) | CI | #51 | node --test build/tests/workflows (image build issue step) |
+| 0040 | [`int(readEnvironmentVariable(...))` in `.bicepparam` widens to `int` and fails `BCP033` against `@allowed`](0040-bicepparam-env-int-allowed-union.md) | Bicep parameters | #132 | Template test: Estate tripwires (`AVD_TRIPWIRE_ALERT_MINUTES`) |
+| 0041 | [Single-key hashtable unrolling and `[OrderedDictionary]` key wrapping in PowerShell](0041-single-key-hashtable-unrolling.md) | PowerShell | #132 | Pester (`Recovery.Tests.ps1`) + offline scenario (`Recovery.Scenario.ps1`) |
 
 ## Template
 
