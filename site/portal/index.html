@@ -235,7 +235,7 @@
 <div class="full"><ul><li><strong>Personal project, not for production.</strong> Provided as is, without warranty of any kind (<a href="https://github.com/avd-ops/avd-landing-zone/blob/master/LICENSE">MIT License</a>).</li>
 <li>Not affiliated with, endorsed by or supported by the author's employer, and not an official Microsoft product.</li>
 <li>Use a lab subscription and tenant.</li></ul></div></details>
-<div class="tools"><button class="iconbtn theme" type="button" aria-label="Switch theme"><svg class="sun" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="3.5"/><path d="M10 1.8v2.2M10 16v2.2M1.8 10H4M16 10h2.2M4.2 4.2l1.6 1.6M14.2 14.2l1.6 1.6M4.2 15.8l1.6-1.6M14.2 5.8l1.6-1.6"/></svg><svg class="moon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z"/></svg></button></div></div></header>
+<div class="tools"><button class="iconbtn dev" type="button" aria-pressed="false" aria-label="Show contract and decision IDs (dev mode)" title="Show contract and decision IDs (dev mode)"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6.5 6.5 3 10l3.5 3.5M13.5 6.5 17 10l-3.5 3.5M11.2 4.5 8.8 15.5"/></svg></button><button class="iconbtn theme" type="button" aria-label="Switch theme"><svg class="sun" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><circle cx="10" cy="10" r="3.5"/><path d="M10 1.8v2.2M10 16v2.2M1.8 10H4M16 10h2.2M4.2 4.2l1.6 1.6M14.2 14.2l1.6 1.6M4.2 15.8l1.6-1.6M14.2 5.8l1.6-1.6"/></svg><svg class="moon" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true"><path d="M16.5 12.4A7 7 0 0 1 7.6 3.5a7 7 0 1 0 8.9 8.9Z"/></svg></button></div></div></header>
   <button type="button" class="sheet-backdrop hidden" id="sheet-backdrop" tabindex="-1" aria-label="Close"></button>
   <section id="settings-panel" class="sheet hidden" role="dialog" aria-modal="true" aria-labelledby="settings-title">
     <div class="headline"><h2 id="settings-title" style="margin:0">Deployment settings</h2><button type="button" class="linkbtn" id="settings-close" style="margin-left:auto">Close</button></div>
@@ -432,7 +432,7 @@
 
       <details class="panel" id="architecture-diagram-panel">
         <summary>Target-state architecture &amp; network diagram (<span id="arch-diag-summary">1 pool, 3 Private Endpoints</span>)</summary>
-        <p class="status">Live C14 target-state topology generated from your region, host pools, workspaces, Private Link endpoints, Private DNS zones, and enabled control planes.</p>
+        <p class="status">Live Target Topology<span class="dev-id"> (C14)</span> generated from your region, host pools, workspaces, Private Link endpoints, Private DNS zones, and enabled control planes.</p>
         <div class="arch-wrap" id="arch-diag-svg" role="region" aria-label="Target state architecture diagram"></div>
         <div class="row" style="margin-top:10px">
           <button type="button" class="secondary" id="arch-export-svg">Export SVG (.svg)</button>

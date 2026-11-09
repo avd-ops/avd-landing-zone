@@ -28,10 +28,14 @@
 .shell header.bar .iconbtn svg{width:20px;height:20px}
 .shell header.bar :focus-visible{outline-color:var(--shell-fg)}
 .shell header.bar .menu{display:none}
+.shell header.bar .tools .iconbtn.dev[aria-pressed="true"],.shell header.bar .tools .iconbtn.dev[aria-pressed="true"]:hover{background:var(--shell-hover);border-color:var(--brand);color:var(--brand)}
+.shell .dev-id{display:none}
+.shell.dev-on .dev-id{display:inline}
+.shell.dev-on .dev-off{display:none}
 .shell .theme .moon{display:none}
 :root[data-theme="dark"] .shell .theme .sun{display:none} :root[data-theme="dark"] .shell .theme .moon{display:block}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .shell .theme .sun{display:none}:root:not([data-theme="light"]) .shell .theme .moon{display:block}}
-html:not(.js) .shell .theme{display:none}
+html:not(.js) .shell .theme,html:not(.js) .shell .dev{display:none}
 
 /* Notice: a pill in the bar, beside the buttons, that opens to the full research-only notice under the bar. The
    whole text stays in the page. Wide screens show the full line, narrower ones "Not for production", phones the dot. */

@@ -6,8 +6,10 @@
 (function () {
   var root = document.documentElement;
   var KEY = 'avd-ops-theme';
+  var DEV_KEY = 'avd-ops-devmode';
   root.classList.add('js');
   try { var saved = localStorage.getItem(KEY); if (saved === 'light' || saved === 'dark') root.setAttribute('data-theme', saved); } catch (e) { /* storage blocked */ }
+  try { var savedDev = localStorage.getItem(DEV_KEY); if (savedDev === 'on' || savedDev === 'off') root.setAttribute('data-dev', savedDev); } catch (e) { /* storage blocked */ }
 
   function isDark() {
     var t = root.getAttribute('data-theme');
@@ -15,7 +17,46 @@
     try { return window.matchMedia('(prefers-color-scheme: dark)').matches; } catch (e) { return false; }
   }
 
+  function isDev() {
+    return root.getAttribute('data-dev') === 'on';
+  }
+
+  function applyDev(on) {
+    root.setAttribute('data-dev', on ? 'on' : 'off');
+    var shells = document.querySelectorAll('.shell');
+    for (var i = 0; i < shells.length; i++) shells[i].classList.toggle('dev-on', on);
+    var devs = document.querySelectorAll('.shell .dev');
+    var msg = on ? 'Hide contract and decision IDs (dev mode on)' : 'Show contract and decision IDs (dev mode)';
+    for (var j = 0; j < devs.length; j++) {
+      devs[j].setAttribute('aria-pressed', on ? 'true' : 'false');
+      devs[j].setAttribute('aria-label', msg);
+      devs[j].setAttribute('title', msg);
+    }
+    var nodes = document.querySelectorAll('[data-dev-text][data-pub-text]');
+    for (var k = 0; k < nodes.length; k++) {
+      nodes[k].textContent = on ? nodes[k].getAttribute('data-dev-text') : nodes[k].getAttribute('data-pub-text');
+    }
+    try { window.dispatchEvent(new CustomEvent('avd-ops-devmode', { detail: { dev: on } })); } catch (e) { /* old browser */ }
+  }
+
+  window.AvdOpsDev = {
+    isOn: isDev,
+    set: function (on) {
+      var next = Boolean(on);
+      try { localStorage.setItem(DEV_KEY, next ? 'on' : 'off'); } catch (e) { /* storage blocked */ }
+      applyDev(next);
+    }
+  };
+
   function wire() {
+    applyDev(isDev());
+    var devs = document.querySelectorAll('.shell .dev');
+    for (var d = 0; d < devs.length; d++) {
+      devs[d].addEventListener('click', function () {
+        window.AvdOpsDev.set(!isDev());
+      });
+    }
+
     var theme = document.querySelector('.shell .theme');
     if (theme) {
       var label = function () { theme.setAttribute('aria-label', isDark() ? 'Switch to light theme' : 'Switch to dark theme'); };
