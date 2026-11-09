@@ -56,7 +56,9 @@ test('the portal and the region latency page use it', () => {
   assert.match(bar, /<details class="notice"/, 'the research notice sits in the bar');
   assert.match(bar, /<a href="\.\/" aria-current="page">Deploy<\/a>/, 'Deploy is the current tool');
   assert.match(bar, /<a href="https:\/\/avd-ops\.github\.io\/avd-current-state\/portal\/">Assess<\/a>/);
+  assert.match(bar, /class="iconbtn dev"/);
   assert.match(bar, /class="iconbtn theme"/);
+  assert.match(portal, /Live Target Topology<span class="dev-id"> \(C14\)<\/span>/);
   assert.doesNotMatch(portal, /class="iconbtn menu"|class="side"/, 'no side list in a portal');
   assert.match(portal, /<p class="credit">A <a href="https:\/\/prignano\.ai\/">prignano\.ai<\/a> production<\/p>/);
   const style = portal.match(/<style>([\s\S]*?)<\/style>/)[1];

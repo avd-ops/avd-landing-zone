@@ -4,9 +4,9 @@
   "commit": "ee0a1ab8ab11bf58d72cb6c9e63547935f87a6fd",
   "files": {
     "avd-ops.css": "0d3d2156506953d46f38fd3c677eae5efecde6b8e28a83a08c2f2e948bfeb23b",
-    "avd-ops-shell.css": "940a1ca7d01449a09ec22dc5b17c5b94ee042c36ddccc8d09a69265537fd4270",
+    "avd-ops-shell.css": "530e7e88a8a772858a0e631540a600a0f49da7e5f8da9112e6b6bf3f5299eb65",
     "avd-ops-portal.css": "6617b0fa839aee11e552d94108afeed40ad51503598f6c0fb39c3d66e6ebdb44",
-    "theme.js": "a4881c5379054a88723242855959b09fd64391365cabe103ffa19f38dc79ed8e",
+    "theme.js": "d4742067be2b8bf56c076bd3a44d28dbb1e0e0e56295a0c421ea01958a53da58",
     "fonts/LICENSE": "7e343f1a469cab0e05e9bb274cfa5f48894413c0a863802de5e142fe26e2f860",
     "fonts/ibm-plex-mono-latin-400-italic.woff2": "78439db25c4237c6b986d7b8af12b894c6cd660666b9507ccb91263f8b4138b5",
     "fonts/ibm-plex-mono-latin-400-normal.woff2": "3c5a451f9ec27a354b0c2bcca636c6ec17a651281aabf29f8427e210a1d31e85",
