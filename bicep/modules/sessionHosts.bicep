@@ -40,6 +40,9 @@ param deployRoleAssignments bool = true
 @description('Additional host pools whose session hosts share this resource group (created and FSLogix-configured here; registered by registerPoolHosts.bicep).')
 param additionalPools array = []
 
+@description('Resource ID of the host pool these session hosts belong to. When set, hosts and their disks and NICs carry tag cm-resource-parent so Cost Management groups pool spend without filters.')
+param hostPoolResourceId string = ''
+
 var roles = {
   vmUserLogin: 'fb879df8-f326-4884-b1cf-06f3ad86be52'
   vmAdminLogin: '1c0163c0-47e6-4577-8991-ea5c82e286e4'
@@ -58,6 +61,7 @@ var primaryHosts = [
     encryptionAtHost: encryptionAtHost
     enrollInIntune: enrollInIntune
     fslogixProfileSizeMiB: fslogixProfileSizeMiB
+    hostPoolResourceId: hostPoolResourceId
   }
 ]
 var extraHostsByPool = [
@@ -72,6 +76,7 @@ var extraHostsByPool = [
       encryptionAtHost: bool(pool.?encryptionAtHost ?? encryptionAtHost)
       enrollInIntune: bool(pool.?enrollInIntune ?? enrollInIntune)
       fslogixProfileSizeMiB: int(pool.?fslogixProfileSizeMiB ?? fslogixProfileSizeMiB)
+      hostPoolResourceId: string(pool.?hostPoolResourceId ?? hostPoolResourceId)
     }
   )
 ]
@@ -84,7 +89,7 @@ module vm 'br/public:avm/res/compute/virtual-machine:0.22.3' = [
     params: {
       name: h.name
       location: location
-      tags: tags
+      tags: empty(h.hostPoolResourceId) ? tags : union(tags, { 'cm-resource-parent': h.hostPoolResourceId })
       vmSize: h.vmSize
       autoShutdownConfig: empty(autoShutdownTime) ? {} : { status: 'Enabled', dailyRecurrenceTime: autoShutdownTime, timeZone: autoShutdownTimeZone }
       osType: 'Windows'
@@ -163,7 +168,7 @@ resource configureFslogix 'Microsoft.Compute/virtualMachines/runCommands@2024-07
     parent: sessionHost[i]
     name: 'Configure-FSLogix'
     location: location
-    tags: tags
+    tags: empty(h.hostPoolResourceId) ? tags : union(tags, { 'cm-resource-parent': h.hostPoolResourceId })
     properties: {
       source: {
         script: loadTextContent('../../scripts/sessionhost/Set-FSLogixConfiguration.ps1')
@@ -197,7 +202,7 @@ resource registerAgent 'Microsoft.Compute/virtualMachines/runCommands@2024-07-01
     parent: sessionHost[i]
     name: 'Register-AvdAgent'
     location: location
-    tags: tags
+    tags: empty(hostPoolResourceId) ? tags : union(tags, { 'cm-resource-parent': hostPoolResourceId })
     properties: {
       source: {
         script: loadTextContent('../../scripts/sessionhost/Register-AvdAgent.ps1')

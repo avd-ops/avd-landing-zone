@@ -750,6 +750,7 @@ var extraPoolHostSpecs = [
     encryptionAtHost: bool(pool.?encryptionAtHost ?? encryptionAtHost)
     enrollInIntune: bool(pool.?enrollInIntune ?? enrollInIntune)
     fslogixProfileSizeMiB: int(pool.?fslogixProfileSizeMiB ?? fslogixProfileSizeMiB)
+    hostPoolResourceId: '/subscriptions/${subscription().subscriptionId}/resourceGroups/${names.rgControlPlane}/providers/Microsoft.DesktopVirtualization/hostPools/${startsWith(string(pool.?name ?? 'pool'), 'vdpool-') ? string(pool.name) : 'vdpool-${baseName}-${pool.?name ?? 'pool'}'}'
   }
 ]
 
@@ -770,6 +771,7 @@ module sessionHosts 'modules/sessionHosts.bicep' = {
     localAdminUsername: localAdminUsername
     localAdminPassword: localAdminPassword
     hostPoolRegistrationToken: controlPlane.outputs.registrationToken
+    hostPoolResourceId: controlPlane.outputs.hostPoolResourceId
     dataCollectionRuleResourceId: monitoring.outputs.avdInsightsDataCollectionRuleResourceId
     profileShareUncPath: storage.outputs.profileShareUncPath
     fslogixProfileSizeMiB: int(primaryPool.?fslogixProfileSizeMiB ?? fslogixProfileSizeMiB)
@@ -793,6 +795,7 @@ module additionalSessionHosts 'modules/registerPoolHosts.bicep' = [
       count: extraPoolHostSpecs[i].count
       namePrefix: extraPoolHostSpecs[i].namePrefix
       hostPoolRegistrationToken: additionalControlPlanePools[i].outputs.registrationToken
+      hostPoolResourceId: extraPoolHostSpecs[i].hostPoolResourceId
     }
   }
 ]

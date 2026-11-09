@@ -47,6 +47,7 @@ Add a lesson whenever a real run fails for a reason the tests didn't catch. The 
 | 0039 | [A scheduled workflow that needs secrets nobody has set yet must skip, not fail and open issues](0039-scheduled-workflow-unconfigured-secrets.md) | CI | #51 | node --test build/tests/workflows (image build issue step) |
 | 0040 | [`int(readEnvironmentVariable(...))` in `.bicepparam` widens to `int` and fails `BCP033` against `@allowed`](0040-bicepparam-env-int-allowed-union.md) | Bicep parameters | #132 | Template test: Estate tripwires (`AVD_TRIPWIRE_ALERT_MINUTES`) |
 | 0041 | [Single-key hashtable unrolling and `[OrderedDictionary]` key wrapping in PowerShell](0041-single-key-hashtable-unrolling.md) | PowerShell | #132 | Pester (`Recovery.Tests.ps1`) + offline scenario (`Recovery.Scenario.ps1`) |
+| 0042 | [Referencing a module loop `.outputs` inside a `var` comprehension fails `BCP182`](0042-bicep-var-module-outputs-bcp182.md) | Bicep | — | CI Bicep lint + Template test (`cm-resource-parent`) |
 
 ## Template
 

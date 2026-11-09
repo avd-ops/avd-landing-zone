@@ -585,6 +585,19 @@ Describe 'Session host baseline: Trusted Launch, network rules, role assignments
     $p['vTpmEnabled']['value'] | Should -BeTrue
   }
 
+  It 'tags session hosts and run commands with cm-resource-parent set to the host pool resource ID (ref:avd-tagging#cm-resource-parent)' {
+    $vm = @(Get-Resource $script:hosts | Where-Object { $_['type'] -eq 'Microsoft.Resources/deployments' -and $_['properties']['parameters'].Keys -contains 'securityType' })[0]
+    $vm['properties']['parameters']['tags'] | Should -Match 'cm-resource-parent'
+    $runs = @(Get-Resource $script:hosts | Where-Object { $_['type'] -eq 'Microsoft.Compute/virtualMachines/runCommands' })
+    $runs | ForEach-Object { $_['tags'] | Should -Match 'cm-resource-parent' }
+    $t = Get-CompiledTemplate 'parameters/dev.bicepparam'
+    $sh = Find-Deployment $t 'avdlz-session-hosts'
+    $sh['properties']['parameters']['hostPoolResourceId']['value'] | Should -Be "[reference('controlPlane').outputs.hostPoolResourceId.value]"
+    $demoRaw = (& $script:bicep build 'bicep/demo/main.bicep' --stdout) -join "`n" | ConvertFrom-Json -Depth 100 -AsHashtable
+    $demoSh = Find-Deployment $demoRaw 'avdlz-demo-session-hosts'
+    $demoSh['properties']['parameters']['hostPoolResourceId']['value'] | Should -Be "[reference('controlPlane').outputs.hostPoolResourceId.value]"
+  }
+
   It 'gives the host subnet an NSG with no allow rule that denies internet inbound and onward RDP and SSH' {
     $rules = $script:net['resources']['sessionHostNsg']['properties']['parameters']['securityRules']['value']
     @($rules | Where-Object { $_['properties']['access'] -eq 'Allow' }).Count | Should -Be 0
