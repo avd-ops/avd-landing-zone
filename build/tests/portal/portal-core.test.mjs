@@ -1420,9 +1420,13 @@ test('control planes: analyze() parses <<<AVDLZ-STATE ... AVDLZ-STATE>>> for sta
   assertSelfContained(rTear);
 });
 
-test('supply chain & security review: SECURITY.md, docs/threat-model.md, and 40-char SHA action pins in .github/workflows', () => {
+test('supply chain & security review: SECURITY.md, docs/threat-model.md, .github/dependabot.yml, sbom.spdx.json, and 40-char SHA action pins in .github/workflows', () => {
   assert.match(readFileSync(new URL('../../../SECURITY.md', import.meta.url), 'utf8'), /# Security policy/);
   assert.match(readFileSync(new URL('../../../docs/threat-model.md', import.meta.url), 'utf8'), /# Threat model: avd-landing-zone/);
+  assert.match(readFileSync(new URL('../../../.github/dependabot.yml', import.meta.url), 'utf8'), /package-ecosystem:\s*"github-actions"/);
+  const sbom = JSON.parse(readFileSync(new URL('../../../sbom.spdx.json', import.meta.url), 'utf8'));
+  assert.equal(sbom.spdxVersion, 'SPDX-2.3');
+  assert.ok(Array.isArray(sbom.packages) && sbom.packages.length > 1);
   const wfDir = new URL('../../../.github/workflows/', import.meta.url);
   for (const f of readdirSync(wfDir).filter((n) => n.endsWith('.yml') || n.endsWith('.yaml'))) {
     const text = readFileSync(new URL(f, wfDir), 'utf8');
