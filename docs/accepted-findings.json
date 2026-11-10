@@ -60,6 +60,18 @@
       "check": "D1",
       "path": "build/specs/second-brain-spec.md",
       "reason": "Names a file that moved to avd-second-brain, as the sentence says."
+    },
+    {
+      "key": "5b1240b7652b",
+      "check": "D3",
+      "path": "build/specs/run-recorder-spec.md",
+      "reason": "Designed in a spec (-Share), not built yet on Stop-AvdRunRecorder.ps1."
+    },
+    {
+      "key": "df30ed30a4de",
+      "check": "D3",
+      "path": "build/specs/run-recorder-spec.md",
+      "reason": "Designed in a spec (-Remove), not built yet on Stop-AvdRunRecorder.ps1."
     }
   ]
 }
