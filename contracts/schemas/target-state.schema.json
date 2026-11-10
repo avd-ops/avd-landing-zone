@@ -403,6 +403,22 @@
     "schema": {
       "const": "avd-target-state/v1"
     },
+    "cloud": {
+      "type": "string",
+      "enum": [
+        "commercial",
+        "usgov"
+      ],
+      "description": "Target cloud environment (commercial or usgov)"
+    },
+    "complianceProfile": {
+      "type": "string",
+      "enum": [
+        "standard",
+        "itar-cui"
+      ],
+      "description": "Compliance profile applied to the target design (standard or itar-cui)"
+    },
     "estate": {
       "type": "string",
       "pattern": "^est-[0-9a-f]{8}$",

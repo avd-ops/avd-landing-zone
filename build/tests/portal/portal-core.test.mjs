@@ -1495,4 +1495,88 @@ test('architecture diagrams: C14 target-state model, SVG, Mermaid, and Draw.io r
   assert.match(svg, /1 existing hub zone\(s\)/);
 });
 
+test('usgov: cloud selector, sovereign command flags, US Gov regions, reachability hosts, zero-probe mode, and DNS zones', () => {
+  const govCfg = { ...P.DEFAULTS, cloud: 'usgov', complianceProfile: 'itar-cui', location: 'usgovvirginia', namePrefix: 'avdlz', environment: 'prod', controlPlanes: P.applyControlPlanePreset('greenfield') };
 
+  assert.equal(P.validCloud('usgov'), 'usgov');
+  assert.equal(P.validCloud('commercial'), 'commercial');
+  assert.equal(P.validCloud('invalid'), null);
+  assert.equal(P.validCloud(null), 'commercial');
+  assert.equal(P.validComplianceProfile('itar-cui', 'usgov'), 'itar-cui');
+  assert.equal(P.validComplianceProfile(null, 'usgov'), 'itar-cui');
+  assert.equal(P.validComplianceProfile(null, 'commercial'), 'standard');
+
+  // US Gov regions list only usgovvirginia, usgovarizona, usgovtexas and probe only .us endpoints
+  assert.deepEqual(P.USGOV_REGIONS.map((r) => r[0]), ['usgovvirginia', 'usgovarizona', 'usgovtexas']);
+  for (const r of P.USGOV_REGIONS) {
+    assert.match(r[3], /\.us$/, `US Gov probe host ${r[3]} must end with .us`);
+    assert.doesNotMatch(r[3], /\.com$/, `US Gov probe host ${r[3]} must not hit .com`);
+  }
+
+  // US Gov reachability hosts probe only .us endpoints and support skipProbes (zero-probe mode)
+  const govHosts = P.reachabilityHostsForCloud('usgov');
+  assert.deepEqual(govHosts.map((h) => h.host), ['login.microsoftonline.us', 'rdweb.wvd.azure.us']);
+  const skipped = P.classifyReachability([], { cloud: 'usgov', skipProbes: true });
+  assert.equal(skipped.status, 'skipped');
+  assert.equal(skipped.cloud, 'usgov');
+  assert.match(skipped.headline, /zero-probe mode/);
+
+  const govReach = P.classifyReachability([
+    { host: 'login.microsoftonline.us', median: 42 },
+    { host: 'rdweb.wvd.azure.us', median: 55 }
+  ], { cloud: 'usgov' });
+  assert.equal(govReach.status, 'reachable');
+
+  // Generated commands include -Cloud usgov / --cloud usgov and -ComplianceProfile itar-cui / --compliance-profile itar-cui
+  const pre = P.commands.predeploy(govCfg, false);
+  assert.match(pre, /Connect-AvdLandingZone\.ps1 -Cloud usgov/);
+  assert.match(pre, /Test-AvdLandingZoneReadiness\.ps1 -PreDeployment .* -Location usgovvirginia -Cloud usgov/);
+
+  const dep = P.commands.deploy(govCfg);
+  assert.match(dep, /deploy\.sh -p parameters\/dev\.bicepparam -l usgovvirginia .* --cloud usgov --compliance-profile itar-cui/);
+
+  const post = P.commands.postdeploy(govCfg, true);
+  assert.match(post, /Test-AvdLandingZoneReadiness\.ps1 -NamePrefix avdlz -Environment prod -Cloud usgov/);
+
+  const orch = P.commands.controlPlaneOrchestrator(govCfg);
+  assert.match(orch, /Invoke-AvdControlPlanes\.ps1 .* -Cloud usgov -ComplianceProfile itar-cui/);
+
+  const tear = P.commands.controlPlaneTeardown(govCfg);
+  assert.match(tear, /Invoke-AvdControlPlanes\.ps1 .* -Cloud usgov -Teardown -DiscardLastCopy/);
+
+  const cpActions = P.controlPlaneActions(govCfg);
+  assert.match(cpActions[0].command, /Deploy-AvdEntra\.ps1 .* -Cloud usgov -ComplianceProfile itar-cui/);
+  assert.match(cpActions[1].command, /Deploy-AvdIntune\.ps1 .* -Cloud usgov -ComplianceProfile itar-cui/);
+  assert.match(cpActions[2].command, /Deploy-AvdM365\.ps1 .* -Cloud usgov -ComplianceProfile itar-cui/);
+  assert.match(cpActions[3].command, /cloud = 'usgov'; complianceProfile = 'itar-cui'/);
+  assert.match(cpActions[4].command, /Deploy-AvdPowerPlatform\.ps1 .* -Cloud usgov -ComplianceProfile itar-cui/);
+
+  // Local runIn for US Gov uses AzureUSGovernment sign-in
+  const winGov = P.forRunIn(post, { where: 'windows' }, govCfg);
+  assert.match(winGov, /Connect-AzAccount -Environment AzureUSGovernment -UseDeviceAuthentication/);
+  const macBashGov = P.forRunIn(dep, { where: 'macos', shell: 'bash' }, govCfg);
+  assert.match(macBashGov, /az cloud set --name AzureUSGovernment -o none/);
+
+  // US Gov Private DNS zones in architecture diagram model
+  const comp = P.computeTopology({
+    privateLink: {
+      enableAvdConnectionPrivateLink: true,
+      enableAvdFeedPrivateLink: true,
+      enableAvdGlobalPrivateLink: true
+    }
+  }, 'prod');
+  const model = P.buildArchitectureDiagramModel(comp, govCfg);
+  assert.equal(model.cloud, 'usgov');
+  assert.equal(model.complianceProfile, 'itar-cui');
+  assert.ok(model.privateEndpoints.some((pe) => pe.zone === 'privatelink.wvd.azure.us'));
+  assert.ok(model.privateEndpoints.some((pe) => pe.zone === 'privatelink-global.wvd.azure.us'));
+  assert.ok(model.privateEndpoints.some((pe) => pe.zone === 'privatelink.file.core.usgovcloudapi.net'));
+  assert.ok(model.privateEndpoints.some((pe) => pe.zone === 'privatelink.vaultcore.usgovcloudapi.net'));
+
+  // ITAR/CUI template locks down RDP, encryptionAtHost, and Private Link
+  assert.ok(P.POOL_TEMPLATES['itar-cui']);
+  const lockedPools = P.applyPoolTemplate([{ ...P.HOST_POOL_DEFAULTS }], P.POOL_TEMPLATES['itar-cui'], 'all');
+  assert.equal(lockedPools[0].encryptionAtHost, true);
+  assert.equal(lockedPools[0].publicNetworkAccess, 'Disabled');
+  assert.equal(lockedPools[0].rdpProperties, P.LOCKED_DOWN_RDP_PROPERTIES);
+});

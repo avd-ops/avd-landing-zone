@@ -111,6 +111,8 @@ param(
   [Parameter(ParameterSetName = 'PreDeployment')][ValidatePattern('^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z$')][string] $JumpboxKeepRunningUntil,
   # Multi-pool, workspace, app group, Private Link and Private DNS topology manifest (JSON string or path to a JSON file).
   [Parameter(ParameterSetName = 'PreDeployment')][string] $Topology,
+  # Use the pinned US Gov retail price snapshot instead of calling prices.azure.com.
+  [Parameter(ParameterSetName = 'PreDeployment')][switch] $OfflinePricing,
 
   # ---- Post-deployment ----
   [Parameter(Mandatory, ParameterSetName = 'PostDeployment')][ValidateLength(2, 8)][string] $NamePrefix,
@@ -133,6 +135,7 @@ param(
   # ---- Both ----
   # Recovery region to check (build/specs/recovery-spec.md). Empty: AVD_RECOVERY_LOCATION, which deploy.sh and the parameter files read.
   [ValidatePattern('^([a-z0-9]+)?$')][string] $RecoveryLocation = $env:AVD_RECOVERY_LOCATION,
+  [ValidateSet('commercial', 'usgov')][string] $Cloud = $(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' }),
   [string] $SubscriptionId,
   # Remediate instead of only reporting.
   [switch] $Fix,
@@ -146,7 +149,8 @@ param(
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'AvdLandingZone.psm1') -Force
 
-$ctx = Initialize-AvdAzContext -SubscriptionId $SubscriptionId
+$env:AVD_CLOUD = $Cloud
+$ctx = Initialize-AvdAzContext -SubscriptionId $SubscriptionId -Cloud $Cloud
 Clear-AvdCheckResult
 
 if ($PreDeployment) {
@@ -164,7 +168,7 @@ if ($PreDeployment) {
   if ($Topology) {
     $sizing.topology = if (Test-Path -LiteralPath $Topology -PathType Leaf) { (Get-Content -LiteralPath $Topology -Raw).Trim() } else { $Topology.Trim() }
   }
-  $pre = @{ ParameterFile = $ParameterFile; UsersGroup = $UsersGroup; AdminsGroup = $AdminsGroup; Location = $Location; Fix = $Fix; AddMeToGroups = $AddMeToGroups; SkipTenant = $SkipTenant; WhatIf = $WhatIfPreference; Sizing = $sizing; ActiveHoursPerWeek = $ActiveHoursPerWeek; RecoveryLocation = $RecoveryLocation }
+  $pre = @{ ParameterFile = $ParameterFile; UsersGroup = $UsersGroup; AdminsGroup = $AdminsGroup; Location = $Location; Fix = $Fix; AddMeToGroups = $AddMeToGroups; SkipTenant = $SkipTenant; WhatIf = $WhatIfPreference; Sizing = $sizing; ActiveHoursPerWeek = $ActiveHoursPerWeek; RecoveryLocation = $RecoveryLocation; Cloud = $Cloud; OfflinePricing = $OfflinePricing }
   if ($Force) { $pre.Confirm = $false }
   $outcome = Test-AvdPreDeployment @pre
 }
@@ -181,6 +185,7 @@ else {
     NtfsHostName   = $NtfsHostName
     AllowHostStart = $AllowHostStart
     RecoveryLocation = $RecoveryLocation
+    Cloud          = $Cloud
     WhatIf         = $WhatIfPreference
   }
   if ($Force) { $checkParams.Confirm = $false }
@@ -205,6 +210,7 @@ if ($PreDeployment) {
     namePrefix    = $(if ($plan) { $plan.namePrefix } else { $null })
     environment   = $(if ($plan) { $plan.environmentName } else { $null })
   }
+  if ($Cloud -eq 'usgov') { $portalContext.cloud = $Cloud }
   # The sizing that was validated (when the command set it), and the estimate, for the portal.
   if ($plan -and @($sizing.Keys | Where-Object { $_ -notin 'autoShutdownTime', 'startVmOnConnect', 'topology' }).Count) {
     $portalContext.sizing = [ordered]@{ hosts = [int]$plan.sessionHostCount; vmSize = $plan.sessionHostVmSize; maxSessions = [int]$plan.maxSessionLimit; profileQuotaGiB = [int]$plan.profileShareQuotaGiB; activeHoursPerWeek = $ActiveHoursPerWeek }
@@ -221,6 +227,7 @@ if ($PreDeployment) {
 }
 else {
   $postContext = @{ namePrefix = $NamePrefix; environment = $Environment; wellArchitected = [bool]$WellArchitected }
+  if ($Cloud -eq 'usgov') { $postContext.cloud = $Cloud }
   # The web client's direct launch link for the portal's Verify access step (decision 0014).
   if ($lz -and $lz.RgExists.ControlPlane) {
     $launch = Get-AvdLaunchTarget -ResourceGroupId $lz.ResourceGroupIds.ControlPlane -TenantId $lz.TenantId
@@ -240,9 +247,11 @@ if ($PreDeployment -and $outcome -and $outcome.Plan) {
   Write-Host ''
   Write-Host 'Next, deploy the landing zone as a separate run:' -ForegroundColor White
   $sizeFlags = if ($sizing.Count) { " --hosts $($outcome.Plan.sessionHostCount) --vm-size $($outcome.Plan.sessionHostVmSize) --max-sessions $($outcome.Plan.maxSessionLimit) --profile-quota $($outcome.Plan.profileShareQuotaGiB)" } else { '' }
-  Write-Host "  bash ./scripts/deploy/deploy.sh -p $ParameterFile -l $($outcome.Plan.location) --users-group '$u' --admins-group '$a'$sizeFlags"
+  $cloudFlag = if ($Cloud -eq 'usgov') { ' --cloud usgov' } else { '' }
+  $cloudPsFlag = if ($Cloud -eq 'usgov') { ' -Cloud usgov' } else { '' }
+  Write-Host "  bash ./scripts/deploy/deploy.sh -p $ParameterFile -l $($outcome.Plan.location) --users-group '$u' --admins-group '$a'$sizeFlags$cloudFlag"
   Write-Host 'Then run the post-deployment preflight:' -ForegroundColor White
-  Write-Host "  ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -NamePrefix $($outcome.Plan.namePrefix) -Environment $($outcome.Plan.environmentName) -Fix"
+  Write-Host "  ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -NamePrefix $($outcome.Plan.namePrefix) -Environment $($outcome.Plan.environmentName)$cloudPsFlag -Fix"
 }
 Write-AvdPortalState $portalState
 exit 0

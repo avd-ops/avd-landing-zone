@@ -50,7 +50,15 @@ param(
   [string] $ParameterFile = '',
 
   [Parameter()]
-  [string] $Location = 'northcentralus',
+  [string] $Location = '',
+
+  [Parameter()]
+  [ValidateSet('commercial', 'usgov')]
+  [string] $Cloud = $(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' }),
+
+  [Parameter()]
+  [ValidateSet('', 'standard', 'itar-cui')]
+  [string] $ComplianceProfile = '',
 
   [Parameter()]
   [string] $SubscriptionId = '',
@@ -95,6 +103,22 @@ if ($Force) { $ConfirmPreference = 'None' }
 
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
 $repoParent = Split-Path -Parent $repoRoot
+Import-Module (Join-Path $repoRoot 'scripts/ops/AvdLandingZone.psm1') -Force
+
+$cloudContract = Resolve-AvdCloudEnvironment -Cloud $Cloud
+if (-not $ComplianceProfile) {
+  $ComplianceProfile = [string]$cloudContract.defaultComplianceProfile
+}
+if (-not $Location) {
+  $Location = if ($Cloud -eq 'usgov') { 'usgovvirginia' } else { 'northcentralus' }
+}
+if ($Cloud -eq 'usgov' -and $Location -notin @($cloudContract.supportedRegions)) {
+  throw "Region '$Location' is not valid for cloud 'usgov'. Supported US Gov regions: $(@($cloudContract.supportedRegions) -join ', ')."
+}
+if ($Cloud -eq 'commercial' -and $Location -like 'usgov*') {
+  throw "Region '$Location' is an Azure US Government region; pass -Cloud usgov."
+}
+
 if (-not $ParameterFile) { $ParameterFile = "parameters/$Environment.bicepparam" }
 if (-not $ManifestDirectory) { $ManifestDirectory = $repoRoot }
 if (-not $PinsPath) { $PinsPath = Join-Path $repoRoot 'contracts/control-planes.json' }
@@ -215,7 +239,8 @@ function Test-AvdControlPlaneManifest {
   param(
     [Parameter(Mandatory)][string] $ManifestPath,
     [Parameter(Mandatory)][string] $SchemaPath,
-    [Parameter(Mandatory)][string] $ExpectedSchemaId
+    [Parameter(Mandatory)][string] $ExpectedSchemaId,
+    [string] $ExpectedCloud = ''
   )
   if (-not (Test-Path -LiteralPath $ManifestPath)) {
     throw "Required handoff manifest not found: $ManifestPath"
@@ -230,6 +255,9 @@ function Test-AvdControlPlaneManifest {
   if ($data.schema -ne $ExpectedSchemaId) {
     throw "Handoff manifest '$ManifestPath' has schema '$($data.schema)'; expected '$ExpectedSchemaId'."
   }
+  if ($ExpectedCloud -and $data.PSObject.Properties['cloud'] -and $data.cloud -and ([string]$data.cloud -ne $ExpectedCloud)) {
+    throw "Cross-cloud mismatch in handoff manifest '$ManifestPath': manifest is for cloud '$($data.cloud)', but orchestrator is running for '$ExpectedCloud'."
+  }
   return $data
 }
 
@@ -239,12 +267,14 @@ function Write-AvdAzureOutputManifest {
     [Parameter(Mandatory)][string] $Prefix,
     [Parameter(Mandatory)][string] $EnvName,
     [Parameter(Mandatory)][string] $Region,
+    [string] $CloudName = 'commercial',
     [string] $SubId = '00000000-0000-0000-0000-000000000000'
   )
   $base = "$Prefix-$EnvName"
   $effectiveSub = if ($SubId) { $SubId } else { '00000000-0000-0000-0000-000000000000' }
   $manifest = [ordered]@{
     schema         = 'avd-ops-azure-outputs/v1'
+    cloud          = $CloudName
     environment    = $EnvName
     location       = $Region
     resourceGroups = [ordered]@{
@@ -282,6 +312,8 @@ function Write-AvdDryRunPlaneManifest {
     [Parameter(Mandatory)][string] $RunManifestPath,
     [Parameter(Mandatory)][string] $Prefix,
     [Parameter(Mandatory)][string] $EnvName,
+    [string] $CloudName = 'commercial',
+    [string] $ProfileName = 'standard',
     [string] $EntraManifestFile = '',
     [switch] $WithWin365
   )
@@ -289,6 +321,7 @@ function Write-AvdDryRunPlaneManifest {
   if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
     New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
   }
+  $allowWin365 = [bool]($WithWin365 -and $CloudName -ne 'usgov')
   switch ($PlaneId) {
     'entra' {
       $groupsMap = [ordered]@{
@@ -297,12 +330,14 @@ function Write-AvdDryRunPlaneManifest {
         sessionHostsDynamicGroupId = '00000000-0000-0000-0000-000000000000'
         breakGlassExcludeGroupId   = '00000000-0000-0000-0000-000000000000'
       }
-      if ($WithWin365) {
+      if ($allowWin365) {
         $groupsMap['win365UsersGroupId'] = '00000000-0000-0000-0000-000000000000'
         $groupsMap['cloudPcDynamicGroupId'] = '00000000-0000-0000-0000-000000000000'
       }
       $manifest = [ordered]@{
         schema             = 'avd-ops-entra-manifest/v1'
+        cloud              = $CloudName
+        complianceProfile  = $ProfileName
         environment        = $EnvName
         prefix             = $Prefix
         groups             = $groupsMap
@@ -325,14 +360,23 @@ function Write-AvdDryRunPlaneManifest {
           $deviceGroupId = [string]$entraJson.groups.sessionHostsDynamicGroupId
         }
       }
+      $profilesList = @(
+        "$Prefix-$EnvName-avd-fslogix",
+        "$Prefix-$EnvName-avd-security-baseline"
+      )
+      if ($ProfileName -eq 'itar-cui') {
+        $profilesList += @(
+          "$Prefix-$EnvName-avd-dod-stig-win11",
+          "$Prefix-$EnvName-avd-cmmc-fips-hardening"
+        )
+      }
       $manifest = [ordered]@{
         schema                  = 'avd-ops-intune-manifest/v1'
+        cloud                   = $CloudName
+        complianceProfile       = $ProfileName
         environment             = $EnvName
         targetDeviceGroupId     = $deviceGroupId
-        settingsCatalogProfiles = @(
-          "$Prefix-$EnvName-avd-fslogix",
-          "$Prefix-$EnvName-avd-security-baseline"
-        )
+        settingsCatalogProfiles = $profilesList
         compliancePolicyId      = '00000000-0000-0000-0000-000000000000'
         assignmentFilters       = [ordered]@{
           'avd-multisession' = '00000000-0000-0000-0000-000000000000'
@@ -341,7 +385,7 @@ function Write-AvdDryRunPlaneManifest {
           'physical-desktop' = '00000000-0000-0000-0000-000000000000'
         }
       }
-      if ($WithWin365) {
+      if ($allowWin365) {
         $manifest['win365'] = [ordered]@{
           provisioningPolicyIds = @('00000000-0000-0000-0000-000000000000')
           userSettingsIds       = @('00000000-0000-0000-0000-000000000000')
@@ -352,6 +396,7 @@ function Write-AvdDryRunPlaneManifest {
     'm365' {
       $manifest = [ordered]@{
         schema                          = 'avd-ops-m365-manifest/v1'
+        cloud                           = $CloudName
         environment                     = $EnvName
         oneDriveKfmEnabled              = $true
         teamsVdiOptimizationEnabled     = $true
@@ -362,6 +407,7 @@ function Write-AvdDryRunPlaneManifest {
     'power-platform' {
       $manifest = [ordered]@{
         schema                       = 'avd-ops-power-platform-manifest/v1'
+        cloud                        = $CloudName
         environment                  = $EnvName
         powerPlatformEnvironmentName = "$Prefix-$EnvName-pp"
         dlpPolicyName                = "$Prefix-$EnvName-dlp"
@@ -375,10 +421,12 @@ function Write-AvdDryRunPlaneManifest {
   }
   if ($RunManifestPath) {
     $runObj = [ordered]@{
-      plane       = $PlaneId
-      environment = $EnvName
-      prefix      = $Prefix
-      dryRun      = $true
+      plane             = $PlaneId
+      cloud             = $CloudName
+      complianceProfile = $ProfileName
+      environment       = $EnvName
+      prefix            = $Prefix
+      dryRun            = $true
     }
     $runObj | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $RunManifestPath -Encoding utf8
   }
@@ -400,8 +448,42 @@ if (-not (Test-Path -LiteralPath $ManifestDirectory)) {
   New-Item -ItemType Directory -Path $ManifestDirectory -Force | Out-Null
 }
 
+# Fail-closed cross-cloud guard before any stage executes.
+$existingManifestClouds = @{}
+foreach ($planeProp in $pinConfig.planes.PSObject.Properties) {
+  $planeVal = $planeProp.Value
+  if (-not $planeVal -or -not $planeVal.handoffManifest) { continue }
+  $existingPath = Join-Path $ManifestDirectory $planeVal.handoffManifest
+  if (Test-Path -LiteralPath $existingPath) {
+    try {
+      $existingDoc = Get-Content -LiteralPath $existingPath -Raw | ConvertFrom-Json
+      if ($existingDoc -and $existingDoc.PSObject.Properties['cloud'] -and $existingDoc.cloud) {
+        $existingManifestClouds[$planeVal.handoffManifest] = [string]$existingDoc.cloud
+      }
+    }
+    catch {
+      Write-Verbose "Skipping unreadable manifest '$existingPath' during pre-stage cloud check: $($_.Exception.Message)"
+    }
+  }
+}
+foreach ($mName in $existingManifestClouds.Keys) {
+  $mCloud = $existingManifestClouds[$mName]
+  if ($mCloud -ne $Cloud) {
+    throw "Cross-cloud mismatch in existing handoff manifest '$mName': manifest cloud is '$mCloud', but orchestrator was invoked with -Cloud '$Cloud'."
+  }
+}
+
+if (-not $DryRun -and -not $WhatIfPreference) {
+  $liveAzCtx = Get-AzContext -ErrorAction SilentlyContinue
+  $liveMgCtx = if (Get-Command Get-MgContext -ErrorAction SilentlyContinue) { Get-MgContext } else { $null }
+  $guard = Test-AvdCrossCloudGuard -Cloud $Cloud -AzContext $liveAzCtx -MgContext $liveMgCtx
+  if (-not $guard.Passed) {
+    throw ("Cross-cloud guard failed for cloud '$Cloud': " + ($guard.Mismatches -join ' '))
+  }
+}
+
 $modeLabel = if ($Teardown) { 'TEARDOWN' } else { 'DEPLOY' }
-Write-Host "==> AVD Control Planes Orchestrator ($modeLabel): $($sequenceOrder -join ' -> ')" -ForegroundColor Cyan
+Write-Host "==> AVD Control Planes Orchestrator ($modeLabel, cloud=$Cloud, profile=$ComplianceProfile): $($sequenceOrder -join ' -> ')" -ForegroundColor Cyan
 
 $stageResults = @()
 $completedPlanes = @()
@@ -434,7 +516,7 @@ foreach ($planeId in $sequenceOrder) {
       }
       elseif ($PSCmdlet.ShouldProcess("avd-azure ($NamePrefix-$Environment)", 'Remove Azure landing zone')) {
         $removeDemoPath = Join-Path $repoRoot 'scripts/ops/Remove-AvdDemo.ps1'
-        & $removeDemoPath -NamePrefix $NamePrefix -Environment $Environment -IncludeLandingZone -DiscardLastCopy -Force:$Force
+        & $removeDemoPath -NamePrefix $NamePrefix -Environment $Environment -Cloud $Cloud -IncludeLandingZone -DiscardLastCopy -Force:$Force
       }
     }
     else {
@@ -447,7 +529,14 @@ foreach ($planeId in $sequenceOrder) {
       elseif ($PSCmdlet.ShouldProcess("$($plane.name) ($NamePrefix-$Environment)", 'Remove control plane resources')) {
         Push-Location $planeRepoDir
         try {
-          & $teardownScriptPath -RunManifestPath $runManifestPath -DiscardLastCopy:$DiscardLastCopy -DryRun:$DryRun | Out-Null
+          $tdArgs = @{
+            RunManifestPath = $runManifestPath
+            DiscardLastCopy = $DiscardLastCopy
+            DryRun          = $DryRun
+          }
+          $tdCmd = Get-Command $teardownScriptPath -ErrorAction SilentlyContinue
+          if ($tdCmd -and $tdCmd.Parameters.ContainsKey('Cloud')) { $tdArgs['Cloud'] = $Cloud }
+          & $teardownScriptPath @tdArgs | Out-Null
         }
         finally {
           Pop-Location
@@ -479,10 +568,10 @@ foreach ($planeId in $sequenceOrder) {
   $azureSchemaPath = Join-Path $repoRoot 'contracts/schemas/azure-outputs.schema.json'
 
   if ($planeId -in @('intune', 'm365', 'power-platform')) {
-    Test-AvdControlPlaneManifest -ManifestPath $entraManifestPath -SchemaPath $entraSchemaPath -ExpectedSchemaId 'avd-ops-entra-manifest/v1' | Out-Null
+    Test-AvdControlPlaneManifest -ManifestPath $entraManifestPath -SchemaPath $entraSchemaPath -ExpectedSchemaId 'avd-ops-entra-manifest/v1' -ExpectedCloud $Cloud | Out-Null
   }
   if ($planeId -eq 'power-platform') {
-    Test-AvdControlPlaneManifest -ManifestPath $azureOutputsPath -SchemaPath $azureSchemaPath -ExpectedSchemaId 'avd-ops-azure-outputs/v1' | Out-Null
+    Test-AvdControlPlaneManifest -ManifestPath $azureOutputsPath -SchemaPath $azureSchemaPath -ExpectedSchemaId 'avd-ops-azure-outputs/v1' -ExpectedCloud $Cloud | Out-Null
   }
 
   $entryScriptPath = Join-Path $planeRepoDir $plane.entryPoint
@@ -491,7 +580,7 @@ foreach ($planeId in $sequenceOrder) {
     'entra' {
       if (-not (Test-Path -LiteralPath $entryScriptPath)) {
         if ($DryRun) {
-          Write-AvdDryRunPlaneManifest -PlaneId 'entra' -OutputPath $handoffPath -RunManifestPath $runManifestPath -Prefix $NamePrefix -EnvName $Environment -WithWin365:$IncludeWin365
+          Write-AvdDryRunPlaneManifest -PlaneId 'entra' -OutputPath $handoffPath -RunManifestPath $runManifestPath -Prefix $NamePrefix -EnvName $Environment -CloudName $Cloud -ProfileName $ComplianceProfile -WithWin365:$IncludeWin365
         }
         else {
           throw "Entry-point script not found for avd-entra: $entryScriptPath"
@@ -500,13 +589,18 @@ foreach ($planeId in $sequenceOrder) {
       elseif ($DryRun -or $PSCmdlet.ShouldProcess("avd-entra ($NamePrefix-$Environment)", 'Deploy Entra ID control plane')) {
         Push-Location $planeRepoDir
         try {
-          & $entryScriptPath `
-            -Prefix $NamePrefix `
-            -Environment $Environment `
-            -IncludeWin365:$IncludeWin365 `
-            -OutputPath $handoffPath `
-            -RunManifestPath $runManifestPath `
-            -DryRun:$DryRun | Out-Null
+          $entryCmd = Get-Command $entryScriptPath -ErrorAction SilentlyContinue
+          $entraArgs = @{
+            Prefix          = $NamePrefix
+            Environment     = $Environment
+            IncludeWin365   = [bool]($IncludeWin365 -and $Cloud -ne 'usgov')
+            OutputPath      = $handoffPath
+            RunManifestPath = $runManifestPath
+            DryRun          = $DryRun
+          }
+          if ($entryCmd -and $entryCmd.Parameters.ContainsKey('Cloud')) { $entraArgs['Cloud'] = $Cloud }
+          if ($entryCmd -and $entryCmd.Parameters.ContainsKey('ComplianceProfile')) { $entraArgs['ComplianceProfile'] = $ComplianceProfile }
+          & $entryScriptPath @entraArgs | Out-Null
         }
         finally {
           Pop-Location
@@ -516,7 +610,7 @@ foreach ($planeId in $sequenceOrder) {
     'intune' {
       if (-not (Test-Path -LiteralPath $entryScriptPath)) {
         if ($DryRun) {
-          Write-AvdDryRunPlaneManifest -PlaneId 'intune' -OutputPath $handoffPath -RunManifestPath $runManifestPath -Prefix $NamePrefix -EnvName $Environment -EntraManifestFile $entraManifestPath -WithWin365:$IncludeWin365
+          Write-AvdDryRunPlaneManifest -PlaneId 'intune' -OutputPath $handoffPath -RunManifestPath $runManifestPath -Prefix $NamePrefix -EnvName $Environment -CloudName $Cloud -ProfileName $ComplianceProfile -EntraManifestFile $entraManifestPath -WithWin365:$IncludeWin365
         }
         else {
           throw "Entry-point script not found for avd-intune: $entryScriptPath"
@@ -525,13 +619,18 @@ foreach ($planeId in $sequenceOrder) {
       elseif ($DryRun -or $PSCmdlet.ShouldProcess("avd-intune ($NamePrefix-$Environment)", 'Deploy Intune control plane')) {
         Push-Location $planeRepoDir
         try {
-          & $entryScriptPath `
-            -EntraManifestPath $entraManifestPath `
-            -OutputPath $handoffPath `
-            -RunManifestPath $runManifestPath `
-            -Prefix $NamePrefix `
-            -IncludeWin365:$IncludeWin365 `
-            -DryRun:$DryRun | Out-Null
+          $entryCmd = Get-Command $entryScriptPath -ErrorAction SilentlyContinue
+          $intuneArgs = @{
+            EntraManifestPath = $entraManifestPath
+            OutputPath        = $handoffPath
+            RunManifestPath   = $runManifestPath
+            Prefix            = $NamePrefix
+            IncludeWin365     = [bool]($IncludeWin365 -and $Cloud -ne 'usgov')
+            DryRun            = $DryRun
+          }
+          if ($entryCmd -and $entryCmd.Parameters.ContainsKey('Cloud')) { $intuneArgs['Cloud'] = $Cloud }
+          if ($entryCmd -and $entryCmd.Parameters.ContainsKey('ComplianceProfile')) { $intuneArgs['ComplianceProfile'] = $ComplianceProfile }
+          & $entryScriptPath @intuneArgs | Out-Null
         }
         finally {
           Pop-Location
@@ -541,7 +640,7 @@ foreach ($planeId in $sequenceOrder) {
     'm365' {
       if (-not (Test-Path -LiteralPath $entryScriptPath)) {
         if ($DryRun) {
-          Write-AvdDryRunPlaneManifest -PlaneId 'm365' -OutputPath $handoffPath -RunManifestPath $runManifestPath -Prefix $NamePrefix -EnvName $Environment -EntraManifestFile $entraManifestPath
+          Write-AvdDryRunPlaneManifest -PlaneId 'm365' -OutputPath $handoffPath -RunManifestPath $runManifestPath -Prefix $NamePrefix -EnvName $Environment -CloudName $Cloud -ProfileName $ComplianceProfile -EntraManifestFile $entraManifestPath
         }
         else {
           throw "Entry-point script not found for avd-m365: $entryScriptPath"
@@ -550,11 +649,15 @@ foreach ($planeId in $sequenceOrder) {
       elseif ($DryRun -or $PSCmdlet.ShouldProcess("avd-m365 ($NamePrefix-$Environment)", 'Deploy Microsoft 365 control plane')) {
         Push-Location $planeRepoDir
         try {
-          & $entryScriptPath `
-            -EntraManifestPath $entraManifestPath `
-            -OutputPath $handoffPath `
-            -RunManifestPath $runManifestPath `
-            -DryRun:$DryRun | Out-Null
+          $entryCmd = Get-Command $entryScriptPath -ErrorAction SilentlyContinue
+          $m365Args = @{
+            EntraManifestPath = $entraManifestPath
+            OutputPath        = $handoffPath
+            RunManifestPath   = $runManifestPath
+            DryRun            = $DryRun
+          }
+          if ($entryCmd -and $entryCmd.Parameters.ContainsKey('Cloud')) { $m365Args['Cloud'] = $Cloud }
+          & $entryScriptPath @m365Args | Out-Null
         }
         finally {
           Pop-Location
@@ -565,31 +668,33 @@ foreach ($planeId in $sequenceOrder) {
       $effectiveUsers = $UsersGroup
       $effectiveAdmins = $AdminsGroup
       if (Test-Path -LiteralPath $entraManifestPath) {
-        $entraData = Test-AvdControlPlaneManifest -ManifestPath $entraManifestPath -SchemaPath $entraSchemaPath -ExpectedSchemaId 'avd-ops-entra-manifest/v1'
+        $entraData = Test-AvdControlPlaneManifest -ManifestPath $entraManifestPath -SchemaPath $entraSchemaPath -ExpectedSchemaId 'avd-ops-entra-manifest/v1' -ExpectedCloud $Cloud
         if ($entraData.groups.avdUsersGroupId) { $effectiveUsers = [string]$entraData.groups.avdUsersGroupId }
         if ($entraData.groups.avdAdminsGroupId) { $effectiveAdmins = [string]$entraData.groups.avdAdminsGroupId }
       }
       if ($DryRun) {
-        Write-AvdAzureOutputManifest -OutputPath $handoffPath -Prefix $NamePrefix -EnvName $Environment -Region $Location -SubId $SubscriptionId
+        Write-AvdAzureOutputManifest -OutputPath $handoffPath -Prefix $NamePrefix -EnvName $Environment -Region $Location -CloudName $Cloud -SubId $SubscriptionId
       }
       elseif ($PSCmdlet.ShouldProcess("avd-azure ($NamePrefix-$Environment)", 'Deploy Azure infrastructure control plane')) {
         $deploySh = if (Test-Path -LiteralPath $entryScriptPath) { $entryScriptPath } else { Join-Path $repoRoot 'scripts/deploy/deploy.sh' }
         $bashCmd = if ($env:AVDLZ_TEST_BASH) { $env:AVDLZ_TEST_BASH } else { 'bash' }
         $deployArgs = @($deploySh, '-p', $ParameterFile, '-l', $Location, '--users-group', $effectiveUsers, '--admins-group', $effectiveAdmins, '--azure-outputs', $handoffPath)
+        if ($Cloud -eq 'usgov') { $deployArgs += @('--cloud', 'usgov') }
+        if ($ComplianceProfile -eq 'itar-cui') { $deployArgs += @('--compliance-profile', 'itar-cui') }
         if ($SubscriptionId) { $deployArgs += @('-s', $SubscriptionId) }
         & $bashCmd @deployArgs
         if ($LASTEXITCODE -ne 0) {
           throw "avd-azure deployment failed with exit code $LASTEXITCODE."
         }
         if (-not (Test-Path -LiteralPath $handoffPath)) {
-          Write-AvdAzureOutputManifest -OutputPath $handoffPath -Prefix $NamePrefix -EnvName $Environment -Region $Location -SubId $SubscriptionId
+          Write-AvdAzureOutputManifest -OutputPath $handoffPath -Prefix $NamePrefix -EnvName $Environment -Region $Location -CloudName $Cloud -SubId $SubscriptionId
         }
       }
     }
     'power-platform' {
       if (-not (Test-Path -LiteralPath $entryScriptPath)) {
         if ($DryRun) {
-          Write-AvdDryRunPlaneManifest -PlaneId 'power-platform' -OutputPath $handoffPath -RunManifestPath $runManifestPath -Prefix $NamePrefix -EnvName $Environment -EntraManifestFile $entraManifestPath
+          Write-AvdDryRunPlaneManifest -PlaneId 'power-platform' -OutputPath $handoffPath -RunManifestPath $runManifestPath -Prefix $NamePrefix -EnvName $Environment -CloudName $Cloud -ProfileName $ComplianceProfile -EntraManifestFile $entraManifestPath
         }
         else {
           throw "Entry-point script not found for avd-power-platform: $entryScriptPath"
@@ -598,12 +703,16 @@ foreach ($planeId in $sequenceOrder) {
       elseif ($DryRun -or $PSCmdlet.ShouldProcess("avd-power-platform ($NamePrefix-$Environment)", 'Deploy Power Platform control plane')) {
         Push-Location $planeRepoDir
         try {
-          & $entryScriptPath `
-            -EntraManifestPath $entraManifestPath `
-            -AzureOutputsPath $azureOutputsPath `
-            -OutputPath $handoffPath `
-            -RunManifestPath $runManifestPath `
-            -DryRun:$DryRun | Out-Null
+          $entryCmd = Get-Command $entryScriptPath -ErrorAction SilentlyContinue
+          $ppArgs = @{
+            EntraManifestPath = $entraManifestPath
+            AzureOutputsPath  = $azureOutputsPath
+            OutputPath        = $handoffPath
+            RunManifestPath   = $runManifestPath
+            DryRun            = $DryRun
+          }
+          if ($entryCmd -and $entryCmd.Parameters.ContainsKey('Cloud')) { $ppArgs['Cloud'] = $Cloud }
+          & $entryScriptPath @ppArgs | Out-Null
         }
         finally {
           Pop-Location
@@ -613,7 +722,7 @@ foreach ($planeId in $sequenceOrder) {
   }
 
   if ($DryRun -or -not $WhatIfPreference) {
-    Test-AvdControlPlaneManifest -ManifestPath $handoffPath -SchemaPath $schemaPath -ExpectedSchemaId $plane.schemaId | Out-Null
+    Test-AvdControlPlaneManifest -ManifestPath $handoffPath -SchemaPath $schemaPath -ExpectedSchemaId $plane.schemaId -ExpectedCloud $Cloud | Out-Null
     $emittedManifests += $plane.handoffManifest
   }
 
@@ -641,20 +750,40 @@ $controlPlanesMap = [ordered]@{
   powerPlatform = [bool]($requestedSet -contains 'power-platform')
 }
 
+$summaryManifestPath = Join-Path $ManifestDirectory 'orchestrator-run-summary.json'
+if ($DryRun -or -not $WhatIfPreference) {
+  $runSummary = [ordered]@{
+    schema            = 'avd-ops-orchestrator-run-summary/v1'
+    cloud             = $Cloud
+    complianceProfile = $ComplianceProfile
+    namePrefix        = $NamePrefix
+    environment       = $Environment
+    location          = $Location
+    teardown          = [bool]$Teardown
+    dryRun            = [bool]$DryRun
+    planes            = @($sequenceOrder)
+    completedPlanes   = @($completedPlanes)
+    manifests         = @($emittedManifests)
+  }
+  $runSummary | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $summaryManifestPath -Encoding utf8
+}
+
 $stateObj = [ordered]@{
   v       = 1
   stage   = 'controlplanes'
   status  = if ($Teardown) { 'done' } else { 'succeeded' }
   context = [ordered]@{
-    namePrefix      = $NamePrefix
-    environment     = $Environment
-    location        = $Location
-    parameterFile   = $ParameterFile
-    teardown        = [bool]$Teardown
-    dryRun          = [bool]$DryRun
-    controlPlanes   = $controlPlanesMap
-    completedPlanes = @($completedPlanes)
-    manifests       = @($emittedManifests)
+    cloud             = $Cloud
+    complianceProfile = $ComplianceProfile
+    namePrefix        = $NamePrefix
+    environment       = $Environment
+    location          = $Location
+    parameterFile     = $ParameterFile
+    teardown          = [bool]$Teardown
+    dryRun            = [bool]$DryRun
+    controlPlanes     = $controlPlanesMap
+    completedPlanes   = @($completedPlanes)
+    manifests         = @($emittedManifests)
   }
   counts   = [ordered]@{
     pass  = $completedPlanes.Count
@@ -671,20 +800,22 @@ if (-not $WhatIfPreference -or $DryRun) {
 }
 
 [pscustomobject]@{
-  Status          = 'succeeded'
-  Mode            = if ($Teardown) { 'Teardown' } else { 'Deploy' }
-  Teardown        = [bool]$Teardown
-  NamePrefix      = $NamePrefix
-  Environment     = $Environment
-  Location        = $Location
-  ParameterFile   = $ParameterFile
-  DryRun          = [bool]$DryRun
-  Planes          = @($sequenceOrder)
-  SelectedPlanes  = @($requestedSet)
-  ExecutionOrder  = @($sequenceOrder)
-  CompletedPlanes = @($completedPlanes)
-  Manifests       = @($emittedManifests)
-  ControlPlanes   = [pscustomobject]$controlPlanesMap
-  Stages          = @($stageResults)
-  State           = [pscustomobject]$stateObj
+  Status            = 'succeeded'
+  Mode              = if ($Teardown) { 'Teardown' } else { 'Deploy' }
+  Teardown          = [bool]$Teardown
+  Cloud             = $Cloud
+  ComplianceProfile = $ComplianceProfile
+  NamePrefix        = $NamePrefix
+  Environment       = $Environment
+  Location          = $Location
+  ParameterFile     = $ParameterFile
+  DryRun            = [bool]$DryRun
+  Planes            = @($sequenceOrder)
+  SelectedPlanes    = @($requestedSet)
+  ExecutionOrder    = @($sequenceOrder)
+  CompletedPlanes   = @($completedPlanes)
+  Manifests         = @($emittedManifests)
+  ControlPlanes     = [pscustomobject]$controlPlanesMap
+  Stages            = @($stageResults)
+  State             = [pscustomobject]$stateObj
 }

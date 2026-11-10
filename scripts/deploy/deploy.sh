@@ -75,6 +75,8 @@ TEARDOWN=false
 DISCARD_LAST_COPY=false
 INCLUDE_WIN365=false
 DRY_RUN=false
+CLOUD="${AVD_CLOUD:-commercial}"
+COMPLIANCE_PROFILE="${AVD_COMPLIANCE_PROFILE:-}"
 AVD_APP_ID="9cdead84-a844-4324-93f2-b2e6bb768d07"   # Azure Virtual Desktop first-party app
 
 usage() {
@@ -113,9 +115,23 @@ while [[ $# -gt 0 ]]; do
     --discard-last-copy) DISCARD_LAST_COPY=true; shift ;;
     --include-win365) INCLUDE_WIN365=true; shift ;;
     --dry-run) DRY_RUN=true; shift ;;
+    --cloud) CLOUD="$2"; shift 2 ;;
+    --compliance-profile) COMPLIANCE_PROFILE="$2"; shift 2 ;;
     *) usage ;;
   esac
 done
+
+case "${CLOUD,,}" in
+  commercial|usgov) CLOUD="${CLOUD,,}" ;;
+  *) echo "--cloud takes commercial or usgov: '$CLOUD'" >&2; exit 1 ;;
+esac
+if [[ -z "$COMPLIANCE_PROFILE" ]]; then
+  if [[ "$CLOUD" == "usgov" ]]; then COMPLIANCE_PROFILE="itar-cui"; else COMPLIANCE_PROFILE="standard"; fi
+fi
+case "${COMPLIANCE_PROFILE,,}" in
+  standard|itar-cui) COMPLIANCE_PROFILE="${COMPLIANCE_PROFILE,,}" ;;
+  *) echo "--compliance-profile takes standard or itar-cui: '$COMPLIANCE_PROFILE'" >&2; exit 1 ;;
+esac
 
 if [[ -n "$PLANES" ]] || $TEARDOWN || $DRY_RUN; then
   script_repo_dir=$(cd "$(dirname "$0")/../.." && { pwd -W 2>/dev/null || pwd; })
@@ -125,7 +141,9 @@ if [[ -n "$PLANES" ]] || $TEARDOWN || $DRY_RUN; then
   fi
   orch_env="${orch_env:-dev}"
   orch_prefix="${NAME_PREFIX_ARG:-avdlz}"
-  orch_loc="${LOCATION:-northcentralus}"
+  default_orch_loc="northcentralus"
+  [[ "$CLOUD" == "usgov" ]] && default_orch_loc="usgovvirginia"
+  orch_loc="${LOCATION:-$default_orch_loc}"
   orch_param="${PARAM_FILE:-parameters/$orch_env.bicepparam}"
   orch_planes="${PLANES:-entra,intune,m365,azure,power-platform}"
   orch_args=(
@@ -136,6 +154,8 @@ if [[ -n "$PLANES" ]] || $TEARDOWN || $DRY_RUN; then
     -Environment "$orch_env"
     -ParameterFile "$orch_param"
     -Location "$orch_loc"
+    -Cloud "$CLOUD"
+    -ComplianceProfile "$COMPLIANCE_PROFILE"
   )
   [[ -n "$USERS_GROUP" ]] && orch_args+=(-UsersGroup "$USERS_GROUP")
   [[ -n "$ADMINS_GROUP" ]] && orch_args+=(-AdminsGroup "$ADMINS_GROUP")
@@ -150,6 +170,14 @@ fi
 
 [[ -z "$PARAM_FILE" || -z "$LOCATION" ]] && usage
 [[ ! -f "$PARAM_FILE" ]] && { echo "Parameter file not found: $PARAM_FILE"; exit 1; }
+if [[ "$CLOUD" == "usgov" ]]; then
+  case "${LOCATION,,}" in
+    usgovvirginia|usgovarizona|usgovtexas) ;;
+    *) echo "Region '$LOCATION' is not an Azure US Government region (usgovvirginia, usgovarizona, usgovtexas)." >&2; exit 1 ;;
+  esac
+elif [[ "${LOCATION,,}" == usgov* ]]; then
+  echo "Region '$LOCATION' is an Azure US Government region; pass --cloud usgov." >&2; exit 1
+fi
 for n in "$HOSTS" "$MAX_SESSIONS" "$PROFILE_QUOTA"; do
   [[ -z "$n" || "$n" =~ ^[0-9]+$ ]] || { echo "Sizing flags take whole numbers: '$n'"; exit 1; }
 done
@@ -185,7 +213,7 @@ fi
 # Regions with Azure Bastion Developer (Microsoft Learn, bastion-sku-comparison; the same list as
 # Get-AvdBastionDeveloperRegion in scripts/ops/AvdLandingZone.psm1, a test checks they match).
 BASTION_DEVELOPER_REGIONS=" brazilsouth canadacentral canadaeast centralus centraluseuap eastus2 eastus2euap mexicocentral northcentralus westcentralus westus francecentral germanywestcentral italynorth northeurope norwayeast spaincentral swedencentral switzerlandnorth uksouth ukwest westeurope australiacentral australiaeast australiasoutheast centralindia eastasia japaneast japanwest koreacentral koreasouth southindia southeastasia southafricanorth uaenorth "
-if $JUMPBOX && [[ "$BASTION_DEVELOPER_REGIONS" != *" ${LOCATION,,} "* ]]; then
+if $JUMPBOX && [[ "$CLOUD" != "usgov" ]] && [[ "$BASTION_DEVELOPER_REGIONS" != *" ${LOCATION,,} "* ]]; then
   echo "Azure Bastion Developer isn't offered in $LOCATION, so --jumpbox can't be used there. Regions:$BASTION_DEVELOPER_REGIONS"
   exit 1
 fi
@@ -220,6 +248,14 @@ export AVD_RUNBOOK_URI
 
 echo "==> Checking az and Bicep"
 az bicep version >/dev/null 2>&1 || az bicep install
+EXPECTED_AZ_CLOUD="AzureCloud"
+[[ "$CLOUD" == "usgov" ]] && EXPECTED_AZ_CLOUD="AzureUSGovernment"
+ACTIVE_AZ_CLOUD=$(az cloud show --query name -o tsv 2>/dev/null || echo "$EXPECTED_AZ_CLOUD")
+if [[ -n "$ACTIVE_AZ_CLOUD" && "$ACTIVE_AZ_CLOUD" != "$EXPECTED_AZ_CLOUD" ]]; then
+  echo "Cross-cloud mismatch: az CLI cloud is '$ACTIVE_AZ_CLOUD', but --cloud '$CLOUD' requires '$EXPECTED_AZ_CLOUD'." >&2
+  echo "Run 'az cloud set --name $EXPECTED_AZ_CLOUD && az login' first." >&2
+  exit 1
+fi
 az account show >/dev/null 2>&1 || { echo "Run 'az login' first."; exit 1; }
 # Azure Resource Manager calls go through arm, which adds -s to each one, so deploying to another
 # subscription never changes the one az has selected. Graph calls (az ad, az rest) read the tenant,
@@ -270,12 +306,14 @@ arm provider register -n Microsoft.Compute >/dev/null
 # A group given by name must not be one an ordinary user created with that name: it would get VM
 # Admin Login, the break-glass secret and elevated share access. Its owners must be administrators
 # (or you). A group given by object ID was picked deliberately and is used as it is.
+GRAPH_ENDPOINT="https://graph.microsoft.com"
+[[ "$CLOUD" == "usgov" ]] && GRAPH_ENDPOINT="https://graph.microsoft.us"
 admin_role_member_ids() {
   # Active members of Global, Privileged Role, Groups and User Administrator (role template IDs).
   local t r
   for t in 62e90394-69f5-4237-9190-012177145e10 e8611ab8-c189-46e8-94e1-60213ab1f814 fdd7a751-b60b-444a-984c-02652fe8fa1c fe930be7-5e62-47db-91af-98c3a49a38b1; do
-    for r in $(az rest --method get --url "https://graph.microsoft.com/v1.0/directoryRoles?\$filter=roleTemplateId eq '$t'" --query "value[].id" -o tsv 2>/dev/null); do
-      az rest --method get --url "https://graph.microsoft.com/v1.0/directoryRoles/$r/members?\$select=id" --query "value[].id" -o tsv 2>/dev/null
+    for r in $(az rest --method get --url "$GRAPH_ENDPOINT/v1.0/directoryRoles?\$filter=roleTemplateId eq '$t'" --query "value[].id" -o tsv 2>/dev/null); do
+      az rest --method get --url "$GRAPH_ENDPOINT/v1.0/directoryRoles/$r/members?\$select=id" --query "value[].id" -o tsv 2>/dev/null
     done
   done
 }
@@ -321,8 +359,8 @@ if [[ -z "${AVD_LOCAL_ADMIN_PASSWORD:-}" ]]; then
   echo "    Generated a random break-glass password for new session hosts (stored in Key Vault as sessionhost-localadmin-password)."
 fi
 
-AVD_LOCATION="$LOCATION"
-export AVD_USERS_GROUP_ID AVD_ADMINS_GROUP_ID AVD_SERVICE_PRINCIPAL_ID AVD_LOCAL_ADMIN_PASSWORD AVD_LOCATION
+AVD_LOCATION="$LOCATION" AVD_CLOUD="$CLOUD" AVD_COMPLIANCE_PROFILE="$COMPLIANCE_PROFILE"
+export AVD_USERS_GROUP_ID AVD_ADMINS_GROUP_ID AVD_SERVICE_PRINCIPAL_ID AVD_LOCAL_ADMIN_PASSWORD AVD_LOCATION AVD_CLOUD AVD_COMPLIANCE_PROFILE
 # Sizing overrides (empty = the parameter file's values).
 AVD_SESSION_HOST_COUNT="$HOSTS" AVD_SESSION_HOST_VM_SIZE="$VM_SIZE" AVD_MAX_SESSION_LIMIT="$MAX_SESSIONS" AVD_PROFILE_QUOTA_GIB="$PROFILE_QUOTA"
 export AVD_SESSION_HOST_COUNT AVD_SESSION_HOST_VM_SIZE AVD_MAX_SESSION_LIMIT AVD_PROFILE_QUOTA_GIB
@@ -366,6 +404,9 @@ portal_state() {
   fi
   if [[ -n "$TOPOLOGY" ]]; then
     sizing="$sizing,\"topology\":$TOPOLOGY"
+  fi
+  if [[ "$CLOUD" == "usgov" ]]; then
+    sizing="$sizing,\"cloud\":$(json_str "$CLOUD")"
   fi
   local commit=""
   [[ -n "$PORTAL_COMMIT" ]] && commit=",\"commit\":$(json_str "$PORTAL_COMMIT")"
@@ -562,6 +603,7 @@ if [[ -n "$AZURE_OUTPUTS" ]]; then
   cat > "$AZURE_OUTPUTS" <<JSONEOF
 {
   "schema": "avd-ops-azure-outputs/v1",
+  "cloud": "$CLOUD",
   "environment": "${BASE_NAME##*-}",
   "location": "$LOCATION",
   "resourceGroups": {
@@ -588,6 +630,8 @@ if [[ -n "$AZURE_OUTPUTS" ]]; then
 JSONEOF
 fi
 
+POST_CLOUD_FLAG=""
+[[ "$CLOUD" == "usgov" ]] && POST_CLOUD_FLAG=" -Cloud usgov"
 cat <<EOF
 
 ==> Landing zone deployed.
@@ -597,7 +641,7 @@ storage account's Entra app, excluding it from MFA Conditional Access policies,
 and the profile share permissions. The post-deployment preflight checks and
 applies all three. From Azure Cloud Shell (PowerShell):
 
-  ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -NamePrefix ${BASE_NAME%-*} -Environment ${BASE_NAME##*-} -SubscriptionId $SUB_ID -Fix -AllowHostStart
+  ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -NamePrefix ${BASE_NAME%-*} -Environment ${BASE_NAME##*-} -SubscriptionId $SUB_ID$POST_CLOUD_FLAG -Fix -AllowHostStart
 
 To do them by hand instead (storage account $STORAGE_NAME), see docs/deploy.md#5-post-deployment.
 EOF

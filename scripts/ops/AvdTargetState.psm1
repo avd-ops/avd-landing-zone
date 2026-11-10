@@ -63,6 +63,20 @@ function Get-AvdTargetStatePlan {
 
   if ($Manifest.target.renderer -ne $cap.renderer) { $refusals.Add("The manifest is for renderer '$($Manifest.target.renderer)', not '$($cap.renderer)'.") }
   if (@($Manifest.target.gaps).Count) { $refusals.Add("The manifest lists requirements this target can't express: $(@($Manifest.target.gaps) -join ', ').") }
+  $targetCloud = if ($Manifest.target.PSObject.Properties['cloud'] -and $Manifest.target.cloud) { [string]$Manifest.target.cloud } else { 'commercial' }
+  $targetCompliance = if ($Manifest.target.PSObject.Properties['complianceProfile'] -and $Manifest.target.complianceProfile) { [string]$Manifest.target.complianceProfile } else { $(if ($targetCloud -eq 'usgov') { 'itar-cui' } else { 'standard' }) }
+  if ($cap.PSObject.Properties['clouds'] -and $targetCloud -notin @($cap.clouds)) {
+    $refusals.Add("Target cloud '$targetCloud': this landing zone supports $(@($cap.clouds) -join ', ').")
+  }
+  if ($cap.PSObject.Properties['complianceProfiles'] -and $targetCompliance -notin @($cap.complianceProfiles)) {
+    $refusals.Add("Compliance profile '$targetCompliance': this landing zone supports $(@($cap.complianceProfiles) -join ', ').")
+  }
+  if ($targetCloud -eq 'usgov' -and $Manifest.region.value -notin @('usgovvirginia', 'usgovarizona', 'usgovtexas')) {
+    $refusals.Add("Region '$($Manifest.region.value)' is not an Azure US Government region (usgovvirginia, usgovarizona, usgovtexas).")
+  }
+  if ($targetCloud -eq 'commercial' -and $Manifest.region.value -like 'usgov*') {
+    $refusals.Add("Region '$($Manifest.region.value)' is an Azure US Government region, but target.cloud is '$targetCloud'.")
+  }
   if ($Manifest.identity.value -notin @($cap.identity)) { $refusals.Add("Identity lane $($Manifest.identity.value): this landing zone is $(@($cap.identity) -join ', ') only.") }
   if ($Manifest.network.value -notin @($cap.network)) { $refusals.Add("Network mode $($Manifest.network.value): this landing zone deploys $(@($cap.network) -join ', ') from a manifest.") }
   if (-not $cap.liquidware -and $Manifest.PSObject.Properties['liquidware'] -and @($Manifest.liquidware.PSObject.Properties | Where-Object { $_.Value -eq $true }).Count) {
@@ -126,6 +140,8 @@ function Get-AvdTargetStatePlan {
 
   $power = $pool.power.value
   $values = [ordered]@{
+    Cloud             = $targetCloud
+    ComplianceProfile = $targetCompliance
     Location          = $Manifest.region.value
     SessionHostCount  = [int]$pool.hosts.value
     SessionHostVmSize = $pool.vmSize.value
@@ -152,12 +168,15 @@ function Get-AvdTargetStatePlan {
     $lines += '# No -AlertEmail: no budget is set, so the budget lock is not armed. Pass -AlertEmail to arm it.'
     $lines += "Remove-Item Env:AVD_MONTHLY_BUDGET -ErrorAction SilentlyContinue"
   }
+  $psCloudFlag = if ($targetCloud -eq 'usgov') { ' -Cloud usgov' } else { '' }
+  $shCloudFlag = if ($targetCloud -eq 'usgov') { ' --cloud usgov' } else { '' }
+  $shComplianceFlag = if ($targetCompliance -eq 'itar-cui') { ' --compliance-profile itar-cui' } else { '' }
   $lines += "./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -PreDeployment -ParameterFile $ParameterFile -Location $($values.Location) -UsersGroup $(& $q $UsersGroup) -AdminsGroup $(& $q $AdminsGroup) " +
     "-SessionHostCount $($values.SessionHostCount) -SessionHostVmSize $($values.SessionHostVmSize) -MaxSessionLimit $($values.MaxSessionLimit) -ProfileShareQuotaGiB $($values.ProfileQuotaGiB) " +
-    "-AutoShutdownTime $($values.AutoShutdownTime) -StartVmOnConnect $($values.StartVmOnConnect)"
+    "-AutoShutdownTime $($values.AutoShutdownTime) -StartVmOnConnect $($values.StartVmOnConnect)$psCloudFlag"
   $deploy = "./scripts/deploy/deploy.sh -p $ParameterFile -l $($values.Location) --users-group $(& $q $UsersGroup) --admins-group $(& $q $AdminsGroup) " +
     "--hosts $($values.SessionHostCount) --vm-size $($values.SessionHostVmSize) --max-sessions $($values.MaxSessionLimit) --profile-quota $($values.ProfileQuotaGiB) " +
-    "--auto-shutdown $($values.AutoShutdownTime) --start-vm-on-connect $($values.StartVmOnConnect)"
+    "--auto-shutdown $($values.AutoShutdownTime) --start-vm-on-connect $($values.StartVmOnConnect)$shCloudFlag$shComplianceFlag"
   $lines += "$deploy --what-if"
   $lines += '# When the what-if looks right:'
   $lines += "# $deploy"

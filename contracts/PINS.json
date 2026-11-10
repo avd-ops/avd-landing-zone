@@ -3,8 +3,9 @@
   "sources": {
     "avd-assess": {
       "url": "https://github.com/avd-ops/avd-assess",
-      "commit": "68bc0389207d72b26e6eb4c24b7d880498982a26",
+      "commit": "ef8a99ed5d5cdef0dc663c8b22e2cac1b8006788",
       "files": [
+        "cloud-environments.json",
         "fact-register.json",
         "run-use-cases.json",
         "schemas/fact-register.schema.json",
@@ -15,7 +16,7 @@
     },
     "avd-second-brain": {
       "url": "https://github.com/avd-ops/avd-second-brain",
-      "commit": "2165e9a17c20891757ccc54ab6b9cf78e0f5c0e3",
+      "commit": "371548b7463a7932572bb9d3dcd17e353af8987c",
       "files": [
         "examples/target-approval.example.json",
         "examples/target-state.example.json",
@@ -108,20 +109,21 @@
     }
   },
   "files": {
+    "cloud-environments.json": "ad6a49356e3d61c2fbcec7a5fd305fc319a99ce6fd109e3885b34880d9796c39",
     "examples/target-approval.example.json": "0b65be5d679c4a6d599500764dd901c9f2f7e20402ee25dce9b65ce27c662b9e",
     "examples/target-state.example.json": "6f76c725a6b5e5a2b7baf95908032009d37081af537fe977a224a72488744914",
-    "fact-register.json": "1ac7d2d65bc791b3d97007bfad1f1acb35b30bf24bda5896219cfa1fde7525c1",
+    "fact-register.json": "52a12178817e4189c19329c3cf9b4b3f3ebdd8e87c6e5ec72d54c26b6d1a2651",
     "run-use-cases.json": "e9d981d5584df77d3d806dcb248b0a1159c250af8a349a081288ad0e29ac6714",
-    "schemas/azure-outputs.schema.json": "0c7801987eb0d9fb6d830377e38ce4e9cfe0f78a0df56fa2ad9998858c2b1635",
-    "schemas/entra-manifest.schema.json": "e32210007226efa81f4edc2a973651f4bbdaa709a027b03ab687775cf0cfc7f2",
+    "schemas/azure-outputs.schema.json": "665cd8748207dc08f75e260931e7979b59e449a851c88f0744a2cd6238a8c71d",
+    "schemas/entra-manifest.schema.json": "4b1013f7118e6b288da6e61f537a5f375e16a7751245032afe3e4ca93fe75b8e",
     "schemas/fact-register.schema.json": "9d1174812123da87439595bb5f3727758655a89d1cf2ad4d9553861c4b328eb5",
-    "schemas/intune-manifest.schema.json": "4e3fe389ec1be6d7588d5338456c16d48fd5aa59cf342d5b4f78e5bc5392a219",
-    "schemas/m365-manifest.schema.json": "c93b41479fe8bfd1ef47272c6a776e916a63e9ab4554d333bd8bacdf8b43b623",
-    "schemas/power-platform-manifest.schema.json": "a1c4dc4fd3f8c2ecfa9497b5c6c3c3802df5ac08bff95aab681718204c60093f",
+    "schemas/intune-manifest.schema.json": "59b4a2a1aa985df16ff412d8fa3973217d9a712dab22d1cd23bef30ec8745f7f",
+    "schemas/m365-manifest.schema.json": "e864cbbdbabbc18b7097342ec2bbf3b28bd2b8a8216b6e428cfaa34bbfdabb8c",
+    "schemas/power-platform-manifest.schema.json": "2d3cb8e80056302807ff625af8328adb932abe6f4ec73492455a6a86f15a01e1",
     "schemas/run-cost.schema.json": "0dcbc29ad6e91371fe203628f2768f88138a5f5d48a27c0c170850389cc69f7d",
     "schemas/run-journal.schema.json": "08108ab95806e1cba0090d256dbd5e7128b0c68c4cd126f8553cfdd2221860b6",
     "schemas/run-record.schema.json": "8f9d0b26c4813c9db9c1dd420330c100ed087313e5d11d32a88181c884f2ffd9",
     "schemas/target-approval.schema.json": "02459b9471b00cc46a69afcbbfce20bf2a6b52d3d7269e63849b0b5267195277",
-    "schemas/target-state.schema.json": "ff6a3d5942e0028fec1e95e879ccd92ddf619ba27488b053151afe026a9d65eb"
+    "schemas/target-state.schema.json": "0e456d0bff2670ee4ae43dbb798dec55ce17a886ffff07c7067f9dd09dbceb8d"
   }
 }

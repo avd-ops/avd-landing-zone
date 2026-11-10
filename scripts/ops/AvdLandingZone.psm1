@@ -249,17 +249,196 @@ function Add-AvdRunNote {
 # =====================================================================
 # Azure context, ARM and Graph helpers
 # =====================================================================
+function Resolve-AvdCloudEnvironment {
+  <#
+    Reads the vendored C26 cloud-environments.json contract and returns the endpoint and
+    suffix metadata for -Cloud ('commercial' or 'usgov').
+  #>
+  [CmdletBinding()]
+  param(
+    [ValidateSet('commercial', 'usgov', 'AzureCloud', 'AzureUSGovernment')][string] $Cloud = $(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' }),
+    [string] $ContractPath = (Join-Path $PSScriptRoot '../../contracts/cloud-environments.json')
+  )
+  if (-not (Test-Path -LiteralPath $ContractPath)) {
+    throw "Cloud environment contract not found at '$ContractPath'."
+  }
+  $contract = Get-Content -LiteralPath $ContractPath -Raw | ConvertFrom-Json
+  $rawKey = $Cloud.ToLowerInvariant()
+  $key = switch ($rawKey) {
+    'azurecloud' { 'commercial' }
+    'azureusgovernment' { 'usgov' }
+    default { $rawKey }
+  }
+  $entry = if ($contract.clouds -and $contract.clouds.$key) {
+    $contract.clouds.$key
+  }
+  elseif ($contract.environments) {
+    $contract.environments | Where-Object { $_.id -eq $key } | Select-Object -First 1
+  }
+  else { $null }
+  if (-not $entry) {
+    throw "Unsupported cloud environment '$Cloud' in '$ContractPath'."
+  }
+  $armEp = ([string]$entry.armEndpoint).TrimEnd('/')
+  $graphEp = ([string]$entry.graphEndpoint).TrimEnd('/')
+  $loginEp = ([string]$entry.loginEndpoint).TrimEnd('/')
+  $laEp = if ($key -eq 'usgov') { 'https://api.loganalytics.us' } else { 'https://api.loganalytics.io' }
+  $defaultProfile = if ($key -eq 'usgov') { 'itar-cui' } else { 'standard' }
+  return [pscustomobject]@{
+    Cloud                    = $key
+    AzEnvironment            = [string]$entry.psEnvironmentName
+    AzCliCloud               = [string]$entry.azCloudName
+    MgEnvironment            = [string]$entry.entraEnvironment
+    DefaultComplianceProfile = $defaultProfile
+    ArmEndpoint              = $armEp
+    GraphEndpoint            = $graphEp
+    AuthorityHost            = $loginEp
+    LogAnalyticsEndpoint     = $laEp
+    Endpoints                = [pscustomobject]@{
+      arm          = $armEp
+      graph        = $graphEp
+      login        = $loginEp
+      logAnalytics = $laEp
+    }
+    StorageEndpointSuffix    = [string]$entry.storageEndpointSuffix
+    KeyVaultDnsSuffix        = [string]$entry.keyVaultDnsSuffix
+    PrivateDnsZones          = $entry.privateDnsZones
+    SupportedRegions         = @($entry.allowedRegions)
+    Regions                  = @($entry.allowedRegions)
+    DefaultRegions           = @($entry.defaultRegions)
+    Capabilities             = $entry.capabilities
+  }
+}
+
+function Test-AvdCrossCloudGuard {
+  <#
+    Pure fail-closed cross-tool cloud guard (govcloud-support-spec.md Section 3.3).
+    Verifies that Az PowerShell context, Azure CLI cloud, Microsoft Graph context, Location, and
+    any handoff manifests match the requested -Cloud environment and tenant ID.
+  #>
+  [CmdletBinding()]
+  param(
+    [ValidateSet('commercial', 'usgov', 'AzureCloud', 'AzureUSGovernment')][string] $Cloud = 'commercial',
+    $AzContext = $null,
+    $MgContext = $null,
+    [string] $AzEnvironmentName,
+    [string] $AzTenantId,
+    [string] $AzCliCloudName,
+    [string] $AzCliTenantId,
+    [string] $MgEnvironmentName,
+    [string] $MgTenantId,
+    [string] $Location,
+    [AllowEmptyCollection()][object[]] $Manifests = @()
+  )
+  $cfg = Resolve-AvdCloudEnvironment -Cloud $Cloud
+  if ($AzContext) {
+    if (-not $AzEnvironmentName -and $AzContext.Environment -and $AzContext.Environment.Name) {
+      $AzEnvironmentName = [string]$AzContext.Environment.Name
+    }
+    if (-not $AzTenantId -and $AzContext.Tenant -and $AzContext.Tenant.Id) {
+      $AzTenantId = [string]$AzContext.Tenant.Id
+    }
+  }
+  if ($MgContext) {
+    if (-not $MgEnvironmentName -and $MgContext.Environment) {
+      $MgEnvironmentName = [string]$MgContext.Environment
+    }
+    if (-not $MgTenantId -and $MgContext.TenantId) {
+      $MgTenantId = [string]$MgContext.TenantId
+    }
+  }
+  $mismatches = [System.Collections.Generic.List[string]]::new()
+  if ($AzEnvironmentName -and $AzEnvironmentName -ne $cfg.AzEnvironment) {
+    $mismatches.Add("Az PowerShell environment is '$AzEnvironmentName', expected '$($cfg.AzEnvironment)' for -Cloud $($cfg.Cloud).")
+  }
+  if ($AzCliCloudName -and $AzCliCloudName -ne $cfg.AzCliCloud) {
+    $mismatches.Add("Azure CLI cloud is '$AzCliCloudName', expected '$($cfg.AzCliCloud)' for -Cloud $($cfg.Cloud) (run 'az cloud set --name $($cfg.AzCliCloud)').")
+  }
+  if ($MgEnvironmentName -and $MgEnvironmentName -ne $cfg.MgEnvironment) {
+    $mismatches.Add("Microsoft.Graph context is '$MgEnvironmentName', expected '$($cfg.MgEnvironment)' for -Cloud $($cfg.Cloud) (run 'Connect-MgGraph -Environment $($cfg.MgEnvironment)').")
+  }
+  if ($Location) {
+    $normLoc = $Location.ToLowerInvariant().Trim()
+    if ($cfg.Cloud -eq 'usgov' -and $normLoc -notin $cfg.SupportedRegions) {
+      $mismatches.Add("Location '$Location' is not an allowed US Gov region ($($cfg.SupportedRegions -join ', ')).")
+    }
+    elseif ($cfg.Cloud -eq 'commercial' -and $normLoc -like 'usgov*') {
+      $mismatches.Add("Location '$Location' is a US Government region; pass -Cloud usgov.")
+    }
+  }
+  $tenants = @($AzTenantId, $AzCliTenantId, $MgTenantId | Where-Object { $_ }) | Select-Object -Unique
+  if ($tenants.Count -gt 1) {
+    $mismatches.Add("Cross-tool tenant mismatch across signed-in contexts: $($tenants -join ', ').")
+  }
+  foreach ($m in @($Manifests | Where-Object { $_ })) {
+    $mCloud = if ($m -is [System.Collections.IDictionary]) { $m['cloud'] } else { $m.cloud }
+    $mName = if ($m -is [System.Collections.IDictionary] -and $m['schema']) { $m['schema'] } elseif ($m.schema) { $m.schema } else { 'handoff-manifest' }
+    if ($mCloud -and ([string]$mCloud).ToLowerInvariant() -ne $cfg.Cloud) {
+      $mismatches.Add("Handoff manifest '$mName' targets cloud '$mCloud', expected '$($cfg.Cloud)'.")
+    }
+  }
+  $ok = ($mismatches.Count -eq 0)
+  return [pscustomobject]@{
+    Cloud      = $cfg.Cloud
+    Passed     = $ok
+    Valid      = $ok
+    Mismatches = @($mismatches.ToArray())
+  }
+}
+
+function Assert-AvdCloudEnvironment {
+  <#
+    Evaluates the cross-tool cloud guard against live Az / MgGraph / az contexts (when present)
+    and throws a fail-closed terminating error if any mismatch is detected.
+  #>
+  [CmdletBinding()]
+  param(
+    [ValidateSet('commercial', 'usgov', 'AzureCloud', 'AzureUSGovernment')][string] $Cloud = $(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' }),
+    $AzContext = $null,
+    $MgContext = $null,
+    [string] $AzCliCloudName = '',
+    [string] $AzCliTenantId = '',
+    [string] $Location = '',
+    [AllowEmptyCollection()][object[]] $Manifests = @(),
+    [switch] $IncludeAzCli
+  )
+  $cfg = Resolve-AvdCloudEnvironment -Cloud $Cloud
+  $azEnv = if ($AzContext -and $AzContext.Environment -and $AzContext.Environment.Name) { [string]$AzContext.Environment.Name } else { '' }
+  $azTid = if ($AzContext -and $AzContext.Tenant -and $AzContext.Tenant.Id) { [string]$AzContext.Tenant.Id } else { '' }
+  $mgEnv = if ($MgContext -and $MgContext.Environment) { [string]$MgContext.Environment } else { '' }
+  $mgTid = if ($MgContext -and $MgContext.TenantId) { [string]$MgContext.TenantId } else { '' }
+  $cliCloud = $AzCliCloudName
+  $cliTid = $AzCliTenantId
+  if ($IncludeAzCli -and -not $cliCloud -and (Get-Command az -ErrorAction SilentlyContinue)) {
+    try {
+      $cliCloud = (& az cloud show --query name -o tsv 2>$null).Trim()
+    }
+    catch { $cliCloud = '' }
+  }
+  $verdict = Test-AvdCrossCloudGuard -Cloud $cfg.Cloud -AzEnvironmentName $azEnv -AzTenantId $azTid -AzCliCloudName $cliCloud -AzCliTenantId $cliTid -MgEnvironmentName $mgEnv -MgTenantId $mgTid -Location $Location -Manifests $Manifests
+  if (-not $verdict.Passed) {
+    throw "Cross-cloud guard failed for -Cloud $($cfg.Cloud): $($verdict.Mismatches -join ' ')"
+  }
+  return $cfg
+}
+
 function Test-AvdCloudShell {
   [bool]$env:ACC_CLOUD -or ($env:AZUREPS_HOST_ENVIRONMENT -like 'cloud-shell*')
 }
 
 function Initialize-AvdAzContext {
-  param([string] $SubscriptionId)
+  param(
+    [string] $SubscriptionId,
+    [ValidateSet('commercial', 'usgov')][string] $Cloud = $(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' })
+  )
   foreach ($m in 'Az.Accounts', 'Az.Resources', 'Az.Compute', 'Az.Storage') {
     if (-not (Get-Module -ListAvailable -Name $m)) { throw "PowerShell module $m is required (preinstalled in Azure Cloud Shell)." }
   }
   $ctx = Get-AzContext
   if (-not $ctx) { throw 'Not signed in to Azure. Run Connect-AzAccount (Cloud Shell does this for you).' }
+  if (($PSBoundParameters.ContainsKey('Cloud') -or $env:AVD_CLOUD) -and $ctx.Environment -and $ctx.Environment.Name) {
+    $null = Assert-AvdCloudEnvironment -Cloud $Cloud -AzContext $ctx
+  }
   if ($SubscriptionId -and $ctx.Subscription.Id -ne $SubscriptionId) {
     $ctx = Set-AzContext -SubscriptionId $SubscriptionId -ErrorAction Stop
   }
@@ -338,8 +517,10 @@ function Connect-AvdGraph {
   param(
     [ValidateSet('Read', 'Fix', 'PreDeployFix', 'Cleanup', 'SignIn')][string] $Purpose = 'Read',
     # Defaults to $env:AVD_GRAPH_CLIENT_ID; without one, Microsoft's default app.
-    [string] $ClientId
+    [string] $ClientId,
+    [ValidateSet('commercial', 'usgov')][string] $Cloud = $(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' })
   )
+  $cloudCfg = Resolve-AvdCloudEnvironment -Cloud $Cloud
   $scopes = Get-AvdGraphScope -Purpose $Purpose
   $ClientId = Get-AvdGraphClientId -ClientId $ClientId
   if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Authentication)) {
@@ -357,7 +538,9 @@ function Connect-AvdGraph {
       $plain = $token; $token = [securestring]::new()
       foreach ($c in $plain.ToCharArray()) { $token.AppendChar($c) }
     }
-    Connect-MgGraph -AccessToken $token -NoWelcome -ErrorAction Stop | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
+    $appConnect = @{ AccessToken = $token; NoWelcome = $true; ErrorAction = 'Stop' }
+    if ($cloudCfg.Cloud -eq 'usgov') { $appConnect.Environment = $cloudCfg.MgEnvironment }
+    Connect-MgGraph @appConnect | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
     if (-not (Test-AvdGraphToken)) { throw 'Signed in to Microsoft Graph with the app identity''s token, but requests still fail to get a token.' }
     return
   }
@@ -368,7 +551,8 @@ function Connect-AvdGraph {
   # has the scopes (from earlier consent) would otherwise keep the operator app from ever being used.
   $missing = @($scopes | Where-Object { $_ -notin $ctx.Scopes -and $_.Replace('.Read.', '.ReadWrite.') -notin $ctx.Scopes })
   $sameApp = -not $ClientId -or $ctx.ClientId -eq $ClientId
-  if ($ctx -and $ctx.TenantId -eq $tenantId -and $sameApp -and -not $missing.Count) {
+  $sameEnv = -not $ctx.Environment -or $ctx.Environment -eq $cloudCfg.MgEnvironment
+  if ($ctx -and $ctx.TenantId -eq $tenantId -and $sameApp -and $sameEnv -and -not $missing.Count) {
     if (Test-AvdGraphToken) { return }
     Write-Host '  The existing Microsoft Graph sign-in cannot get a token; signing in again.' -ForegroundColor Yellow
     Disconnect-MgGraph -ErrorAction SilentlyContinue | Out-Null
@@ -377,6 +561,7 @@ function Connect-AvdGraph {
   Write-Host "  Signing in to Microsoft Graph for $($script:GraphPurposes[$Purpose]), through $app" -ForegroundColor DarkGray
   Write-Host "  Scopes: $($scopes -join ', ')" -ForegroundColor DarkGray
   $connect = @{ Scopes = $scopes; TenantId = $tenantId; NoWelcome = $true; ErrorAction = 'Stop' }
+  if ($cloudCfg.Cloud -eq 'usgov') { $connect.Environment = $cloudCfg.MgEnvironment }
   if ($ClientId) { $connect.ClientId = $ClientId }
   if (Test-AvdCloudShell) {
     $connect.UseDeviceCode = $true
@@ -1698,16 +1883,21 @@ function Get-AvdLaunchTarget {
 function Invoke-AvdLogQuery {
   <#
     Runs KQL against a Log Analytics workspace through the Log Analytics query API, with the signed-in
-    user's Entra token: POST https://api.loganalytics.io/v1/workspaces/{customerId}/query, scope
-    https://api.loganalytics.io/.default (route, auth and response shape from the API spec:
+    user's Entra token: POST <logAnalyticsEndpoint>/v1/workspaces/{customerId}/query, scope
+    <logAnalyticsEndpoint>/.default (route, auth and response shape from the API spec:
     Azure/azure-rest-api-specs specification/monitor/data-plane/OperationalInsights/stable/v1).
     Emits the first table's rows as objects. On an error it throws with the HTTP status and the body
     (lesson 0012).
   #>
-  param([Parameter(Mandatory)][string] $WorkspaceCustomerId, [Parameter(Mandatory)][string] $Query)
-  $token = (Get-AzAccessToken -ResourceUrl 'https://api.loganalytics.io' -ErrorAction Stop).Token
+  param(
+    [Parameter(Mandatory)][string] $WorkspaceCustomerId,
+    [Parameter(Mandatory)][string] $Query,
+    [ValidateSet('commercial', 'usgov')][string] $Cloud = $(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' })
+  )
+  $laEndpoint = (Resolve-AvdCloudEnvironment -Cloud $Cloud).LogAnalyticsEndpoint
+  $token = (Get-AzAccessToken -ResourceUrl $laEndpoint -ErrorAction Stop).Token
   if ($token -is [securestring]) { $token = ConvertFrom-SecureString $token -AsPlainText }
-  $uri = "https://api.loganalytics.io/v1/workspaces/$WorkspaceCustomerId/query"
+  $uri = "$laEndpoint/v1/workspaces/$WorkspaceCustomerId/query"
   try {
     $r = Invoke-RestMethod -Uri $uri -Method Post -Headers @{ Authorization = "Bearer $token" } -Body (@{ query = $Query } | ConvertTo-Json -Compress) -ContentType 'application/json' -ErrorAction Stop
   }
@@ -2163,7 +2353,8 @@ function Invoke-AvdReadinessCheck {
     [string] $NtfsHostName,
     [switch] $AllowHostStart,
     # Recovery region (build/specs/recovery-spec.md); empty: AVD_RECOVERY_LOCATION.
-    [string] $RecoveryLocation = $env:AVD_RECOVERY_LOCATION
+    [string] $RecoveryLocation = $env:AVD_RECOVERY_LOCATION,
+    [ValidateSet('commercial', 'usgov')][string] $Cloud = $(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' })
   )
   Write-AvdSection 'Tooling'
   Test-AvdTooling
@@ -2207,7 +2398,7 @@ function Invoke-AvdReadinessCheck {
   }
   else {
     Write-AvdSection 'Entra ID tenant'
-    Connect-AvdGraph -Purpose ($(if ($Fix) { 'Fix' } else { 'Read' }))
+    Connect-AvdGraph -Purpose ($(if ($Fix) { 'Fix' } else { 'Read' })) -Cloud $Cloud
     Test-AvdGroupMembership -Lz $Lz
     Test-AvdIntuneLicense
     $storageApp = Get-AvdStorageKerberosApp -Lz $Lz
@@ -2277,7 +2468,9 @@ function Get-AvdDeploymentPlan {
     # AVD_SESSION_HOST_COUNT etc.
     [hashtable] $Sizing = @{},
     # Recovery region override: the parameter files read it from AVD_RECOVERY_LOCATION.
-    [string] $RecoveryLocation
+    [string] $RecoveryLocation,
+    [string] $Cloud,
+    [string] $ComplianceProfile
   )
   $bicep = Get-Command bicep -ErrorAction SilentlyContinue
   if (-not $bicep) { throw 'The Bicep CLI is required to read the parameter file.' }
@@ -2291,10 +2484,16 @@ function Get-AvdDeploymentPlan {
   }
   if ($Location) { $vars.AVD_LOCATION = $Location }
   if ($RecoveryLocation) { $vars.AVD_RECOVERY_LOCATION = $RecoveryLocation }
+  if ($Cloud) { $vars.AVD_CLOUD = $Cloud }
+  if ($ComplianceProfile) { $vars.AVD_COMPLIANCE_PROFILE = $ComplianceProfile }
   $sizingVars = @{ hosts = 'AVD_SESSION_HOST_COUNT'; vmSize = 'AVD_SESSION_HOST_VM_SIZE'; maxSessions = 'AVD_MAX_SESSION_LIMIT'; profileQuotaGiB = 'AVD_PROFILE_QUOTA_GIB'
     autoShutdownTime = 'AVD_AUTO_SHUTDOWN_TIME'; startVmOnConnect = 'AVD_START_VM_ON_CONNECT'
-    jumpbox = 'AVD_DEPLOY_JUMPBOX'; jumpboxKeepRunningUntil = 'AVD_JUMPBOX_KEEP_RUNNING_UNTIL'; jumpboxOs = 'AVD_JUMPBOX_OS'; topology = 'AVD_TOPOLOGY_JSON' }
-  foreach ($k in $sizingVars.Keys) { $vars[$sizingVars[$k]] = $(if ($Sizing[$k]) { [string]$Sizing[$k] } else { '' }) }
+    jumpbox = 'AVD_DEPLOY_JUMPBOX'; jumpboxKeepRunningUntil = 'AVD_JUMPBOX_KEEP_RUNNING_UNTIL'; jumpboxOs = 'AVD_JUMPBOX_OS'; topology = 'AVD_TOPOLOGY_JSON'
+    cloud = 'AVD_CLOUD'; complianceProfile = 'AVD_COMPLIANCE_PROFILE' }
+  foreach ($k in $sizingVars.Keys) {
+    if ($Sizing[$k]) { $vars[$sizingVars[$k]] = [string]$Sizing[$k] }
+    elseif (-not $vars.Contains($sizingVars[$k])) { $vars[$sizingVars[$k]] = '' }
+  }
   $saved = @{}
   foreach ($k in $vars.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k); [Environment]::SetEnvironmentVariable($k, $vars[$k]) }
   try {
@@ -2396,13 +2595,14 @@ function Add-AvdCallerToGroup {
     Add-AvdCheckResult 'Entra ID' 'Add you to the AVD groups' 'Fail' -Detail $_.Exception.Message -Remediation 'Sign in as a user (not a service principal), or add members in the Entra admin center.'
     return
   }
+  $graphEndpoint = (Resolve-AvdCloudEnvironment).GraphEndpoint
   foreach ($pair in $Group) {
     $label = $pair[0]; $g = $pair[1]
     if (-not $g) { continue }
     $name = "$($me.userPrincipalName) is a member of $label"
     if ($mine -contains $g.id) { Add-AvdCheckResult 'Entra ID' $name 'Pass'; continue }
     if ($PSCmdlet.ShouldProcess($g.displayName, "Add $($me.userPrincipalName) as a member")) {
-      Invoke-AvdGraph -Method POST -Uri "v1.0/groups/$($g.id)/members/`$ref" -Body @{ '@odata.id' = "https://graph.microsoft.com/v1.0/directoryObjects/$($me.id)" } | Out-Null
+      Invoke-AvdGraph -Method POST -Uri "v1.0/groups/$($g.id)/members/`$ref" -Body @{ '@odata.id' = "$graphEndpoint/v1.0/directoryObjects/$($me.id)" } | Out-Null
       Add-AvdCheckResult 'Entra ID' $name 'Fixed' -Detail 'Added. Group changes reach your sign-in token within about an hour.'
     }
   }
@@ -2431,6 +2631,54 @@ function Get-AvdRetailPrice {
   }
 }
 
+function Get-AvdPinnedUsGovPrice {
+  <#
+    Reads contracts/usgov-retail-prices.snapshot.json and returns items matching the OData $Filter
+    (or -Region / -ServiceName / -ArmSkuName) for offline / air-gapped US Gov environments where
+    prices.azure.com egress is blocked.
+  #>
+  param(
+    [string] $Filter,
+    [string] $Region,
+    [string] $ServiceName,
+    [string] $ArmSkuName,
+    [string] $SnapshotPath = (Join-Path $PSScriptRoot '../../contracts/usgov-retail-prices.snapshot.json')
+  )
+  if (-not (Test-Path -LiteralPath $SnapshotPath)) {
+    throw "Pinned US Gov retail price snapshot not found at '$SnapshotPath'."
+  }
+  $snap = Get-Content -LiteralPath $SnapshotPath -Raw | ConvertFrom-Json
+  $clauses = @{}
+  if ($Filter) {
+    foreach ($m in [regex]::Matches($Filter, "(?<field>\w+)\s+eq\s+'(?<val>[^']*)'")) {
+      $clauses[$m.Groups['field'].Value] = $m.Groups['val'].Value
+    }
+  }
+  if ($Region) { $clauses['armRegionName'] = $Region }
+  if ($ServiceName) { $clauses['serviceName'] = $ServiceName }
+  if ($ArmSkuName) { $clauses['armSkuName'] = $ArmSkuName }
+  foreach ($item in @($snap.Items)) {
+    $match = $true
+    foreach ($field in $clauses.Keys) {
+      $expected = $clauses[$field]
+      $actual = switch ($field) {
+        'priceType' { [string]$item.type }
+        default { [string]$item.$field }
+      }
+      if ($actual -ne $expected) {
+        $match = $false
+        break
+      }
+    }
+    if ($match) {
+      if (-not $item.PSObject.Properties['unitPrice']) {
+        $item | Add-Member -NotePropertyName 'unitPrice' -NotePropertyValue ([double]$item.retailPrice) -Force
+      }
+      $item
+    }
+  }
+}
+
 function Get-AvdCostEstimate {
   <#
     Monthly cost of the fixed and per-host parts of the plan at list prices. Each line names the
@@ -2440,13 +2688,16 @@ function Get-AvdCostEstimate {
   param(
     [Parameter(Mandatory)][hashtable] $Plan,
     [int] $ActiveHoursPerWeek = 50,
-    [string] $Currency = 'USD'
+    [string] $Currency = 'USD',
+    [ValidateSet('commercial', 'usgov')][string] $Cloud = $(if ($Plan.cloud -in @('commercial', 'usgov')) { [string]$Plan.cloud } elseif ($Plan.location -like 'usgov*') { 'usgov' } elseif ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' }),
+    [switch] $OfflinePricing
   )
   $loc = $Plan.location
   $hosts = [int]$Plan.sessionHostCount
   $size = $Plan.sessionHostVmSize
   $quota = [int]$Plan.profileShareQuotaGiB
-  $fileSku = ([string]$Plan.profileStorageSku) -replace '_', ' '
+  $rawStorageSku = if ($Plan.profileStorageSku) { [string]$Plan.profileStorageSku } else { 'Premium_LRS' }
+  $fileSku = $rawStorageSku -replace '_', ' '
   $topo = if ($Plan.topology -is [System.Collections.IDictionary]) { $Plan.topology } else { @{} }
   $topoPools = if ($topo.ContainsKey('hostPools') -and $topo.hostPools) { @($topo.hostPools) } else { @() }
   $topoWorkspaces = if ($topo.ContainsKey('workspaces') -and $topo.workspaces) { @($topo.workspaces) } else { @() }
@@ -2549,9 +2800,29 @@ function Get-AvdCostEstimate {
     $free += 'Azure Bastion Developer (no hourly or outbound data charge)'
   }
 
+  $useSnapshot = [bool]$OfflinePricing
+  $priceSource = if ($useSnapshot) { 'pinned-usgov-snapshot' } else { 'azure-retail-prices-api' }
   $lines = @(); $unpriced = @(); $alwaysOnCompute = $null; $jumpboxAlwaysOnCompute = $null
   foreach ($s in $specs) {
-    $items = @(Get-AvdRetailPrice -Filter $s.filter -Currency $Currency)
+    $items = @()
+    if ($useSnapshot) {
+      $items = @(Get-AvdPinnedUsGovPrice -Filter $s.filter)
+    }
+    else {
+      try {
+        $items = @(Get-AvdRetailPrice -Filter $s.filter -Currency $Currency)
+      }
+      catch {
+        if ($Cloud -eq 'usgov' -or $loc -like 'usgov*') {
+          $useSnapshot = $true
+          $priceSource = 'pinned-usgov-snapshot'
+          $items = @(Get-AvdPinnedUsGovPrice -Filter $s.filter)
+        }
+        else {
+          throw
+        }
+      }
+    }
     # Exactly one meter must match (first price tier); several different ones means the pattern is too loose.
     $matched = @($items | Where-Object $s.pick | Where-Object { -not $_.tierMinimumUnits })
     $distinct = @($matched | ForEach-Object { "$($_.productName)|$($_.skuName)|$($_.meterName)|$($_.unitOfMeasure)" } | Select-Object -Unique)
@@ -2577,6 +2848,8 @@ function Get-AvdCostEstimate {
   [ordered]@{
     currency           = $Currency
     location           = $loc
+    cloud              = $Cloud
+    priceSource        = $priceSource
     activeHoursPerWeek = $ActiveHoursPerWeek
     total              = $total
     alwaysOnTotal      = $(if ($null -ne $alwaysOnCompute) { [math]::Round($total - $computeLine.monthly + $alwaysOnCompute + $(if ($null -ne $jumpboxAlwaysOnCompute) { $jumpboxAlwaysOnCompute - $jumpboxLine.monthly } else { 0 }), 2) } else { $null })
@@ -2593,7 +2866,14 @@ function Test-AvdSizing {
     The capacity the plan deploys and what it costs at list prices. The vCPU quota and VM size
     checks (Test-AvdVmCapacity) already run against the same plan.
   #>
-  param([Parameter(Mandatory)][hashtable] $Plan, [int] $VcpuPerHost, [double] $MemoryGiBPerHost, [int] $ActiveHoursPerWeek = 50)
+  param(
+    [Parameter(Mandatory)][hashtable] $Plan,
+    [int] $VcpuPerHost,
+    [double] $MemoryGiBPerHost,
+    [int] $ActiveHoursPerWeek = 50,
+    [ValidateSet('commercial', 'usgov')][string] $Cloud = $(if ($Plan.cloud -in @('commercial', 'usgov')) { [string]$Plan.cloud } elseif ($Plan.location -like 'usgov*') { 'usgov' } else { 'commercial' }),
+    [switch] $OfflinePricing
+  )
   Write-AvdSection 'Sizing and cost'
   $hosts = [int]$Plan.sessionHostCount; $max = [int]$Plan.maxSessionLimit
   $detail = "Up to $($hosts * $max) concurrent sessions$(if ($VcpuPerHost) { "; $($hosts * $VcpuPerHost) vCPUs" })$(if ($MemoryGiBPerHost -and $max) { "; $([math]::Round($MemoryGiBPerHost / $max, 1)) GiB memory per session" }); Premium SSD OS disks; profile share $($Plan.profileShareQuotaGiB) GiB ($($Plan.profileStorageSku))"
@@ -2613,7 +2893,7 @@ function Test-AvdSizing {
   }
 
   Write-Host "  Pricing the plan in $($Plan.location) from the Azure retail price API (list prices, pay-as-you-go) ..." -ForegroundColor DarkGray
-  try { $estimate = Get-AvdCostEstimate -Plan $Plan -ActiveHoursPerWeek $ActiveHoursPerWeek }
+  try { $estimate = Get-AvdCostEstimate -Plan $Plan -ActiveHoursPerWeek $ActiveHoursPerWeek -Cloud $Cloud -OfflinePricing:$OfflinePricing }
   catch {
     Add-AvdCheckResult 'Cost' 'Cost estimate' 'Warn' -Detail "Could not read the Azure retail price API: $($_.Exception.Message)" -Remediation 'Rerun later; sizing and quota checks do not depend on it.' -Id 'cost-unavailable'
     return $null
@@ -2626,6 +2906,7 @@ function Test-AvdSizing {
   }
   $summary = '{0:N2} {1}/month at {2} h/week per host' -f $estimate.total, $estimate.currency, $ActiveHoursPerWeek
   if ($null -ne $estimate.alwaysOnTotal) { $summary += ('; {0:N2} if hosts run around the clock' -f $estimate.alwaysOnTotal) }
+  if ($estimate.priceSource -eq 'pinned-usgov-snapshot') { $summary += ' (priceSource: pinned-usgov-snapshot)' }
   Add-AvdCheckResult 'Cost' 'Estimated monthly cost (list prices)' 'Pass' -Id 'cost-estimate' -Detail "$summary.$(if ($estimate.free.Count) { " No charge: $($estimate.free -join '; ')." }) Not included (usage-based): $($estimate.excluded -join '; ')."
   return $estimate
 }
@@ -2702,7 +2983,9 @@ function Test-AvdPreDeployment {
     # Hours per week each host runs, for the cost estimate.
     [int] $ActiveHoursPerWeek = 50,
     # Recovery region (build/specs/recovery-spec.md); empty: what the parameter file reads from AVD_RECOVERY_LOCATION.
-    [string] $RecoveryLocation
+    [string] $RecoveryLocation,
+    [ValidateSet('commercial', 'usgov')][string] $Cloud = $(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' }),
+    [switch] $OfflinePricing
   )
   $avdAppId = '9cdead84-a844-4324-93f2-b2e6bb768d07'
 
@@ -2720,7 +3003,7 @@ function Test-AvdPreDeployment {
   }
   else {
     Write-AvdSection 'Entra ID tenant'
-    Connect-AvdGraph -Purpose ($(if ($Fix -or $AddMeToGroups) { 'PreDeployFix' } else { 'Read' }))
+    Connect-AvdGraph -Purpose ($(if ($Fix -or $AddMeToGroups) { 'PreDeployFix' } else { 'Read' })) -Cloud $Cloud
     Test-AvdSignInMatch
     $users = Resolve-AvdGroup -Label 'AVD Users' -NameOrId $UsersGroup -Fix:$Fix
     $admins = Resolve-AvdGroup -Label 'AVD Admins' -NameOrId $AdminsGroup -Fix:$Fix
@@ -2743,7 +3026,7 @@ function Test-AvdPreDeployment {
   # ---- Parameter file ----
   Write-AvdSection 'Parameter file'
   try {
-    $plan = Get-AvdDeploymentPlan -ParameterFile $ParameterFile -UsersGroupId $users.id -AdminsGroupId $admins.id -AvdServicePrincipalId $avdSp.id -Location $Location -Sizing $Sizing -RecoveryLocation $RecoveryLocation
+    $plan = Get-AvdDeploymentPlan -ParameterFile $ParameterFile -UsersGroupId $users.id -AdminsGroupId $admins.id -AvdServicePrincipalId $avdSp.id -Location $Location -Sizing $Sizing -RecoveryLocation $RecoveryLocation -Cloud $Cloud
   }
   catch {
     Add-AvdCheckResult 'Parameters' "Compile $ParameterFile" 'Fail' -Detail $_.Exception.Message -Remediation 'Fix the parameter file (az bicep build-params).'
@@ -2821,7 +3104,7 @@ function Test-AvdPreDeployment {
   }
 
   # ---- Sizing and cost ----
-  $estimate = Test-AvdSizing -Plan $plan -VcpuPerHost $(if ($capacity) { $capacity.Vcpu } else { 0 }) -MemoryGiBPerHost $(if ($capacity) { $capacity.MemoryGiB } else { 0 }) -ActiveHoursPerWeek $ActiveHoursPerWeek
+  $estimate = Test-AvdSizing -Plan $plan -VcpuPerHost $(if ($capacity) { $capacity.Vcpu } else { 0 }) -MemoryGiBPerHost $(if ($capacity) { $capacity.MemoryGiB } else { 0 }) -ActiveHoursPerWeek $ActiveHoursPerWeek -Cloud $Cloud -OfflinePricing:$OfflinePricing
 
   # ---- Connectivity ----
   if ($plan.connectivityMode -eq 'HubPeered') {

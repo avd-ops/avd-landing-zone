@@ -248,18 +248,26 @@
     <p class="status" id="runin-note"></p>
     <p class="status hidden" id="settings-warning" role="alert"></p>
     <div class="row">
+      <label class="field"><span>Cloud environment</span>
+        <select id="cloud"><option value="commercial">Commercial (AzureCloud)</option><option value="usgov">Azure US Gov / GCC High (AzureUSGovernment)</option></select>
+      </label>
+      <label class="field"><span>Compliance profile</span>
+        <select id="complianceProfile"><option value="standard">Standard</option><option value="itar-cui">ITAR / CUI (Sovereign Lockdown)</option></select>
+      </label>
       <label class="field"><span>Parameter file</span>
         <select id="parameterFile"><option value="parameters/dev.bicepparam">parameters/dev.bicepparam</option><option value="parameters/test.bicepparam">parameters/test.bicepparam (a second landing zone beside dev)</option><option value="parameters/prod.bicepparam">parameters/prod.bicepparam</option></select>
       </label>
       <label class="field"><span>Region</span><input type="text" id="location" autocomplete="off"></label>
-      <label class="field"><span>AVD users group</span><input type="text" id="usersGroup" autocomplete="off"></label>
-      <label class="field"><span>AVD admins group</span><input type="text" id="adminsGroup" autocomplete="off"></label>
     </div>
     <div class="row" style="margin-top:10px">
+      <label class="field"><span>AVD users group</span><input type="text" id="usersGroup" autocomplete="off"></label>
+      <label class="field"><span>AVD admins group</span><input type="text" id="adminsGroup" autocomplete="off"></label>
       <label class="field"><span>Name prefix</span><input type="text" id="namePrefix" autocomplete="off"></label>
       <label class="field"><span>Environment</span>
         <select id="environment"><option>dev</option><option>test</option><option>prod</option></select>
       </label>
+    </div>
+    <div class="row" style="margin-top:10px">
       <label class="field"><span>Test user (optional, for the demo)</span><input type="text" id="testUserUpn" autocomplete="off" placeholder="user@contoso.com"></label>
       <label class="field"><span>Graph sign-in app client ID (optional)</span><input type="text" id="graphClientId" autocomplete="off" placeholder="from Initialize-AvdGraphApp.ps1" title="The avd-opsbot app (docs/operations.md). Empty: Microsoft's default Graph app."></label>
     </div>
@@ -302,7 +310,18 @@
   <div class="track" id="track">
     <section class="slide wz-stage" id="region-panel" data-step="region" aria-label="Choose a region">
       <h2><span class="n"></span>Choose a region <span class="muted" style="font-weight:400"><span class="sr-only">, </span><span id="region-summary"></span></span></h2>
-      <p class="purpose">Pick the Azure region closest to your users. This page can measure it for you.</p>
+      <p class="purpose">Pick the Azure cloud and region closest to your users. This page can measure it for you.</p>
+      <div class="pool" style="margin-bottom:12px">
+        <div class="row">
+          <label class="field" style="flex:1 1 240px"><span>Cloud</span>
+            <select id="cloud-selector"><option value="commercial">Commercial (AzureCloud)</option><option value="usgov">Azure US Gov / GCC High</option></select>
+          </label>
+          <label class="field hidden" id="usgov-region-field" style="flex:1 1 220px"><span>US Gov region</span>
+            <select id="usgov-region-select"><option value="usgovvirginia">US Gov Virginia (usgovvirginia)</option><option value="usgovarizona">US Gov Arizona (usgovarizona)</option><option value="usgovtexas">US Gov Texas (usgovtexas)</option></select>
+          </label>
+        </div>
+        <label class="switch" id="skip-probes-row" style="margin:10px 0 0"><input type="checkbox" id="skip-probes"><span><strong>Skip browser latency &amp; reachability probes (air-gapped / zero-probe mode)</strong><br><span class="muted">Select this on restricted or air-gapped networks so the browser sends zero outbound probe requests.</span></span></label>
+      </div>
       <div class="row" id="geos">
         <label><input type="checkbox" value="Americas" checked> Americas</label>
         <label><input type="checkbox" value="Europe" checked> Europe</label>

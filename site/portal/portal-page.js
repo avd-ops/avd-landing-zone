@@ -45,11 +45,41 @@
   var ranked = load('ranked', null);
   var lastAnalysis = null;
 
+  var skipProbes = !!load('skipProbes', false);
+  if ($('skip-probes')) {
+    $('skip-probes').checked = skipProbes;
+    $('skip-probes').addEventListener('change', function () {
+      skipProbes = $('skip-probes').checked;
+      save('skipProbes', skipProbes);
+      if (skipProbes) {
+        reach = P.classifyReachability([], { cloud: cfg.cloud, skipProbes: true });
+      } else {
+        reach = null;
+      }
+      renderReachability();
+    });
+  }
+
+  function syncCloudUi() {
+    var isGov = P.validCloud(cfg.cloud) === 'usgov';
+    if ($('cloud-selector') && $('cloud-selector').value !== cfg.cloud) $('cloud-selector').value = cfg.cloud || 'commercial';
+    if ($('usgov-region-field')) $('usgov-region-field').classList.toggle('hidden', !isGov);
+    if ($('usgov-region-select') && isGov && /^usgov/.test(cfg.location || '')) $('usgov-region-select').value = cfg.location;
+    if ($('geos')) $('geos').classList.toggle('hidden', isGov);
+  }
+
   function config() { return cfg; }
   function setConfig(patch) {
     // The parameter file decides the environment (parameters/test.bicepparam deploys avdlz-test).
     var fe = patch && patch.parameterFile && !patch.environment && /parameters\/(dev|test|prod)\.bicepparam$/.exec(patch.parameterFile);
     if (fe) patch = Object.assign({}, patch, { environment: fe[1] });
+    if (patch && patch.cloud === 'usgov') {
+      if (!patch.location && !/^usgov/.test(cfg.location || '')) patch = Object.assign({}, patch, { location: 'usgovvirginia' });
+      if (!patch.complianceProfile) patch = Object.assign({}, patch, { complianceProfile: 'itar-cui' });
+    } else if (patch && patch.cloud === 'commercial') {
+      if (!patch.location && /^usgov/.test(cfg.location || '')) patch = Object.assign({}, patch, { location: 'northcentralus' });
+      if (!patch.complianceProfile && cfg.complianceProfile === 'itar-cui') patch = Object.assign({}, patch, { complianceProfile: 'standard' });
+    }
     // Only values that fit their setting reach the commands; the rest are named in the settings panel (red team PH-4).
     var checked = P.validSettings(patch);
     FIELDS.forEach(function (k) { if (checked.settings[k]) cfg[k] = checked.settings[k]; });
@@ -69,6 +99,7 @@
     if (launch) { cfg.launch = launch; save('launch', launch); }
     var keep = {}; FIELDS.forEach(function (k) { keep[k] = cfg[k]; }); save('config', keep);
     FIELDS.forEach(function (k) { var el = $(k); if (el && el.value !== cfg[k]) el.value = cfg[k] || ''; });
+    syncCloudUi();
     $('region-summary').textContent = cfg.location + (ranked && ranked.length ? (ranked[0] === cfg.location ? ' (closest measured)' : '') : ' (not measured yet)');
     $('region-skip').textContent = 'I already know: use ' + cfg.location;
     var lcUrl = 'https://linecheck.avd-ops.dev/?pack=avd&region=' + encodeURIComponent(cfg.location);
@@ -78,14 +109,39 @@
   function showRejected(names) {
     var w = $('settings-warning');
     if (!names || !names.length) { w.classList.add('hidden'); w.textContent = ''; return; }
-    var LABEL = { parameterFile: 'Parameter file (parameters/<name>.bicepparam)', location: 'Region (a lowercase Azure region name)', usersGroup: 'AVD users group', adminsGroup: 'AVD admins group', namePrefix: 'Name prefix (2 to 8 lowercase letters or digits)', environment: 'Environment (dev, test or prod)', testUserUpn: 'Test user (user@domain)', graphClientId: 'Graph sign-in app client ID (a GUID)' };
+    var LABEL = { cloud: 'Cloud (commercial or usgov)', complianceProfile: 'Compliance profile (standard or itar-cui)', parameterFile: 'Parameter file (parameters/<name>.bicepparam)', location: 'Region (a lowercase Azure region name)', usersGroup: 'AVD users group', adminsGroup: 'AVD admins group', namePrefix: 'Name prefix (2 to 8 lowercase letters or digits)', environment: 'Environment (dev, test or prod)', testUserUpn: 'Test user (user@domain)', graphClientId: 'Graph sign-in app client ID (a GUID)' };
     w.textContent = 'Not used, because the value does not fit: ' + names.map(function (n) { return LABEL[n] || n; }).join('; ') + '. The commands keep the previous value.';
     w.classList.remove('hidden');
     showSettings(true);
   }
   FIELDS.forEach(function (k) {
-    $(k).addEventListener('change', function () { var p = {}; p[k] = $(k).value.trim(); setConfig(p); lastAnalysis = null; render(); renderSizeResult(); renderCost(); });
+    if (!$(k)) return;
+    $(k).addEventListener('change', function () {
+      var p = {}; p[k] = $(k).value.trim();
+      setConfig(p);
+      lastAnalysis = null;
+      if (k === 'cloud') { latency = []; $('results').classList.add('hidden'); if (typeof renderPrivateLinkPanel === 'function') renderPrivateLinkPanel(); if (typeof renderReachability === 'function') renderReachability(); }
+      render(); renderSizeResult(); renderCost();
+    });
   });
+  if ($('cloud-selector')) {
+    $('cloud-selector').addEventListener('change', function () {
+      var nextCloud = $('cloud-selector').value;
+      setConfig({ cloud: nextCloud });
+      lastAnalysis = null;
+      latency = []; $('results').classList.add('hidden');
+      if (typeof renderPrivateLinkPanel === 'function') renderPrivateLinkPanel();
+      if (typeof renderReachability === 'function') renderReachability();
+      render(); renderSizeResult(); renderCost();
+    });
+  }
+  if ($('usgov-region-select')) {
+    $('usgov-region-select').addEventListener('change', function () {
+      setConfig({ location: $('usgov-region-select').value });
+      lastAnalysis = null;
+      render(); renderSizeResult(); renderCost();
+    });
+  }
 
   // ---------------------------------------------------------------- deployment settings (header link)
   // Settings and "Where did I leave off?" open as sheets over the step; one at a time, Escape or the backdrop closes.
@@ -268,7 +324,7 @@
           d.appendChild(el('p', 'status unsupported', 'This step runs ' + sup.blockedBy.join(', ') + ', which does not run on ' + sup.place +
             (sup.shell === 'bash' ? ' in Bash' : ' in PowerShell') + '. Run this step in Cloud Shell' + (sup.place === 'Windows' ? ' or on macOS' : '') + '.'));
         } else {
-          var text = P.forRunIn(a.command, runIn);
+          var text = P.forRunIn(a.command, runIn, cfg);
           var term = el('div', 'term'), head = el('div', 'term-head'), b = el('button', 'secondary', 'Copy');
           term.setAttribute('data-shell', sup.shell);
           b.type = 'button'; b.addEventListener('click', function () { copy(text, b); });
@@ -1087,8 +1143,9 @@
     $('pl-global').checked = !!privateLink.enableAvdGlobalPrivateLink;
 
     var dnsBox = $('dns-zones'); dnsBox.textContent = '';
-    Object.keys(P.DNS_ZONE_DEFINITIONS).forEach(function (k) {
-      var def = P.DNS_ZONE_DEFINITIONS[k];
+    var zoneDefs = P.dnsZonesForCloud(cfg.cloud);
+    Object.keys(zoneDefs).forEach(function (k) {
+      var def = zoneDefs[k];
       var z = (privateLink.dnsZones && privateLink.dnsZones[k]) || { mode: k === 'avdGlobal' ? 'disabled' : 'new', existingResourceId: '' };
       var row = el('div', 'row'); row.style.marginTop = '8px';
 
@@ -1448,8 +1505,24 @@
   }
   function rating(ms) { var r = P.rateLatency(ms); return [r.label, r.cls]; }
   function runLatency() {
-    var geos = Array.prototype.map.call(document.querySelectorAll('#geos input:checked'), function (c) { return c.value; });
-    var todo = REGIONS.filter(function (r) { return geos.indexOf(r[2]) >= 0; });
+    var isGov = P.validCloud(cfg.cloud) === 'usgov';
+    var skip = $('skip-probes') && $('skip-probes').checked;
+    if (skip) {
+      var list = isGov ? P.USGOV_REGIONS : REGIONS;
+      latency = list.map(function (r) { return { name: r[0], display: r[1], geo: r[2], median: null, skipped: true }; });
+      expanded = false;
+      $('lat-status').textContent = 'Browser latency probes skipped (air-gapped / zero-probe mode). Pick a region below or in the selector above, then select Next.';
+      if (!step || step === 'region') { reached = Math.max(reached, stepIndex('size')); save('reachedStep', P.STEPS[reached].id); }
+      renderLatency(); render();
+      return;
+    }
+    var todo;
+    if (isGov) {
+      todo = P.USGOV_REGIONS.slice();
+    } else {
+      var geos = Array.prototype.map.call(document.querySelectorAll('#geos input:checked'), function (c) { return c.value; });
+      todo = REGIONS.filter(function (r) { return geos.indexOf(r[2]) >= 0; });
+    }
     if (!todo.length) { $('lat-status').textContent = 'Pick at least one geography.'; return; }
     $('run').disabled = true; latency = [];
     var bar = $('progress'); bar.classList.remove('hidden'); bar.max = todo.length; bar.value = 0;
@@ -1458,7 +1531,8 @@
     function worker() {
       if (next >= todo.length) return Promise.resolve();
       var r = todo[next++];
-      return measure(r[0] + '.api.cognitive.microsoft.com').then(
+      var probeHost = r[3] || (r[0] + '.api.cognitive.microsoft.com');
+      return measure(probeHost).then(
         function (m) { latency.push({ name: r[0], display: r[1], geo: r[2], median: m }); },
         function () { latency.push({ name: r[0], display: r[1], geo: r[2], median: null }); }
       ).then(function () { bar.value = ++done; }).then(worker);
@@ -1488,9 +1562,10 @@
     latency.forEach(function (r, i) {
       if (!expanded && i >= TOP && r.name !== cfg.location) return;
       var tr = document.createElement('tr'); if (r.name === cfg.location) tr.className = 'sel';
-      var rt = rating(r.median);
+      var rt = r.skipped ? ['Skipped', 'muted'] : rating(r.median);
+      var selectable = r.median !== null || r.skipped;
       var cells = [
-        '<input type="radio" name="region" aria-label="' + r.display + '"' + (r.name === cfg.location ? ' checked' : '') + (r.median === null ? ' disabled' : '') + '>',
+        '<input type="radio" name="region" aria-label="' + r.display + '"' + (r.name === cfg.location ? ' checked' : '') + (!selectable ? ' disabled' : '') + '>',
         String(i + 1), r.display + ' <span class="muted">' + r.name + '</span>', r.geo,
         r.median === null ? '–' : Math.round(r.median) + ' ms',
         r.median === null ? '' : '<div class="bar" style="width:' + (100 * r.median / max).toFixed(1) + '%"></div>',
@@ -1501,7 +1576,7 @@
         if (c === 2) td.className = 'region'; if (c === 4) td.className = 'num'; if (c === 5) td.className = 'barcell';
         td.innerHTML = html; tr.appendChild(td);
       });
-      if (r.median !== null) tr.addEventListener('click', function () { setConfig({ location: r.name }); lastAnalysis = null; renderLatency(); render(); });
+      if (selectable) tr.addEventListener('click', function () { setConfig({ location: r.name }); lastAnalysis = null; renderLatency(); render(); });
       tbody.appendChild(tr);
     });
     var more = $('more');
@@ -1516,13 +1591,21 @@
   // Same method as the latency test; portal-core.js classifies the result. Only a summary is kept.
   var reach = null;
   function runReachability() {
+    var skip = $('skip-probes') && $('skip-probes').checked;
+    if (skip) {
+      reach = P.classifyReachability([], { cloud: cfg.cloud, skipProbes: true });
+      $('reach-status').textContent = 'Browser reachability probes skipped (zero-probe mode).';
+      renderReachability();
+      return;
+    }
+    var targetHosts = P.reachabilityHostsForCloud(cfg.cloud);
     $('reach-run').disabled = true;
-    $('reach-status').textContent = 'Checking ' + P.REACHABILITY_HOSTS.length + ' hosts...';
+    $('reach-status').textContent = 'Checking ' + targetHosts.length + ' hosts...';
     var results = [];
-    Promise.all(P.REACHABILITY_HOSTS.map(function (h) {
+    Promise.all(targetHosts.map(function (h) {
       return measure(h.host).then(function (m) { results.push({ host: h.host, median: m }); }, function () { results.push({ host: h.host, median: null }); });
     })).then(function () {
-      reach = P.classifyReachability(results);
+      reach = P.classifyReachability(results, { cloud: cfg.cloud });
       save('reachability', { status: reach.status, checkedAt: new Date().toISOString() });
       $('reach-run').disabled = false; $('reach-run').textContent = 'Check again';
       $('reach-status').textContent = 'Checked just now.';
@@ -1530,15 +1613,16 @@
     });
   }
   function renderReachability() {
-    var r = reach || P.classifyReachability([]), last = load('reachability', null);
-    var label = { reachable: 'reachable', partial: 'partly reachable', blocked: 'blocked', unknown: 'not checked' };
-    $('reach-summary').textContent = reach ? label[r.status] : (last && label[last.status] ? label[last.status] + ' (last check)' : 'not checked');
+    var skip = $('skip-probes') && $('skip-probes').checked;
+    var r = reach || P.classifyReachability([], { cloud: cfg.cloud, skipProbes: skip }), last = load('reachability', null);
+    var label = { reachable: 'reachable', partial: 'partly reachable', blocked: 'blocked', skipped: 'skipped (zero-probe)', unknown: 'not checked' };
+    $('reach-summary').textContent = reach ? label[r.status] : (skip ? label.skipped : (last && label[last.status] ? label[last.status] + ' (last check)' : 'not checked'));
     $('reach-limits').textContent = r.limits;
-    if (!reach) return;
+    if (!reach && !skip) return;
     $('reach-results').classList.remove('hidden');
     var strong = $('reach-headline').querySelector('strong');
     strong.textContent = r.headline;
-    strong.className = r.status === 'reachable' ? 'good' : r.status === 'partial' ? 'ok' : 'poor';
+    strong.className = r.status === 'reachable' ? 'good' : (r.status === 'partial' || r.status === 'skipped') ? 'ok' : 'poor';
     $('reach-guidance').textContent = r.guidance;
     var tbody = $('reach-rows'); tbody.textContent = '';
     r.hosts.forEach(function (h) {
@@ -1547,7 +1631,7 @@
         var td = document.createElement('td'); td.textContent = t;
         if (c === 1) td.style.whiteSpace = 'normal';
         if (c === 2) td.className = 'num';
-        if (c === 3) td.className = h.reached ? 'good' : 'poor';
+        if (c === 3) td.className = h.reached ? 'good' : h.reached === false ? 'poor' : 'muted';
         tr.appendChild(td);
       });
       tbody.appendChild(tr);
@@ -1559,7 +1643,8 @@
   function renderLaunch() {
     var t = cfg.launch, hint = cfg.testUserUpn && $('launch-hint').checked ? cfg.testUserUpn : '';
     var url = P.launchUrl(t, { tenant: $('launch-tenant').checked, loginHint: hint });
-    $('launch-link').href = url || 'https://windows.cloud.microsoft';
+    var defaultWebClient = P.validCloud(cfg.cloud) === 'usgov' ? 'https://rdweb.wvd.azure.us/arm/webclient' : 'https://windows.cloud.microsoft';
+    $('launch-link').href = url || defaultWebClient;
     $('launch-link').textContent = url ? 'Open the desktop' : 'Open the web client';
     $('launch-status').textContent = url
       ? 'Opens the Desktop' + (t.workspace ? ' in workspace ' + t.workspace : '') + ' directly in the web client, from the IDs the last post-deployment or demo run reported.'

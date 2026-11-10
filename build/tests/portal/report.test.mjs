@@ -191,3 +191,22 @@ test('maskSecrets: hides only the secrets, keeps what the analysis reads, and is
   // redact() still counts the secrets it found.
   assert.equal(R.redact(sample).counts.secret, m.count);
 });
+
+test('redact: US Gov .onmicrosoft.us tenants, .core.usgovcloudapi.net storage, and .vault.usgovcloudapi.net key vaults', () => {
+  const govSample = [
+    'Signed in as operator@agencygov.onmicrosoft.us on tenant agencygov.onmicrosoft.us',
+    'Storage endpoint: https://stgovavdlzprod01.file.core.usgovcloudapi.net/profiles',
+    'Key Vault URI: https://kvgovavdlzprod01.vault.usgovcloudapi.net/',
+    'Public docs: https://portal.azure.us and https://rdweb.wvd.azure.us/arm/webclient and https://graph.microsoft.us'
+  ].join('\n');
+  const r = R.redact(govSample);
+  assert.ok(!r.text.includes('agencygov'), 'redacts .onmicrosoft.us tenant slug');
+  assert.ok(!r.text.includes('stgovavdlzprod01'), 'redacts .core.usgovcloudapi.net storage account name');
+  assert.ok(!r.text.includes('kvgovavdlzprod01'), 'redacts .vault.usgovcloudapi.net key vault name');
+  assert.match(r.text, /<tenant-\d+>\.onmicrosoft\.us/);
+  assert.match(r.text, /<storage-\d+>\.file\.core\.usgovcloudapi\.net/);
+  assert.match(r.text, /<vault-\d+>\.vault\.usgovcloudapi\.net/);
+  assert.ok(r.text.includes('portal.azure.us'), 'preserves portal.azure.us');
+  assert.ok(r.text.includes('rdweb.wvd.azure.us'), 'preserves rdweb.wvd.azure.us');
+  assert.ok(r.text.includes('graph.microsoft.us'), 'preserves graph.microsoft.us');
+});

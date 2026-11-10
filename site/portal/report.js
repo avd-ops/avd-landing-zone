@@ -59,9 +59,12 @@
     'a7a5847a-7511-4e4e-90b1-45ad2a002f51'
   ];
   // Values the repo ships with: not private, and keeping them keeps reports readable.
-  var DEFAULT_VALUES = ['avdlz', 'avd users', 'avd admins', 'dev', 'test', 'prod', 'northcentralus'];
+  var DEFAULT_VALUES = ['avdlz', 'avd users', 'avd admins', 'dev', 'test', 'prod', 'northcentralus', 'usgovvirginia', 'usgovarizona', 'usgovtexas', 'commercial', 'usgov', 'standard', 'itar-cui'];
   // Domains that are not the operator's.
-  var PUBLIC_DOMAINS = ['microsoft.com', 'windows.net', 'azure.com', 'azure.net', 'contoso.com', 'example.com', 'github.com', 'github.io', 'cloud.microsoft', 'microsoftonline.com'];
+  var PUBLIC_DOMAINS = [
+    'microsoft.com', 'windows.net', 'azure.com', 'azure.net', 'contoso.com', 'example.com', 'github.com', 'github.io', 'cloud.microsoft', 'microsoftonline.com',
+    'azure.us', 'usgovcloudapi.net', 'microsoftonline.us', 'microsoft.us', 'sharepoint.com', 'sharepoint.us', 'dynamics.com', 'appsplatform.us'
+  ];
 
   var LABELS = {
     secret: 'secret or token', email: 'email address / UPN', domain: 'domain', tenant: 'tenant name', id: 'ID',
@@ -160,10 +163,10 @@
     var domains = [];
     text = text.replace(/[A-Za-z0-9._%+#-]+@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})\b/g, function (all, domain) {
       var d = domain.toLowerCase();
-      if (!/onmicrosoft\.com$/.test(d) && PUBLIC_DOMAINS.indexOf(d) < 0 && domains.indexOf(d) < 0) domains.push(d);
+      if (!/onmicrosoft\.(?:com|us)$/.test(d) && PUBLIC_DOMAINS.indexOf(d) < 0 && domains.indexOf(d) < 0) domains.push(d);
       return token('email', all);
     });
-    text = text.replace(/\b([A-Za-z0-9-]+)(\.onmicrosoft\.com)\b/gi, function (all, t, rest) { return token('tenant', t) + rest; });
+    text = text.replace(/\b([A-Za-z0-9-]+)(\.onmicrosoft\.(?:com|us))\b/gi, function (all, t, rest) { return token('tenant', t) + rest; });
     replaceTerms('domain', domains);
 
     // 4. Subscription names (printed in quotes by the scripts, and in the state line's data).
@@ -181,8 +184,8 @@
     // 5. Globally unique resource names: storage accounts and key vaults (st/kv + prefix + env + suffix),
     //    and their host names. Private endpoint zones (privatelink.*) are the same everywhere.
     text = text
-      .replace(/\b(?!privatelink\b)([a-z0-9]{3,24})(\.(?:file|blob|queue|table|dfs|web)\.core\.windows\.net)\b/g, function (a, n, rest) { return token('storage', n) + rest; })
-      .replace(/\b(?!privatelink\b)([a-z0-9-]{3,24})(\.vault\.azure\.net)\b/g, function (a, n, rest) { return token('vault', n) + rest; })
+      .replace(/\b(?!privatelink\b)([a-z0-9]{3,24})(\.(?:file|blob|queue|table|dfs|web)\.core\.(?:windows|usgovcloudapi)\.net)\b/g, function (a, n, rest) { return token('storage', n) + rest; })
+      .replace(/\b(?!privatelink\b)([a-z0-9-]{3,24})(\.vault(?:core)?\.(?:azure|usgovcloudapi)\.net)\b/g, function (a, n, rest) { return token('vault', n) + rest; })
       .replace(/\bst[a-z0-9]{0,15}?(?:dev|test|prod)[a-z0-9]{4,}\b/g, function (n) { return token('storage', n); })
       .replace(/\bkv[a-z0-9]{0,15}?(?:dev|test|prod)[a-z0-9]{4,}\b/g, function (n) { return token('vault', n); });
 
