@@ -463,7 +463,7 @@ Describe 'Operator jumpbox through Bastion Developer (decision 0019)' {
     $m = $raw | ConvertFrom-Json -Depth 50 -AsHashtable
     $all = if ($m['resources'] -is [System.Collections.IDictionary]) { @($m['resources'].Values) } else { @($m['resources']) }
     $b = @($all | Where-Object { $_['type'] -eq 'Microsoft.Network/bastionHosts' })[0]
-    $b['sku']['name'] | Should -Be 'Developer'
+    $b['sku']['name'] | Should -Be "[if(equals(parameters('cloud'), 'usgov'), 'Basic', 'Developer')]"
     $b['properties']['virtualNetwork']['id'] | Should -Be "[parameters('vnetResourceId')]"
     $b['properties'].Keys | Should -Not -Contain 'ipConfigurations'
     $raw | Should -Not -Match 'Microsoft.Network/publicIPAddresses'
