@@ -134,7 +134,7 @@ $env:FAKE_JUMPBOX_VM_ERROR = ''
 # --ids don't, and az's selected subscription is never changed.
 function Write-SubscriptionCalls([string] $Step) {
   $lines = @(Get-Content $log -ErrorAction SilentlyContinue | Where-Object { $_ -like 'az *' })
-  $arm = @($lines | Where-Object { $_ -notmatch '^az (bicep|ad|rest) ' -and $_ -notmatch ' --ids ' -and $_ -notmatch '^az account show( --query (name|id|tenantId) -o tsv)?$' })
+  $arm = @($lines | Where-Object { $_ -notmatch '^az (bicep|ad|rest|cloud) ' -and $_ -notmatch ' --ids ' -and $_ -notmatch '^az account show( --query (name|id|tenantId) -o tsv)?$' })
   Write-Host "RESULT $Step-arm-without-s $(@($arm | Where-Object { $_ -notmatch ' --subscription other-sub$' }).Count)"
   Write-Host "RESULT $Step-arm-with-s $(@($arm | Where-Object { $_ -match ' --subscription other-sub$' }).Count)"
   Write-Host "RESULT $Step-graph-with-s $(@($lines | Where-Object { $_ -match '^az (ad|rest) ' -and $_ -match '--subscription' }).Count)"

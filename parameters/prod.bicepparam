@@ -11,6 +11,8 @@ param location = empty(readEnvironmentVariable('AVD_LOCATION', ''))
   : readEnvironmentVariable('AVD_LOCATION', '')
 // Recovery region the guardrails also allow (build/specs/recovery-spec.md); empty: none.
 param recoveryLocation = readEnvironmentVariable('AVD_RECOVERY_LOCATION', '')
+param cloud = empty(readEnvironmentVariable('AVD_CLOUD', '')) ? 'commercial' : readEnvironmentVariable('AVD_CLOUD', '')
+param complianceProfile = empty(readEnvironmentVariable('AVD_COMPLIANCE_PROFILE', '')) ? (empty(readEnvironmentVariable('AVD_CLOUD', '')) || readEnvironmentVariable('AVD_CLOUD', '') == 'commercial' ? 'standard' : 'itar-cui') : readEnvironmentVariable('AVD_COMPLIANCE_PROFILE', '')
 
 // ---- Identity (Entra ID) ----
 param avdUsersGroupObjectId = readEnvironmentVariable('AVD_USERS_GROUP_ID')

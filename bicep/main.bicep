@@ -35,6 +35,20 @@ param environmentName string
 @description('Azure region for all regional resources.')
 param location string = deployment().location
 
+@description('Target Azure cloud environment (commercial or usgov).')
+@allowed([
+  'commercial'
+  'usgov'
+])
+param cloud string = 'commercial'
+
+@description('Compliance profile applied to the landing zone (standard or itar-cui).')
+@allowed([
+  'standard'
+  'itar-cui'
+])
+param complianceProfile string = (cloud == 'usgov' ? 'itar-cui' : 'standard')
+
 @description('Extra tags merged onto every resource group and resource.')
 param tags object = {}
 
@@ -331,12 +345,20 @@ var roleIds = {
 var baseName = '${cleanPrefix}-${environmentName}'
 var uniq = uniqueString(subscription().id, cleanPrefix, environmentName, location)
 
+var defaultStandardRdpProperties = 'enablerdsaadauth:i:1;targetisaadjoined:i:1;drivestoredirect:s:;usbdevicestoredirect:s:;redirectcomports:i:0;redirectsmartcards:i:1;redirectprinters:i:1;redirectclipboard:i:1;redirectwebauthn:i:1;audiomode:i:0;audiocapturemode:i:1;camerastoredirect:s:*;use multimon:i:1'
+var defaultItarCuiRdpProperties = 'drivestoredirect:s:;usbdevicestoredirect:s:;redirectcomports:i:0;redirectclipboard:i:0;redirectprinters:i:0;redirectsmartcards:i:1;redirectwebauthn:i:1;audiomode:i:0;audiocapturemode:i:0;camerastoredirect:s:;use multimon:i:1;enablerdsaadauth:i:1;targetisaadjoined:i:1'
+var effectiveRdpProperties = complianceProfile == 'itar-cui' && rdpProperties == defaultStandardRdpProperties
+  ? defaultItarCuiRdpProperties
+  : rdpProperties
+
 var allTags = union(
   {
     workload: 'avd'
     environment: environmentName
     managedBy: 'bicep'
     landingZone: 'avd-cloud-native'
+    cloud: cloud
+    complianceProfile: complianceProfile
   },
   tags
 )
@@ -536,6 +558,8 @@ module governance 'modules/governance.bicep' = {
     alertEmailAddresses: alertEmailAddresses
     budgetActionGroupId: autoShutdownOnBudget ? autoShutdown!.outputs.budgetActionGroupId : ''
     budgetActionPercent: autoShutdownBudgetPercent
+    cloud: cloud
+    complianceProfile: complianceProfile
   }
 }
 
@@ -598,6 +622,7 @@ module privateDns 'modules/privateDns.bicep' = if (deployAnyLocalDns) {
     deployKeyVaultZone: deployKeyVaultZone
     deployAvdZone: deployAvdZone
     deployAvdGlobalZone: deployAvdGlobalZone
+    cloud: cloud
   }
 }
 
@@ -680,7 +705,7 @@ module additionalControlPlanePools 'modules/additionalPool.bicep' = [
       baseName: baseName
       pool: pool
       defaultMaxSessionLimit: maxSessionLimit
-      defaultRdpProperties: rdpProperties
+      defaultRdpProperties: effectiveRdpProperties
       defaultValidationEnvironment: validationEnvironment
       defaultStartVmOnConnect: startVmOnConnect
       defaultScalingTimeZone: scalingTimeZone
@@ -707,7 +732,7 @@ module controlPlane 'modules/controlPlane.bicep' = {
     workspaceName: primaryWorkspaceName
     scalingPlanName: primaryScalingPlanName
     maxSessionLimit: maxSessionLimit
-    rdpProperties: rdpProperties
+    rdpProperties: effectiveRdpProperties
     validationEnvironment: validationEnvironment
     enableAvdPrivateLink: enableAvdConnectionPl
     privateEndpointSubnetResourceId: network.outputs.privateEndpointSubnetResourceId
@@ -729,6 +754,8 @@ module controlPlane 'modules/controlPlane.bicep' = {
     additionalAppGroups: effectiveExtraAppGroups
     additionalWorkspaces: effectiveExtraWorkspaces
     primaryWorkspaceExtraAppGroupNames: primaryWorkspaceExtraAgNames
+    cloud: cloud
+    complianceProfile: complianceProfile
   }
 }
 
@@ -858,6 +885,7 @@ module bastion 'modules/bastionDeveloper.bicep' = if (deployJumpbox) {
     name: names.bastion
     vnetResourceId: network.outputs.vnetResourceId
     adminsGroupObjectId: avdAdminsGroupObjectId
+    cloud: cloud
   }
 }
 

@@ -12,6 +12,13 @@ param vnetResourceId string
 @description('Entra group of AVD operators: Reader on this Bastion, which a connection needs.')
 param adminsGroupObjectId string
 
+@description('Target Azure cloud environment (commercial or usgov). Bastion Developer is not offered in US Gov regions; Basic SKU is used when cloud == usgov.')
+@allowed([
+  'commercial'
+  'usgov'
+])
+param cloud string = 'commercial'
+
 var readerRoleId = 'acdd72a7-3385-48ef-bd42-f606fba81ae7'
 
 resource bastion 'Microsoft.Network/bastionHosts@2024-07-01' = {
@@ -19,7 +26,7 @@ resource bastion 'Microsoft.Network/bastionHosts@2024-07-01' = {
   location: location
   tags: tags
   sku: {
-    name: 'Developer'
+    name: cloud == 'usgov' ? 'Basic' : 'Developer'
   }
   properties: {
     virtualNetwork: {

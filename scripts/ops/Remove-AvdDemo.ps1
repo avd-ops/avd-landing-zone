@@ -54,6 +54,7 @@
 param(
   [Parameter(Mandatory)][ValidateLength(2, 8)][string] $NamePrefix,
   [Parameter(Mandatory)][ValidateSet('dev', 'test', 'prod')][string] $Environment,
+  [ValidateSet('commercial', 'usgov')][string] $Cloud = $(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' }),
   [string] $SubscriptionId,
   [switch] $IncludeLandingZone,
   # Remove the operator jumpbox and its Bastion Developer (decision 0019). Its disk may hold the only
@@ -73,7 +74,8 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'AvdLandingZone.psm1') -Force
 if ($Force) { $ConfirmPreference = 'None' }
 
-$ctx = Initialize-AvdAzContext -SubscriptionId $SubscriptionId
+$env:AVD_CLOUD = $Cloud
+$ctx = Initialize-AvdAzContext -SubscriptionId $SubscriptionId -Cloud $Cloud
 $lz = Get-AvdLandingZone -NamePrefix $NamePrefix -Environment $Environment
 $sub = "/subscriptions/$($lz.SubscriptionId)"
 Clear-AvdCheckResult

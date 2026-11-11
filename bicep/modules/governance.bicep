@@ -24,6 +24,20 @@ param alertEmailAddresses string[]
 param budgetActionGroupId string = ''
 param budgetActionPercent int = 100
 
+@description('Target Azure cloud environment (commercial or usgov).')
+@allowed([
+  'commercial'
+  'usgov'
+])
+param cloud string = 'commercial'
+
+@description('Compliance profile applied to the landing zone (standard or itar-cui).')
+@allowed([
+  'standard'
+  'itar-cui'
+])
+param complianceProfile string = (cloud == 'usgov' ? 'itar-cui' : 'standard')
+
 // Built-in policy definitions.
 resource allowedLocationsDefinition 'Microsoft.Authorization/policyDefinitions@2023-04-01' existing = {
   scope: tenant()
@@ -44,6 +58,8 @@ var tagContributorRoleId = '4a9ae827-6dc8-4573-8ac7-8239d42aa03f'
 var assignmentMetadata = {
   assignedBy: 'AVD landing zone (Bicep)'
   source: 'https://github.com/avd-ops/avd-landing-zone'
+  cloud: cloud
+  complianceProfile: complianceProfile
 }
 var governedTags = [
   'environment'

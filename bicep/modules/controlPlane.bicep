@@ -65,6 +65,20 @@ param additionalWorkspaces array = []
 @description('Extra application group names (from additionalAppGroups) assigned to the primary workspace.')
 param primaryWorkspaceExtraAppGroupNames string[] = []
 
+@description('Target Azure cloud environment (commercial or usgov).')
+@allowed([
+  'commercial'
+  'usgov'
+])
+param cloud string = 'commercial'
+
+@description('Compliance profile applied to the landing zone (standard or itar-cui).')
+@allowed([
+  'standard'
+  'itar-cui'
+])
+param complianceProfile string = (cloud == 'usgov' ? 'itar-cui' : 'standard')
+
 var roles = {
   desktopVirtualizationUser: '1d18fff3-a72a-46b5-b4a9-0b38a3cd7e63'
   powerOnOffContributor: '40c5ff49-9181-41f8-ae61-143b0e78555e'
@@ -74,6 +88,10 @@ var diagnostics = [
     workspaceResourceId: logAnalyticsWorkspaceResourceId
   }
 ]
+var controlPlaneTags = union(tags, {
+  cloud: cloud
+  complianceProfile: complianceProfile
+})
 
 var primaryPoolType = (primaryPool.?hostPoolType ?? 'Pooled') == 'Personal' ? 'Personal' : 'Pooled'
 var primaryPersonalAssignment = (primaryPool.?personalDesktopAssignmentType ?? 'Automatic') == 'Direct' ? 'Direct' : 'Automatic'
@@ -106,7 +124,7 @@ module hostPool 'br/public:avm/res/desktop-virtualization/host-pool:0.8.1' = {
   params: {
     name: hostPoolName
     location: location
-    tags: union(tags, hostPoolStateTags, primaryStartOnConnect ? {} : { 'avdlz-start-vm-on-connect': 'false' })
+    tags: union(controlPlaneTags, hostPoolStateTags, primaryStartOnConnect ? {} : { 'avdlz-start-vm-on-connect': 'false' })
     friendlyName: primaryHpFriendlyName
     hostPoolType: primaryPoolType
     personalDesktopAssignmentType: primaryPoolType == 'Personal' ? primaryPersonalAssignment : null

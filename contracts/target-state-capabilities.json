@@ -2,6 +2,8 @@
   "renderer": "lz-cloudnative",
   "description": "What avd-landing-zone can deploy from an avd-target-state/v1 manifest (contracts C14). The factory reads this file at its pinned commit to pick a renderer and list gaps; scripts/ops/ConvertFrom-AvdTargetState.ps1 refuses anything outside it.",
   "factRegisterVersions": [1],
+  "clouds": ["commercial", "usgov"],
+  "complianceProfiles": ["standard", "itar-cui"],
   "identity": ["EntraOnly"],
   "network": ["Standalone"],
   "hostPoolsPerLandingZone": 1,

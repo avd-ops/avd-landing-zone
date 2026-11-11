@@ -25,26 +25,30 @@
 param(
   # The operator app's client ID; defaults to $env:AVD_GRAPH_CLIENT_ID. Kept in $env for the scripts run after this one.
   [string] $ClientId,
-  [string] $SubscriptionId
+  [string] $SubscriptionId,
+  [ValidateSet('commercial', 'usgov')][string] $Cloud = $(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' })
 )
 
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'AvdLandingZone.psm1') -Force
 
-$null = Initialize-AvdAzContext -SubscriptionId $SubscriptionId
+$env:AVD_CLOUD = $Cloud
+$azCtx = Initialize-AvdAzContext -SubscriptionId $SubscriptionId -Cloud $Cloud
 Clear-AvdCheckResult
 if ($ClientId) { $env:AVD_GRAPH_CLIENT_ID = Get-AvdGraphClientId -ClientId $ClientId }
 
 Write-AvdSection 'Microsoft Graph'
-try { Connect-AvdGraph -Purpose SignIn }
+$deviceLoginUrl = if ($Cloud -eq 'usgov') { 'https://microsoft.com/deviceloginus' } else { 'https://microsoft.com/devicelogin' }
+try { Connect-AvdGraph -Purpose SignIn -Cloud $Cloud }
 catch {
-  Add-AvdCheckResult 'Microsoft Graph' 'Signed in to Microsoft Graph' 'Fail' -Detail $_.Exception.Message -Remediation 'Run this again; the device code lasts 120 seconds. Open https://microsoft.com/devicelogin first.'
+  Add-AvdCheckResult 'Microsoft Graph' 'Signed in to Microsoft Graph' 'Fail' -Detail $_.Exception.Message -Remediation "Run this again; the device code lasts 120 seconds. Open $deviceLoginUrl first."
   $null = Write-AvdSummary
   exit 1
 }
 
 # A sign-in is only trusted after a real request (lesson 0007).
 $ctx = Get-MgContext
+$null = Assert-AvdCloudEnvironment -Cloud $Cloud -AzContext $azCtx -MgContext $ctx
 $app = if ($ctx.ClientId -and $ctx.ClientId -eq $env:AVD_GRAPH_CLIENT_ID) { "the avd-opsbot app ($($ctx.ClientId))" }
 elseif ($ctx.ClientId -eq '14d82eec-204b-4c2f-b7e8-296a70dab67e') { "Microsoft's default app (Microsoft Graph Command Line Tools); set AVD_GRAPH_CLIENT_ID to use the operator app" }
 else { "app $($ctx.ClientId)" }

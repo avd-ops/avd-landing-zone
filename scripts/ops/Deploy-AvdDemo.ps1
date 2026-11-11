@@ -41,6 +41,7 @@
 param(
   [Parameter(Mandatory)][ValidateLength(2, 8)][string] $NamePrefix,
   [Parameter(Mandatory)][ValidateSet('dev', 'test', 'prod')][string] $Environment,
+  [ValidateSet('commercial', 'usgov')][string] $Cloud = $(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' }),
   [string] $SubscriptionId,
 
   # Empty: the same size as the landing zone's session hosts (memory-optimized E-series by default).
@@ -67,7 +68,8 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'AvdLandingZone.psm1') -Force
 $template = Join-Path $PSScriptRoot '../../bicep/demo/main.bicep' | Resolve-Path
 
-$ctx = Initialize-AvdAzContext -SubscriptionId $SubscriptionId
+$env:AVD_CLOUD = $Cloud
+$ctx = Initialize-AvdAzContext -SubscriptionId $SubscriptionId -Cloud $Cloud
 Write-Host "AVD demo deployment - $NamePrefix/$Environment in '$($ctx.Subscription.Name)'" -ForegroundColor White
 Clear-AvdCheckResult
 $lz = Get-AvdLandingZone -NamePrefix $NamePrefix -Environment $Environment
@@ -98,7 +100,7 @@ if (-not $SessionHostVmSize) {
   if (-not $SessionHostVmSize) { $SessionHostVmSize = 'Standard_E4as_v5' }
 }
 if (-not $SkipPreflight) {
-  Invoke-AvdReadinessCheck -Lz $lz -VmSize $SessionHostVmSize -VmCount $SessionHostCount -SkipNtfs
+  Invoke-AvdReadinessCheck -Lz $lz -VmSize $SessionHostVmSize -VmCount $SessionHostCount -Cloud $Cloud -SkipNtfs
   $pre = Write-AvdSummary
   if ($pre.Failed -and -not $Force) {
     throw "Preflight reported $($pre.Failed) failure(s). Fix them (Test-AvdLandingZoneReadiness.ps1 -Fix) or rerun with -Force."

@@ -27,9 +27,62 @@
     { id: 'verify', title: 'Verify access' }
   ];
 
+  var CLOUDS = {
+    commercial: {
+      id: 'commercial',
+      label: 'Commercial (AzureCloud)',
+      azEnvironment: 'AzureCloud',
+      azCliCloud: 'AzureCloud',
+      graphEnvironment: 'Global',
+      defaultRegion: 'northcentralus',
+      defaultComplianceProfile: 'standard',
+      webClientUrl: 'https://windows.cloud.microsoft',
+      deviceLoginUrl: 'https://microsoft.com/devicelogin',
+      portalUrl: 'https://portal.azure.com',
+      cloudShellUrl: 'https://shell.azure.com/powershell',
+      regions: null
+    },
+    usgov: {
+      id: 'usgov',
+      label: 'Azure US Gov / GCC High',
+      azEnvironment: 'AzureUSGovernment',
+      azCliCloud: 'AzureUSGovernment',
+      graphEnvironment: 'USGov',
+      defaultRegion: 'usgovvirginia',
+      defaultComplianceProfile: 'itar-cui',
+      webClientUrl: 'https://rdweb.wvd.azure.us/arm/webclient',
+      deviceLoginUrl: 'https://microsoft.us/devicelogin',
+      portalUrl: 'https://portal.azure.us',
+      cloudShellUrl: 'https://portal.azure.us/#cloudshell/',
+      regions: ['usgovvirginia', 'usgovarizona', 'usgovtexas']
+    }
+  };
+  var USGOV_REGIONS = [
+    ['usgovvirginia', 'US Gov Virginia', 'US Government', 'usgovvirginia.api.cognitive.microsoft.us'],
+    ['usgovarizona', 'US Gov Arizona', 'US Government', 'usgovarizona.api.cognitive.microsoft.us'],
+    ['usgovtexas', 'US Gov Texas', 'US Government', 'usgovtexas.api.cognitive.microsoft.us']
+  ];
+
+  function validCloud(v) {
+    if (v === null || v === undefined || v === '') return 'commercial';
+    var s = String(v).trim().toLowerCase();
+    if (s === 'usgov' || s === 'azureusgovernment' || s === 'gcchigh' || s === 'gcc-high') return 'usgov';
+    if (s === 'commercial' || s === 'azurecloud') return 'commercial';
+    return null;
+  }
+
+  function validComplianceProfile(v, cloud) {
+    if (v === null || v === undefined || v === '') return validCloud(cloud) === 'usgov' ? 'itar-cui' : 'standard';
+    var s = String(v).trim().toLowerCase();
+    if (s === 'itar-cui' || s === 'standard') return s;
+    return null;
+  }
+
   var DEFAULTS = {
     repoUrl: 'https://github.com/avd-ops/avd-landing-zone',
     parameterFile: 'parameters/dev.bicepparam',
+    cloud: 'commercial',
+    complianceProfile: 'standard',
     location: 'northcentralus',
     usersGroup: 'AVD Users',
     adminsGroup: 'AVD Admins',
@@ -75,6 +128,8 @@
   // dev/test/prod) and Azure's region names; group names and the UPN are also single-quoted in the command.
   var SETTINGS = {
     parameterFile: /^parameters\/[a-z][a-z0-9-]{0,39}\.bicepparam$/,
+    cloud: /^(commercial|usgov)$/,
+    complianceProfile: /^(standard|itar-cui)$/,
     location: /^[a-z][a-z0-9]{2,39}$/,
     usersGroup: /^[^\x00-\x1f\x7f]{1,256}$/,
     adminsGroup: /^[^\x00-\x1f\x7f]{1,256}$/,
@@ -317,6 +372,19 @@
         startVmOnConnect: true, deployScalingPlan: true, scalingTimeZone: 'UTC',
         encryptionAtHost: true, enrollInIntune: true, enablePrivateEndpoint: true, publicNetworkAccess: 'Disabled'
       }
+    },
+    'itar-cui': {
+      id: 'itar-cui',
+      label: 'ITAR / CUI Sovereign Lockdown (NIST 800-171 / CMMC L2)',
+      description: 'Zero public network access (Private Link only), locked-down RDP properties (no clipboard, drive, printer, USB, smartcard, or camera redirection), and Encryption at Host enabled for Azure US Government / GCC High.',
+      settings: {
+        type: 'pooled', hostPoolType: 'Pooled', personalDesktopAssignmentType: 'Automatic',
+        loadBalancerType: 'DepthFirst', preferredAppGroupType: 'Desktop',
+        workload: 'medium', vmSize: 'Standard_E8as_v5', profileGiBPerUser: 5, fslogixProfileSizeMiB: 30720,
+        rdpProperties: LOCKED_DOWN_RDP_PROPERTIES, validationEnvironment: false,
+        startVmOnConnect: true, deployScalingPlan: true, scalingTimeZone: 'UTC',
+        encryptionAtHost: true, enrollInIntune: true, enablePrivateEndpoint: true, publicNetworkAccess: 'Disabled'
+      }
     }
   };
 
@@ -343,6 +411,17 @@
     avd: { key: 'avd', zoneName: 'privatelink.wvd.microsoft.com', label: 'AVD Connection & Feed (host pools & workspaces)' },
     avdGlobal: { key: 'avdGlobal', zoneName: 'privatelink-global.wvd.microsoft.com', label: 'AVD Global Discovery (workspace global endpoint)' }
   };
+
+  var DNS_ZONE_DEFINITIONS_USGOV = {
+    file: { key: 'file', zoneName: 'privatelink.file.core.usgovcloudapi.net', label: 'Azure Files US Gov (FSLogix profiles)' },
+    keyVault: { key: 'keyVault', zoneName: 'privatelink.vaultcore.usgovcloudapi.net', label: 'Key Vault US Gov (break-glass secret)' },
+    avd: { key: 'avd', zoneName: 'privatelink.wvd.azure.us', label: 'AVD US Gov Connection & Feed (host pools & workspaces)' },
+    avdGlobal: { key: 'avdGlobal', zoneName: 'privatelink-global.wvd.azure.us', label: 'AVD US Gov Global Discovery (workspace global endpoint)' }
+  };
+
+  function dnsZonesForCloud(cloud) {
+    return validCloud(cloud) === 'usgov' ? DNS_ZONE_DEFINITIONS_USGOV : DNS_ZONE_DEFINITIONS;
+  }
 
   var PRIVATE_LINK_DEFAULTS = {
     enableConnectionPrivateEndpoint: true,
@@ -994,10 +1073,21 @@
     return cfg && cfg.record ? ['Remove-Item Env:AVDLZ_RECORD, Env:AVDLZ_RUN_ID -ErrorAction SilentlyContinue'] : [];
   }
   function block(cfg, lines) { return [preamble(cfg)].concat(recordEnv(cfg), lines).join('\n'); }
+  function cloudArgs(cfg, ps) {
+    var c = validCloud(cfg && cfg.cloud);
+    if (c !== 'usgov') return '';
+    return ps ? ' -Cloud usgov' : ' --cloud usgov';
+  }
+  function complianceArgs(cfg, ps) {
+    var cp = validComplianceProfile(cfg && cfg.complianceProfile, cfg && cfg.cloud);
+    var c = validCloud(cfg && cfg.cloud);
+    if (c !== 'usgov' && cp === 'standard') return '';
+    return ps ? ' -ComplianceProfile ' + cp : ' --compliance-profile ' + cp;
+  }
   // Steps that use Microsoft Graph sign in first, once for the session; the scripts reuse the sign-in (decision 0016).
   function signIn(cfg) {
     var id = String(cfg.graphClientId || '').trim();
-    return './scripts/ops/Connect-AvdLandingZone.ps1' + (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? ' -ClientId ' + psQuote(id) : '');
+    return './scripts/ops/Connect-AvdLandingZone.ps1' + cloudArgs(cfg, true) + (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id) ? ' -ClientId ' + psQuote(id) : '');
   }
 
   // Sizing flags, only once a sizing is set: the preflight validates and prices it, deploy.sh deploys it,
@@ -1009,14 +1099,14 @@
       return (s ? ' -SessionHostCount ' + s.hosts + ' -SessionHostVmSize ' + s.vmSize + ' -MaxSessionLimit ' + s.maxSessions + ' -ProfileShareQuotaGiB ' + s.profileQuotaGiB : '') +
         powerArgs(cfg, true) + (s || cfg.power ? ' -ActiveHoursPerWeek ' + pricedHours(cfg) : '') + topologyArgs(cfg, true);
     },
-    deploy: function (cfg) { var s = sized(cfg); return (s ? ' --hosts ' + s.hosts + ' --vm-size ' + s.vmSize + ' --max-sessions ' + s.maxSessions + ' --profile-quota ' + s.profileQuotaGiB : '') + powerArgs(cfg, false) + topologyArgs(cfg, false); },
+    deploy: function (cfg) { var s = sized(cfg); return (s ? ' --hosts ' + s.hosts + ' --vm-size ' + s.vmSize + ' --max-sessions ' + s.maxSessions + ' --profile-quota ' + s.profileQuotaGiB : '') + powerArgs(cfg, false) + topologyArgs(cfg, false) + cloudArgs(cfg, false) + complianceArgs(cfg, false); },
     postdeploy: function (cfg) { var s = sized(cfg); return s ? ' -SessionHostVmSize ' + s.vmSize + ' -SessionHostCount ' + s.hosts : ''; }
   };
 
   var cmd = {
     predeploy: function (cfg, fix) {
       return block(cfg, [signIn(cfg), './scripts/ops/Test-AvdLandingZoneReadiness.ps1 -PreDeployment -ParameterFile ' + cfg.parameterFile +
-        ' -Location ' + cfg.location + ' -UsersGroup ' + psQuote(cfg.usersGroup) + ' -AdminsGroup ' + psQuote(cfg.adminsGroup) + sizeArgs.predeploy(cfg) + (fix ? ' -Fix' : '')]);
+        ' -Location ' + cfg.location + cloudArgs(cfg, true) + ' -UsersGroup ' + psQuote(cfg.usersGroup) + ' -AdminsGroup ' + psQuote(cfg.adminsGroup) + sizeArgs.predeploy(cfg) + (fix ? ' -Fix' : '')]);
     },
     deploy: function (cfg) {
       return block(cfg, ['bash ./scripts/deploy/deploy.sh -p ' + cfg.parameterFile + ' -l ' + cfg.location +
@@ -1032,11 +1122,11 @@
     },
     postdeploy: function (cfg, fix) {
       return block(cfg, [signIn(cfg), './scripts/ops/Test-AvdLandingZoneReadiness.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment +
-        sizeArgs.postdeploy(cfg) + (fix ? ' -Fix -AllowHostStart' : '')]);
+        cloudArgs(cfg, true) + sizeArgs.postdeploy(cfg) + (fix ? ' -Fix -AllowHostStart' : '')]);
     },
     wellArchitected: function (cfg) {
       return block(cfg, ['./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment +
-        ' -WellArchitected -SkipTenant -SkipNtfs']);
+        cloudArgs(cfg, true) + ' -WellArchitected -SkipTenant -SkipNtfs']);
     },
     // Auto shutdown (decision 0011): Stop, Lock or Resume the session hosts by hand.
     power: function (cfg, action) {
@@ -1044,7 +1134,7 @@
     },
     demo: function (cfg) {
       return block(cfg, [signIn(cfg), './scripts/ops/Deploy-AvdDemo.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment +
-        (cfg.testUserUpn ? ' -TestUserUpn ' + psQuote(cfg.testUserUpn) : '')]);
+        cloudArgs(cfg, true) + (cfg.testUserUpn ? ' -TestUserUpn ' + psQuote(cfg.testUserUpn) : '')]);
     },
     // Verify access (decision 0014): confirm from Azure telemetry that a sign-in reached the desktop.
     // opts: user (default: the signed-in Azure user), demo, timeout (minutes).
@@ -1110,7 +1200,7 @@
       return block(cfg, ['./scripts/ops/Start-AvdRecoveryTest.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment]);
     },
     removeDemo: function (cfg) {
-      return block(cfg, [signIn(cfg), './scripts/ops/Remove-AvdDemo.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment]);
+      return block(cfg, [signIn(cfg), './scripts/ops/Remove-AvdDemo.ps1 -NamePrefix ' + cfg.namePrefix + ' -Environment ' + cfg.environment + cloudArgs(cfg, true)]);
     },
     // Quota increase through the Microsoft.Quota API; small requests are usually approved in minutes.
     quota: function (items) {
@@ -1157,7 +1247,8 @@
         './scripts/deploy/Invoke-AvdControlPlanes.ps1 -Planes ' + psQuote(csv) +
           ' -NamePrefix ' + c.namePrefix + ' -Environment ' + c.environment +
           ' -ParameterFile ' + c.parameterFile + ' -Location ' + c.location +
-          ' -UsersGroup ' + psQuote(c.usersGroup) + ' -AdminsGroup ' + psQuote(c.adminsGroup)
+          ' -UsersGroup ' + psQuote(c.usersGroup) + ' -AdminsGroup ' + psQuote(c.adminsGroup) +
+          cloudArgs(c, true) + complianceArgs(c, true)
       ]);
     },
     controlPlaneTeardown: function (cfg) {
@@ -1166,7 +1257,7 @@
       return block(c, [
         './scripts/deploy/Invoke-AvdControlPlanes.ps1 -Planes ' + psQuote(csv) +
           ' -NamePrefix ' + c.namePrefix + ' -Environment ' + c.environment +
-          ' -Teardown -DiscardLastCopy'
+          cloudArgs(c, true) + ' -Teardown -DiscardLastCopy'
       ]);
     }
   };
@@ -1185,20 +1276,23 @@
     var c = merge(DEFAULTS, cfg), p = CONTROL_PLANES[planeId];
     if (!p) return [];
     var clone = clonePlaneLines(planeId);
+    var cFlags = cloudArgs(c, true) + complianceArgs(c, true);
+    var cloudVal = validCloud(c.cloud);
+    var cpVal = validComplianceProfile(c.complianceProfile, c.cloud);
     if (planeId === 'entra') {
       return clone.concat([
         signIn(c),
-        'pwsh -NoLogo -NoProfile -File ~/avd-entra/scripts/Deploy-AvdEntra.ps1 -Prefix ' + psQuote(c.namePrefix) + ' -Environment ' + psQuote(c.environment) + ' -OutputPath ~/avd-landing-zone/entra-manifest.json -RunManifestPath ~/avd-landing-zone/entra-run-manifest.json'
+        'pwsh -NoLogo -NoProfile -File ~/avd-entra/scripts/Deploy-AvdEntra.ps1 -Prefix ' + psQuote(c.namePrefix) + ' -Environment ' + psQuote(c.environment) + cFlags + ' -OutputPath ~/avd-landing-zone/entra-manifest.json -RunManifestPath ~/avd-landing-zone/entra-run-manifest.json'
       ]);
     }
     if (planeId === 'intune') {
       return clone.concat([
-        'pwsh -NoLogo -NoProfile -File ~/avd-intune/scripts/Deploy-AvdIntune.ps1 -EntraManifestPath ~/avd-landing-zone/entra-manifest.json -OutputPath ~/avd-landing-zone/intune-manifest.json -RunManifestPath ~/avd-landing-zone/intune-run-manifest.json -Prefix ' + psQuote(c.namePrefix)
+        'pwsh -NoLogo -NoProfile -File ~/avd-intune/scripts/Deploy-AvdIntune.ps1 -EntraManifestPath ~/avd-landing-zone/entra-manifest.json -OutputPath ~/avd-landing-zone/intune-manifest.json -RunManifestPath ~/avd-landing-zone/intune-run-manifest.json -Prefix ' + psQuote(c.namePrefix) + cFlags
       ]);
     }
     if (planeId === 'm365') {
       return clone.concat([
-        'pwsh -NoLogo -NoProfile -File ~/avd-m365/scripts/Deploy-AvdM365.ps1 -EntraManifestPath ~/avd-landing-zone/entra-manifest.json -OutputPath ~/avd-landing-zone/m365-manifest.json -RunManifestPath ~/avd-landing-zone/m365-run-manifest.json'
+        'pwsh -NoLogo -NoProfile -File ~/avd-m365/scripts/Deploy-AvdM365.ps1 -EntraManifestPath ~/avd-landing-zone/entra-manifest.json -OutputPath ~/avd-landing-zone/m365-manifest.json -RunManifestPath ~/avd-landing-zone/m365-run-manifest.json' + cFlags
       ]);
     }
     if (planeId === 'azure') {
@@ -1207,13 +1301,13 @@
         'if (Test-Path ~/avd-landing-zone/entra-manifest.json) { $em = Get-Content ~/avd-landing-zone/entra-manifest.json -Raw | ConvertFrom-Json; $env:AVD_USERS_GROUP_ID = $em.groups.avdUsersGroupId; $env:AVD_ADMINS_GROUP_ID = $em.groups.avdAdminsGroupId }',
         'Set-Location ~/avd-azure; bash ./scripts/deploy/deploy.sh -p ' + c.parameterFile + ' -l ' + c.location +
           ' --users-group ' + psQuote(c.usersGroup) + ' --admins-group ' + psQuote(c.adminsGroup) + sizeArgs.deploy(c),
-        '$subId = (az account show --query id -o tsv); @{ schema = \'avd-ops-azure-outputs/v1\'; environment = ' + psQuote(c.environment) + '; location = ' + psQuote(c.location) + '; resourceGroups = @{ controlPlane = \'rg-' + base + '-avd\'; sessionHosts = \'rg-' + base + '-hosts\'; network = \'rg-' + base + '-network\'; storage = \'rg-' + base + '-storage\' }; hostPools = @(@{ name = \'vdpool-' + base + '\'; type = \'Pooled\'; workspace = \'vdws-' + base + '\'; appGroupIds = @("/subscriptions/$subId/resourceGroups/rg-' + base + '-avd/providers/Microsoft.DesktopVirtualization/applicationGroups/vdag-' + base + '-desktop") }); network = @{ vnetName = \'vnet-' + base + '\'; privateLinkEnabled = $true } } | ConvertTo-Json -Depth 6 | Set-Content -Path ~/avd-landing-zone/azure-outputs.json -Encoding utf8',
+        '$subId = (az account show --query id -o tsv); @{ schema = \'avd-ops-azure-outputs/v1\'; cloud = ' + psQuote(cloudVal) + '; complianceProfile = ' + psQuote(cpVal) + '; environment = ' + psQuote(c.environment) + '; location = ' + psQuote(c.location) + '; resourceGroups = @{ controlPlane = \'rg-' + base + '-avd\'; sessionHosts = \'rg-' + base + '-hosts\'; network = \'rg-' + base + '-network\'; storage = \'rg-' + base + '-storage\' }; hostPools = @(@{ name = \'vdpool-' + base + '\'; type = \'Pooled\'; workspace = \'vdws-' + base + '\'; appGroupIds = @("/subscriptions/$subId/resourceGroups/rg-' + base + '-avd/providers/Microsoft.DesktopVirtualization/applicationGroups/vdag-' + base + '-desktop") }); network = @{ vnetName = \'vnet-' + base + '\'; privateLinkEnabled = $true } } | ConvertTo-Json -Depth 6 | Set-Content -Path ~/avd-landing-zone/azure-outputs.json -Encoding utf8',
         'Set-Location ~/avd-landing-zone'
       ]);
     }
     if (planeId === 'powerPlatform') {
       return clone.concat([
-        'pwsh -NoLogo -NoProfile -File ~/avd-power-platform/scripts/Deploy-AvdPowerPlatform.ps1 -EntraManifestPath ~/avd-landing-zone/entra-manifest.json -AzureOutputsPath ~/avd-landing-zone/azure-outputs.json -OutputPath ~/avd-landing-zone/power-platform-manifest.json -RunManifestPath ~/avd-landing-zone/power-platform-run-manifest.json'
+        'pwsh -NoLogo -NoProfile -File ~/avd-power-platform/scripts/Deploy-AvdPowerPlatform.ps1 -EntraManifestPath ~/avd-landing-zone/entra-manifest.json -AzureOutputsPath ~/avd-landing-zone/azure-outputs.json -OutputPath ~/avd-landing-zone/power-platform-manifest.json -RunManifestPath ~/avd-landing-zone/power-platform-run-manifest.json' + cFlags
       ]);
     }
     return [];
@@ -1316,13 +1410,20 @@
     return m ? 'unset ' + m[1].split(/,\s*/).map(function (v) { return v.replace(/^Env:/, ''); }).join(' ') : null;
   }
   var AZ_SIGNIN_PS = 'if (-not (Get-AzContext)) { Connect-AzAccount -UseDeviceAuthentication | Out-Null }';
+  var AZ_SIGNIN_PS_USGOV = 'if (-not (Get-AzContext) -or (Get-AzContext).Environment.Name -ne \'AzureUSGovernment\') { Connect-AzAccount -Environment AzureUSGovernment -UseDeviceAuthentication | Out-Null }';
   var AZ_CLI_SIGNIN_PS = 'az account show -o none 2>$null; if ($LASTEXITCODE -ne 0) { az login --use-device-code -o none }';
+  var AZ_CLI_SIGNIN_PS_USGOV = 'az cloud set --name AzureUSGovernment -o none; az account show -o none 2>$null; if ($LASTEXITCODE -ne 0) { az login --use-device-code -o none }';
   var AZ_CLI_SIGNIN_BASH = 'az account show -o none 2>/dev/null || az login --use-device-code -o none';
+  var AZ_CLI_SIGNIN_BASH_USGOV = 'az cloud set --name AzureUSGovernment -o none && (az account show -o none 2>/dev/null || az login --use-device-code -o none)';
   // Rewrites a Cloud Shell PowerShell block for another place and shell. Cloud Shell PowerShell returns it as is.
-  function forRunIn(command, runIn) {
+  function forRunIn(command, runIn, cfg) {
     var r = validRunIn(runIn);
     if (!command || isDefaultRunIn(r)) return command || '';
     if (/^AVD_PS$/m.test(command)) throw new Error('The block holds a line the Bash version cannot carry.');
+    var isGov = (cfg && validCloud(cfg.cloud) === 'usgov') || /-Cloud\s+'?usgov'?\b|--cloud\s+'?usgov'?\b/.test(command);
+    var azSignInPs = isGov ? AZ_SIGNIN_PS_USGOV : AZ_SIGNIN_PS;
+    var azCliSignInPs = isGov ? AZ_CLI_SIGNIN_PS_USGOV : AZ_CLI_SIGNIN_PS;
+    var azCliSignInBash = isGov ? AZ_CLI_SIGNIN_BASH_USGOV : AZ_CLI_SIGNIN_BASH;
     var lines = String(command).split('\n'), pre = [], body = lines;
     var clone = /^if \(-not \(Test-Path (~\/\S+)\)\) \{ git clone (\S+) \S+ \}$/.exec(lines[0] || '');
     var into = clone && /^Set-Location (~\/\S+); (.*)$/.exec(lines[1] || '');
@@ -1334,19 +1435,19 @@
     var usesPs = body.some(azPs);
     if (r.shell === 'pwsh') {
       if (into) pre = [lines[0], lines[1]];
-      if (local && usesPs) pre.push(AZ_SIGNIN_PS);
-      if (local && usesCli) pre.push(AZ_CLI_SIGNIN_PS);
+      if (local && usesPs) pre.push(azSignInPs);
+      if (local && usesCli) pre.push(azCliSignInPs);
       return pre.concat(body).join('\n');
     }
     // Bash: the clone and checkout in bash, then each stretch of PowerShell lines in one pwsh process (a Graph
     // sign-in and the script that uses it must share it), and bash scripts as they are.
     if (into) pre = ['[ -d ' + into[1] + ' ] || git clone ' + clone[2] + ' ' + clone[1], 'cd ' + into[1] + ' && ' + into[2].split(/;\s*/).join(' && ')];
-    if (local && usesCli) pre.push(AZ_CLI_SIGNIN_BASH);
+    if (local && usesCli) pre.push(azCliSignInBash);
     // Each stretch is written word for word to a file through a quoted heredoc (bash expands nothing in it).
     var out = [], ps = [], file = false;
     var flush = function () {
       if (!ps.length) return;
-      if (local && ps.some(azPs)) ps.unshift(AZ_SIGNIN_PS);
+      if (local && ps.some(azPs)) ps.unshift(azSignInPs);
       if (!file) { out.push('f="$(mktemp -d)/step.ps1"'); file = true; }
       out.push("cat > \"$f\" <<'AVD_PS'"); out = out.concat(ps); out.push('AVD_PS', 'pwsh -NoLogo -File "$f"'); ps = [];
     };
@@ -1865,10 +1966,20 @@
     { host: 'login.microsoftonline.com', purpose: 'Microsoft Entra ID sign-in' },
     { host: 'windows.cloud.microsoft', purpose: 'Web client and Windows App service' }
   ];
+  var USGOV_REACHABILITY_HOSTS = [
+    { host: 'login.microsoftonline.us', purpose: 'Microsoft Entra ID US Gov sign-in' },
+    { host: 'rdweb.wvd.azure.us', purpose: 'AVD US Gov web client and feed' }
+  ];
+  function reachabilityHostsForCloud(cloud) {
+    return validCloud(cloud) === 'usgov' ? USGOV_REACHABILITY_HOSTS : REACHABILITY_HOSTS;
+  }
   var REACHABILITY_LIMITS = 'Reached means this browser, on this network, completed DNS, a connection and TLS to the host and got a response. ' +
     'It doesn\'t test sign-in, your access to the desktop, the feed and gateway hosts (*.wvd.microsoft.com, which can\'t be probed by name), ' +
     'UDP (RDP Shortpath), or the session host. A proxy that answers with its own block page also counts as reached. ' +
     'The time is to Microsoft\'s nearest front door, not to your session host\'s region.';
+  var USGOV_REACHABILITY_LIMITS = 'Reached means this browser, on this network, completed DNS, a connection and TLS to the US Government host (.us) and got a response. ' +
+    'It doesn\'t test sign-in, your access to the desktop, the feed and gateway hosts (*.wvd.azure.us), ' +
+    'UDP (RDP Shortpath), or the session host. No commercial (.com / .windows.net) endpoints are probed in Azure US Gov mode.';
 
   // The latency step's rating, shared with the reachability probe.
   function rateLatency(ms) {
@@ -1880,17 +1991,24 @@
 
   // results: [{ host, median }] from the page's probe; median is null when every request failed.
   // A host missing from results was not tested. Only all hosts reached is "reachable" (fail closed).
-  function classifyReachability(results) {
+  function classifyReachability(results, opts) {
+    opts = opts || {};
+    var cloud = validCloud(opts.cloud);
+    var targetHosts = reachabilityHostsForCloud(cloud);
+    var limitsText = cloud === 'usgov' ? USGOV_REACHABILITY_LIMITS : REACHABILITY_LIMITS;
     var list = Array.isArray(results) ? results : [];
-    var hosts = REACHABILITY_HOSTS.map(function (h) {
+    var hosts = targetHosts.map(function (h) {
       var r = list.filter(function (x) { return x && x.host === h.host; })[0];
       var tested = !!r, reached = tested && typeof r.median === 'number' && !isNaN(r.median);
       return { host: h.host, purpose: h.purpose, reached: tested ? reached : null, median: reached ? r.median : null, rating: rateLatency(reached ? r.median : null) };
     });
     var ok = hosts.filter(function (h) { return h.reached === true; }), tested = hosts.filter(function (h) { return h.reached !== null; });
     var failed = hosts.filter(function (h) { return h.reached !== true; }).map(function (h) { return h.host; });
-    var o = { hosts: hosts, limits: REACHABILITY_LIMITS };
-    if (!tested.length) {
+    var o = { hosts: hosts, limits: limitsText, cloud: cloud };
+    if (opts.skipProbes) {
+      o.status = 'skipped'; o.headline = 'Browser network probes skipped (air-gapped / zero-probe mode)';
+      o.guidance = 'No outbound browser latency or reachability probes were sent. Proceed directly with the region picker and pre-deployment preflight.';
+    } else if (!tested.length) {
       o.status = 'unknown'; o.headline = 'Not checked yet';
       o.guidance = 'Run the check from the device and network people will connect from.';
     } else if (ok.length === hosts.length) {
@@ -1941,6 +2059,7 @@
   // What to run at a given step when there is no pasted output to go on (e.g. picked in the tracker).
   function actionsForStep(step, config) {
     var cfg = merge(DEFAULTS, config);
+    var clientUrl = validCloud(cfg.cloud) === 'usgov' ? 'https://rdweb.wvd.azure.us/arm/webclient' : 'https://windows.cloud.microsoft';
     switch (step) {
       case 'region': return [{ title: 'Measure latency from where your users work', why: 'Run the test below from your users\' network (not over a VPN), then use the closest region. The preflight confirms the region offers AVD host pools.', command: '' }];
       case 'size': return [{ title: 'Size the host pool', why: 'Choose the number of hosts and their size, or let the portal size them from how many people use them and how they work. The commands then check quota and availability for that size.', command: '' }];
@@ -1969,10 +2088,10 @@
         return deployActs;
       }
       case 'postdeploy': return [{ title: 'Run the post-deployment setup', why: 'Admin consent for the storage app, the Conditional Access exclusion and the profile share permissions. It asks for a Microsoft Graph device code.', command: cmd.postdeploy(cfg, true) }];
-      case 'signin': return [{ title: 'Sign in to the desktop', why: 'Open https://windows.cloud.microsoft (or the Windows App) as a member of ' + cfg.usersGroup + '. The next step, Verify access, checks this device can reach AVD.', command: '' },
+      case 'signin': return [{ title: 'Sign in to the desktop', why: 'Open ' + clientUrl + ' (or the Windows App) as a member of ' + cfg.usersGroup + '. The next step, Verify access, checks this device can reach AVD.', command: '' },
         { title: 'Optional: validate sign-in with a demo host pool', why: 'Deploys a separate demo host pool and checks the host and your test user.', command: cmd.demo(cfg) },
         { title: 'Optional: Well-Architected review', why: 'Reviews the deployed landing zone by pillar. Findings are warnings; no Graph sign-in needed.', command: cmd.wellArchitected(cfg) }];
-      case 'verify': return [{ title: 'Open the desktop', why: 'After the reachability check, open ' + (launchTarget(cfg.launch) ? 'the desktop with the link above' : 'https://windows.cloud.microsoft') + ' (or the Windows App) and sign in as a member of ' + cfg.usersGroup +
+      case 'verify': return [{ title: 'Open the desktop', why: 'After the reachability check, open ' + (launchTarget(cfg.launch) ? 'the desktop with the link above' : clientUrl) + ' (or the Windows App) and sign in as a member of ' + cfg.usersGroup +
         '. New group members can take up to an hour to see the desktop. The notes above say what to expect on the first connection.', command: '' },
         { title: 'Then confirm it from Azure telemetry', why: 'Once you see the desktop, or the client gives up, run this. It reads the connection logs for your account, waits up to 15 minutes for them to arrive, and says Verified, Failed or Not verified. Only Verified is a pass.', command: cmd.verify(cfg) }];
       default: return [firstStep(cfg)];
@@ -2018,27 +2137,30 @@
         output: p.output
       };
     });
+    var zoneDefs = dnsZonesForCloud(cfg.cloud);
     var peList = [
-      { id: 'file', label: 'pe-fslogix (file)', zone: 'privatelink.file.core.windows.net', mode: top.privateLink.dnsZones.file.mode },
-      { id: 'keyVault', label: 'pe-kv (vault)', zone: 'privatelink.vaultcore.azure.net', mode: top.privateLink.dnsZones.keyVault.mode }
+      { id: 'file', label: 'pe-fslogix (file)', zone: zoneDefs.file.zoneName, mode: top.privateLink.dnsZones.file.mode },
+      { id: 'keyVault', label: 'pe-kv (vault)', zone: zoneDefs.keyVault.zoneName, mode: top.privateLink.dnsZones.keyVault.mode }
     ];
     if (top.privateLink.enableAvdConnectionPrivateLink) {
-      peList.push({ id: 'avdConn', label: 'pe-vdpool (connection)', zone: 'privatelink.wvd.microsoft.com', mode: top.privateLink.dnsZones.avd.mode });
+      peList.push({ id: 'avdConn', label: 'pe-vdpool (connection)', zone: zoneDefs.avd.zoneName, mode: top.privateLink.dnsZones.avd.mode });
     }
     if (top.privateLink.enableAvdFeedPrivateLink) {
-      peList.push({ id: 'avdFeed', label: 'pe-vdws (feed)', zone: 'privatelink.wvd.microsoft.com', mode: top.privateLink.dnsZones.avd.mode });
+      peList.push({ id: 'avdFeed', label: 'pe-vdws (feed)', zone: zoneDefs.avd.zoneName, mode: top.privateLink.dnsZones.avd.mode });
     }
     if (top.privateLink.enableAvdGlobalPrivateLink) {
-      peList.push({ id: 'avdGlobal', label: 'pe-vdws-global (global)', zone: 'privatelink-global.wvd.microsoft.com', mode: top.privateLink.dnsZones.avdGlobal.mode });
+      peList.push({ id: 'avdGlobal', label: 'pe-vdws-global (global)', zone: zoneDefs.avdGlobal.zoneName, mode: top.privateLink.dnsZones.avdGlobal.mode });
     }
     var dnsSummary = ['file', 'keyVault', 'avd', 'avdGlobal'].map(function (k) {
       var z = top.privateLink.dnsZones[k];
       if (!z || z.mode === 'disabled') return null;
-      return { key: k, zoneName: DNS_ZONE_DEFINITIONS[k].zoneName, mode: z.mode === 'existing' ? 'existing' : 'new' };
+      return { key: k, zoneName: zoneDefs[k].zoneName, mode: z.mode === 'existing' ? 'existing' : 'new' };
     }).filter(Boolean);
 
     return {
       base: base,
+      cloud: validCloud(cfg.cloud),
+      complianceProfile: validComplianceProfile(cfg.complianceProfile, cfg.cloud),
       location: cfg.location || 'eastus2',
       environment: cfg.environment || 'dev',
       namePrefix: cfg.namePrefix || 'avdlz',
@@ -2198,8 +2320,8 @@
     ].join('');
   }
 
-  return { STEPS: STEPS, newRunId: newRunId, recording: recording, recordActions: recordActions, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, isCommit: isCommit, siteConfig: siteConfig, SETTINGS: SETTINGS, SETTING_NAMES: SETTING_NAMES, validSettings: validSettings, contextSettings: contextSettings, validSizing: validSizing, validPower: validPower, validEstimate: validEstimate, validTopology: validTopology, hasCustomTopology: hasCustomTopology, buildTopologyManifest: buildTopologyManifest, CONTROL_PLANE_ORDER: CONTROL_PLANE_ORDER, CONTROL_PLANES: CONTROL_PLANES, CONTROL_PLANE_DEFAULTS: CONTROL_PLANE_DEFAULTS, CONTROL_PLANE_PRESETS: CONTROL_PLANE_PRESETS, validControlPlanes: validControlPlanes, applyControlPlanePreset: applyControlPlanePreset, enabledControlPlanes: enabledControlPlanes, controlPlanesCsv: controlPlanesCsv, controlPlaneActions: controlPlaneActions, buildArchitectureDiagramModel: buildArchitectureDiagramModel, buildArchitectureMermaid: buildArchitectureMermaid, buildArchitectureDrawio: buildArchitectureDrawio, buildArchitectureSvg: buildArchitectureSvg, versionNote: versionNote, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, DEFAULT_RDP_PROPERTIES: DEFAULT_RDP_PROPERTIES, LOCKED_DOWN_RDP_PROPERTIES: LOCKED_DOWN_RDP_PROPERTIES, POOL_TEMPLATES: POOL_TEMPLATES, WORKSPACE_DEFAULTS: WORKSPACE_DEFAULTS, APP_GROUP_DEFAULTS: APP_GROUP_DEFAULTS, DNS_ZONE_DEFINITIONS: DNS_ZONE_DEFINITIONS, PRIVATE_LINK_DEFAULTS: PRIVATE_LINK_DEFAULTS, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_WORKSPACES: MAX_WORKSPACES, MAX_APP_GROUPS: MAX_APP_GROUPS, MAX_HOSTS: MAX_HOSTS, applyPoolTemplate: applyPoolTemplate, computePool: computePool, computeTopology: computeTopology, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
+  return { STEPS: STEPS, CLOUDS: CLOUDS, USGOV_REGIONS: USGOV_REGIONS, validCloud: validCloud, validComplianceProfile: validComplianceProfile, newRunId: newRunId, recording: recording, recordActions: recordActions, DEFAULTS: DEFAULTS, isRepoUrl: isRepoUrl, isRef: isRef, isCommit: isCommit, siteConfig: siteConfig, SETTINGS: SETTINGS, SETTING_NAMES: SETTING_NAMES, validSettings: validSettings, contextSettings: contextSettings, validSizing: validSizing, validPower: validPower, validEstimate: validEstimate, validTopology: validTopology, hasCustomTopology: hasCustomTopology, buildTopologyManifest: buildTopologyManifest, CONTROL_PLANE_ORDER: CONTROL_PLANE_ORDER, CONTROL_PLANES: CONTROL_PLANES, CONTROL_PLANE_DEFAULTS: CONTROL_PLANE_DEFAULTS, CONTROL_PLANE_PRESETS: CONTROL_PLANE_PRESETS, validControlPlanes: validControlPlanes, applyControlPlanePreset: applyControlPlanePreset, enabledControlPlanes: enabledControlPlanes, controlPlanesCsv: controlPlanesCsv, controlPlaneActions: controlPlaneActions, buildArchitectureDiagramModel: buildArchitectureDiagramModel, buildArchitectureMermaid: buildArchitectureMermaid, buildArchitectureDrawio: buildArchitectureDrawio, buildArchitectureSvg: buildArchitectureSvg, versionNote: versionNote, WORKLOADS: WORKLOADS, VM_SIZES: VM_SIZES, DEFAULT_RDP_PROPERTIES: DEFAULT_RDP_PROPERTIES, LOCKED_DOWN_RDP_PROPERTIES: LOCKED_DOWN_RDP_PROPERTIES, POOL_TEMPLATES: POOL_TEMPLATES, WORKSPACE_DEFAULTS: WORKSPACE_DEFAULTS, APP_GROUP_DEFAULTS: APP_GROUP_DEFAULTS, DNS_ZONE_DEFINITIONS: DNS_ZONE_DEFINITIONS, DNS_ZONE_DEFINITIONS_USGOV: DNS_ZONE_DEFINITIONS_USGOV, dnsZonesForCloud: dnsZonesForCloud, PRIVATE_LINK_DEFAULTS: PRIVATE_LINK_DEFAULTS, HOST_POOL_DEFAULTS: HOST_POOL_DEFAULTS, MAX_HOST_POOLS: MAX_HOST_POOLS, MAX_WORKSPACES: MAX_WORKSPACES, MAX_APP_GROUPS: MAX_APP_GROUPS, MAX_HOSTS: MAX_HOSTS, applyPoolTemplate: applyPoolTemplate, computePool: computePool, computeTopology: computeTopology, toSizing: toSizing, powerDefaults: powerDefaults, effectivePower: effectivePower, hostHours: hostHours, repriceEstimate: repriceEstimate, pricedHours: pricedHours, analyze: analyze, extractStates: extractStates, firstStep: firstStep, actionsForStep: actionsForStep, commands: cmd, psQuote: psQuote,
     PLATFORMS: PLATFORMS, RUNIN_DEFAULT: RUNIN_DEFAULT, PLACES: PLACES, validRunIn: validRunIn, isDefaultRunIn: isDefaultRunIn, scriptsIn: scriptsIn, support: support, forRunIn: forRunIn,
-    REACHABILITY_HOSTS: REACHABILITY_HOSTS, rateLatency: rateLatency, classifyReachability: classifyReachability, launchTarget: launchTarget, launchUrl: launchUrl };
+    REACHABILITY_HOSTS: REACHABILITY_HOSTS, USGOV_REACHABILITY_HOSTS: USGOV_REACHABILITY_HOSTS, reachabilityHostsForCloud: reachabilityHostsForCloud, rateLatency: rateLatency, classifyReachability: classifyReachability, launchTarget: launchTarget, launchUrl: launchUrl };
 });
 

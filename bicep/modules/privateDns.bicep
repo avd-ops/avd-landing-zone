@@ -9,19 +9,29 @@ param deployKeyVaultZone bool = true
 param deployAvdZone bool = true
 param deployAvdGlobalZone bool = false
 
+@description('Target Azure cloud environment (commercial or usgov).')
+@allowed([
+  'commercial'
+  'usgov'
+])
+param cloud string = 'commercial'
+
 // Key Vault's privatelink zone follows the cloud's vault DNS suffix
-// (e.g. .vault.azure.net -> privatelink.vaultcore.azure.net).
+// (e.g. .vault.azure.net -> privatelink.vaultcore.azure.net,
+// .vault.usgovcloudapi.net -> privatelink.vaultcore.usgovcloudapi.net).
 var keyVaultZone = 'privatelink${replace(environment().suffixes.keyvaultDns, '.vault.', '.vaultcore.')}'
+var avdZone = cloud == 'usgov' ? 'privatelink.wvd.azure.us' : 'privatelink.wvd.microsoft.com'
+var avdGlobalZone = cloud == 'usgov' ? 'privatelink-global.wvd.azure.us' : 'privatelink-global.wvd.microsoft.com'
 
 // The AVD zone is created by default even if AVD Private Link is off, so turning
 // it on later is a parameter change rather than a DNS change. The global AVD zone
-// (privatelink-global.wvd.microsoft.com) is created when the global workspace
-// private endpoint is enabled.
+// (privatelink-global.wvd.microsoft.com or privatelink-global.wvd.azure.us) is created
+// when the global workspace private endpoint is enabled.
 var zones = [
   'privatelink.file.${environment().suffixes.storage}'
   keyVaultZone
-  'privatelink.wvd.microsoft.com'
-  'privatelink-global.wvd.microsoft.com'
+  avdZone
+  avdGlobalZone
 ]
 
 var enabled = [

@@ -16,6 +16,7 @@
 echo "az $*" >> "$FAKE_AZ_LOG"
 case "$1 $2" in
   "bicep version"|"provider register"|"feature register") exit 0 ;;
+  "cloud show") echo "${FAKE_AZ_CLOUD:-AzureCloud}" ;;
   "account show")
     if [[ "$*" == *--subscription* ]]; then
       [[ -n "${FAKE_SUB_MISSING:-}" ]] && { echo "ERROR: Subscription '${*##*--subscription }' not found." >&2; exit 1; }
