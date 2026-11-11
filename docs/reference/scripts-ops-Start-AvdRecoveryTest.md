@@ -11,6 +11,7 @@ A recovery test of the profile share (T-profile, build/specs/recovery-spec.md se
 | `-NamePrefix` | string | yes |  |  |
 | `-Environment` | string | no | `'dev'` |  |
 | `-RecoveryTier` | string | no | `'R0'` |  |
+| `-Test` | string | no | `'T-profile'` |  |
 | `-Go` | switch | no |  |  |
 | `-Cleanup` | switch | yes, in the Cleanup set |  |  |
 | `-RunId` | string | yes, in the Cleanup set |  |  |

@@ -10,6 +10,7 @@ Removes the demo host pool deployed by Deploy-AvdDemo.ps1, and optionally the wh
 |---|---|---|---|---|
 | `-NamePrefix` | string | yes |  |  |
 | `-Environment` | string | yes |  |  |
+| `-Cloud` | string | no | `$(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' })` |  |
 | `-SubscriptionId` | string | no |  |  |
 | `-IncludeLandingZone` | switch | no |  |  |
 | `-IncludeJumpbox` | switch | no |  | Remove the operator jumpbox and its Bastion Developer (decision 0019). Its disk may hold the only copy of what was run there (run journals in ~/avdlz-runs), so it needs -DiscardLastCopy too. |

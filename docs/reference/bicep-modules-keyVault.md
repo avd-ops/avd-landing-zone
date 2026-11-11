@@ -15,6 +15,8 @@
 | `adminsGroupObjectId` | string |  |  |
 | `localAdminUsername` | string |  |  |
 | `localAdminPassword` | string |  |  |
+| `deployTripwires` | bool | `false` |  |
+| `tripwireSecretName` | string | `''` |  |
 
 ## Outputs
 

@@ -11,6 +11,7 @@
 | `name` | string |  |  |
 | `vnetResourceId` | string |  |  |
 | `adminsGroupObjectId` | string |  | Entra group of AVD operators: Reader on this Bastion, which a connection needs. |
+| `cloud` | string | `'commercial'` | Target Azure cloud environment (commercial or usgov). Bastion Developer is not offered in US Gov regions; Basic SKU is used when cloud == usgov. |
 
 ## Outputs
 
