@@ -722,3 +722,98 @@ Describe 'Estate tripwires (avd-swarm/docs/tripwires.md)' {
     }
   }
 }
+
+Describe 'Security review baseline guards (avd-assess security-review.yaml)' {
+  BeforeAll {
+    function Get-ModuleTemplate([string] $Path) {
+      $raw = (& $script:bicep build $Path --stdout) -join "`n"
+      if ($LASTEXITCODE -ne 0) { throw "bicep build $Path failed" }
+      $raw | ConvertFrom-Json -Depth 100 -AsHashtable
+    }
+    function Get-Resource($Template) { if ($Template['resources'] -is [System.Collections.IDictionary]) { @($Template['resources'].Values) } else { @($Template['resources']) } }
+    $script:main = Get-CompiledTemplate 'parameters/dev.bicepparam'
+    $script:gov = Get-ModuleTemplate 'bicep/modules/governance.bicep'
+    $script:storage = Get-ModuleTemplate 'bicep/modules/storage.bicep'
+    $script:cp = Get-ModuleTemplate 'bicep/modules/controlPlane.bicep'
+    $script:kv = Get-ModuleTemplate 'bicep/modules/keyVault.bicep'
+    $script:bkp = Get-ModuleTemplate 'bicep/modules/backup.bicep'
+    $script:sh = Get-ModuleTemplate 'bicep/modules/sessionHosts.bicep'
+  }
+
+  It 'deploys subscription-scoped policy and role assignments in governance.bicep (lz-deploy-owner)' {
+    $script:gov['$schema'] | Should -Match 'subscriptionDeploymentTemplate\.json'
+    $res = Get-Resource $script:gov
+    @($res | Where-Object { $_['type'] -eq 'Microsoft.Authorization/policyAssignments' }).Count | Should -BeGreaterOrEqual 3
+    @($res | Where-Object { $_['type'] -eq 'Microsoft.Authorization/roleAssignments' }).Count | Should -BeGreaterOrEqual 1
+  }
+
+  It 'grants least-privilege built-in RBAC roles on storage, control plane, and Key Vault (lz-rbac)' {
+    $script:storage['variables']['roles']['smbShareContributor'] | Should -Be '0c867c2a-1d8c-454a-a3db-ab2ea1bdc8bb'
+    $script:storage['variables']['roles']['smbShareElevatedContributor'] | Should -Be 'a7264617-510b-434b-a828-9731dc254ea7'
+    $stAcct = @(Get-Resource $script:storage | Where-Object { $_['name'] -eq 'storage-account' })[0]
+    $stRoles = $stAcct['properties']['parameters']['roleAssignments']['value']
+    $stRoles.Count | Should -Be 2
+    $script:cp['variables']['roles']['desktopVirtualizationUser'] | Should -Be '1d18fff3-a72a-46b5-b4a9-0b38a3cd7e63'
+    $script:cp['variables']['roles']['powerOnOffContributor'] | Should -Be '40c5ff49-9181-41f8-ae61-143b0e78555e'
+    $ag = @(Get-Resource $script:cp | Where-Object { $_['name'] -eq 'app-group' })[0]
+    $ag['properties']['parameters']['roleAssignments']['value'].Count | Should -Be 1
+    $cpRa = @(Get-Resource $script:cp | Where-Object { $_['type'] -eq 'Microsoft.Authorization/roleAssignments' })
+    $cpRa.Count | Should -Be 1
+    $script:kv['variables']['keyVaultSecretsUserRoleId'] | Should -Be '4633458b-17de-408a-b874-0445c86b69e6'
+  }
+
+  It 'enables host pool Private Link for session hosts by default while keeping the workspace feed public (lz-private-link)' {
+    $script:main['parameters']['enableAvdPrivateLink']['defaultValue'] | Should -BeTrue
+    $script:cp['parameters']['defaultHostPoolPublicNetworkAccess']['defaultValue'] | Should -Be 'EnabledForClientsOnly'
+    $script:cp['parameters']['defaultWorkspacePublicNetworkAccess']['defaultValue'] | Should -Be 'Enabled'
+    $script:cp['parameters']['enableAvdFeedPrivateLink']['defaultValue'] | Should -BeFalse
+    $hp = @(Get-Resource $script:cp | Where-Object { $_['name'] -eq 'host-pool' })[0]
+    $hp['properties']['parameters']['publicNetworkAccess']['value'] | Should -Be "[variables('primaryHpAccess')]"
+    ($hp['properties']['parameters']['privateEndpoints'] | ConvertTo-Json -Depth 10 -Compress) | Should -Match "variables\('primaryEnablePe'\)"
+  }
+
+  It 'disables public network access on profile storage, Key Vault, and the backup vault (lz-private-data-plane)' {
+    $stAcct = @(Get-Resource $script:storage | Where-Object { $_['name'] -eq 'storage-account' })[0]
+    $stAcct['properties']['parameters']['publicNetworkAccess']['value'] | Should -Be 'Disabled'
+    $stAcct['properties']['parameters']['networkAcls']['value']['defaultAction'] | Should -Be 'Deny'
+    $stAcct['properties']['parameters']['privateEndpoints']['value'][0]['service'] | Should -Be 'file'
+    $kvMod = @(Get-Resource $script:kv | Where-Object { $_['name'] -eq 'key-vault' })[0]
+    $kvMod['properties']['parameters']['publicNetworkAccess']['value'] | Should -Be 'Disabled'
+    $kvMod['properties']['parameters']['networkAcls']['value']['defaultAction'] | Should -Be 'Deny'
+    $kvMod['properties']['parameters']['privateEndpoints']['value'].Count | Should -Be 1
+    $bkpVault = @(Get-Resource $script:bkp | Where-Object { $_['type'] -eq 'Microsoft.RecoveryServices/vaults' })[0]
+    ($bkpVault['properties'] | ConvertTo-Json -Depth 10 -Compress) | Should -Match "'publicNetworkAccess', 'Disabled'"
+  }
+
+  It 'enables encryption at host by default for session hosts (lz-encryption-at-host)' {
+    $script:main['parameters']['encryptionAtHost']['defaultValue'] | Should -BeTrue
+    $vm = @(Get-Resource $script:sh | Where-Object { $_['type'] -eq 'Microsoft.Resources/deployments' -and $_['properties']['parameters'].Keys -contains 'encryptionAtHost' })[0]
+    $vm['properties']['parameters']['encryptionAtHost']['value'] | Should -Match 'encryptionAtHost'
+  }
+
+  It 'disables drive, USB, and COM port redirection in default RDP properties while keeping clipboard, printers, smart cards, WebAuthn, and camera on (lz-redirection)' {
+    $rdp = $script:main['parameters']['rdpProperties']['defaultValue']
+    $rdp | Should -Match '(^|;)drivestoredirect:s:(;|$)'
+    $rdp | Should -Match '(^|;)usbdevicestoredirect:s:(;|$)'
+    $rdp | Should -Match 'redirectcomports:i:0'
+    $rdp | Should -Match 'redirectclipboard:i:1'
+    $rdp | Should -Match 'redirectprinters:i:1'
+    $rdp | Should -Match 'redirectsmartcards:i:1'
+    $rdp | Should -Match 'redirectwebauthn:i:1'
+    $rdp | Should -Match 'camerastoredirect:s:\*'
+  }
+
+  It 'enables Intune enrollment by default and turns Defender for Cloud on in prod and off in dev and test (lz-defender-intune)' {
+    $script:main['parameters']['enrollInIntune']['defaultValue'] | Should -BeTrue
+    $script:sh['variables']['intuneMdmId'] | Should -Be '0000000a-0000-0000-c000-000000000000'
+    $readDef = { param($file) ((& $script:bicep build-params $file --stdout | ConvertFrom-Json).parametersJson | ConvertFrom-Json).parameters.enableDefenderForCloud.value }
+    & $readDef 'parameters/dev.bicepparam' | Should -BeFalse
+    & $readDef 'parameters/test.bicepparam' | Should -BeFalse
+    & $readDef 'parameters/prod.bicepparam' | Should -BeTrue
+  }
+
+  It 'sets the host pool registration token validity to 4 hours (lz-registration-token)' {
+    $hp = @(Get-Resource $script:cp | Where-Object { $_['name'] -eq 'host-pool' })[0]
+    $hp['properties']['parameters']['tokenValidityLength']['value'] | Should -Be 'PT4H'
+  }
+}
