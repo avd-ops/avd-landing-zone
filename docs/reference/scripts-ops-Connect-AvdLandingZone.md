@@ -10,3 +10,4 @@ Signs in to Microsoft Graph once for the whole Cloud Shell session, so the prefl
 |---|---|---|---|---|
 | `-ClientId` | string | no |  | The operator app's client ID; defaults to $env:AVD_GRAPH_CLIENT_ID. Kept in $env for the scripts run after this one. |
 | `-SubscriptionId` | string | no |  |  |
+| `-Cloud` | string | no | `$(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' })` |  |

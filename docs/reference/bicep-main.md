@@ -11,6 +11,8 @@ Entra ID-only, Intune-managed, private-by-default Azure Virtual Desktop landing 
 | `namePrefix` | string |  | Short workload prefix (lowercase letters/digits, 2-8 chars). Resource names derive from this. |
 | `environmentName` | string |  | Environment. Drives naming and a few safe-by-default toggles. |
 | `location` | string | `deployment().location` | Azure region for all regional resources. |
+| `cloud` | string | `'commercial'` | Target Azure cloud environment (commercial or usgov). |
+| `complianceProfile` | string | `(cloud == 'usgov' ? 'itar-cui' : 'standard')` | Compliance profile applied to the landing zone (standard or itar-cui). |
 | `tags` | object | `{}` | Extra tags merged onto every resource group and resource. |
 | `avdUsersGroupObjectId` | string |  | Object ID of the Entra ID security group whose members get the desktop (Desktop Virtualization User, VM User Login, SMB Share Contributor). |
 | `avdAdminsGroupObjectId` | string |  | Object ID of the Entra ID security group of AVD operators (VM Administrator Login, SMB Share Elevated Contributor, Key Vault Secrets User). |
@@ -76,6 +78,10 @@ Entra ID-only, Intune-managed, private-by-default Azure Virtual Desktop landing 
 | `enablePolicyGuardrails` | bool | `true` |  |
 | `recoveryLocation` | string | `''` | Recovery region (build/specs/recovery-spec.md): a second region the guardrails also allow, for restores and recovery tests. Empty: none, and the guardrails allow only location. |
 | `allowedLocations` | string[] | `union([location], empty(recoveryLocation) ? [] : [recoveryLocation])` | Allowed regions for resources and resource groups when policy guardrails are on. The default is location plus recoveryLocation when set. |
+| `topology` | object | `{}` | Optional multi-pool, multi-workspace, multi-app-group, Private Link and Private DNS topology manifest (JSON object). Empty = single host pool, app group and workspace using the top-level parameters. |
+| `deployTripwires` | bool | `false` | Deploy estate tripwires: a decoy secret in Key Vault (when tripwireSecretName is set) and a free Activity Log alert on storage key listing (when allowSharedKeyAccess is false). Off by default. |
+| `tripwireSecretName` | string | `''` | Caller-chosen name for the decoy Key Vault secret when deployTripwires is true. Stored as a secure parameter so deployment history does not show the name; empty = no decoy secret. |
+| `tripwireAlertMinutes` | int | `0` | Evaluation frequency in minutes for the optional Key Vault tripwire scheduled query alert (0 = no scheduled query rule; 5, 15, or 30 = deploy alert). |
 
 ## Outputs
 

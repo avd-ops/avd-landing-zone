@@ -8,6 +8,11 @@
 |---|---|---|---|
 | `tags` | object |  |  |
 | `vnetResourceId` | string |  |  |
+| `deployFileZone` | bool | `true` |  |
+| `deployKeyVaultZone` | bool | `true` |  |
+| `deployAvdZone` | bool | `true` |  |
+| `deployAvdGlobalZone` | bool | `false` |  |
+| `cloud` | string | `'commercial'` | Target Azure cloud environment (commercial or usgov). |
 
 ## Outputs
 
@@ -16,3 +21,4 @@
 | `fileZoneResourceId` | string |  |
 | `keyVaultZoneResourceId` | string |  |
 | `avdZoneResourceId` | string |  |
+| `avdGlobalZoneResourceId` | string |  |

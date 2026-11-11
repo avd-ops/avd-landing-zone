@@ -15,7 +15,7 @@
 | `commit` | string |  | The repository commit the template and scripts come from. |
 | `runUrl` | string | `''` | The workflow run that built this version. |
 | `emergency` | bool | `false` | A security build (spec section 5.7): recorded on the version. |
-| `replicaRegions` | array | `(see the file)` | Regions to replicate to, one per environment region, with ZRS where the region has availability zones: [{ name, storageAccountType, replicaCount }]. |
+| `replicaRegions` | array | `(see the file)` | Regions to replicate to, one per environment region: [{ name, storageAccountType, replicaCount }]. The default, one Standard_LRS replica, fits a region without availability zones such as North Central US (lesson 0001); use Standard_ZRS in a zone region and one replica per 20 hosts created at once (spec section 4.2). |
 | `buildVmSize` | string | `'Standard_D4s_v5'` | Build VM size: 4 vCPUs of a current D-series by default (spec section 5.2, red-team M3). |
 | `buildTimeoutInMinutes` | int | `360` | Build timeout: a cumulative update, WDOT and three restarts can take more than 4 hours. |
 | `disconnectedSessionLimitHours` | int | `8` | Disconnected sessions end after this many hours (spec section 5.7). |

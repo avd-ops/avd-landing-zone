@@ -12,6 +12,11 @@
 | `logAnalyticsName` | string |  |  |
 | `retentionInDays` | int |  |  |
 | `alertEmailAddresses` | string[] |  |  |
+| `deployTripwires` | bool | `false` |  |
+| `tripwireSecretName` | string | `''` |  |
+| `tripwireAlertMinutes` | int | `0` |  |
+| `allowSharedKeyAccess` | bool | `false` |  |
+| `storageAccountResourceId` | string | `''` |  |
 
 ## Outputs
 

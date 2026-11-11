@@ -26,6 +26,19 @@
 | `startVmOnConnect` | bool | `true` | Start a deallocated session host when a user connects. Off: hosts must already be running (the scaling plan starts them on weekdays). The host pool carries tag avdlz-start-vm-on-connect = false, so Resume after an auto-shutdown lock keeps it off. |
 | `deployScalingPlan` | bool | `true` | Deploy the autoscale plan. The demo host pool turns this off so its host stays up while it is validated. |
 | `privateEndpointResourceGroupResourceId` | string | `''` |  |
+| `primaryPool` | object | `{}` | Optional per-pool overrides for the primary host pool from topology.hostPools[0]. |
+| `primaryAppGroup` | object | `{}` | Optional overrides for the primary application group from topology.appGroups[0]. |
+| `primaryWorkspace` | object | `{}` | Optional overrides for the primary workspace from topology.workspaces[0]. |
+| `defaultHostPoolPublicNetworkAccess` | string | `'EnabledForClientsOnly'` | Default publicNetworkAccess for host pools when Private Link is enabled. |
+| `defaultWorkspacePublicNetworkAccess` | string | `'Enabled'` | Default publicNetworkAccess for workspaces. |
+| `enableAvdFeedPrivateLink` | bool | `false` | Enable workspace feed Private Link by default. |
+| `enableAvdGlobalPrivateLink` | bool | `false` | Enable workspace global Private Link on the primary workspace by default. |
+| `avdGlobalPrivateDnsZoneResourceId` | string | `''` | Private DNS zone resource ID for privatelink-global.wvd.microsoft.com (used when global workspace Private Link is enabled). |
+| `additionalAppGroups` | array | `[]` | Additional application groups beyond the primary one (topology.appGroups[1..]). |
+| `additionalWorkspaces` | array | `[]` | Additional workspaces beyond the primary one (topology.workspaces[1..]). |
+| `primaryWorkspaceExtraAppGroupNames` | string[] | `[]` | Extra application group names (from additionalAppGroups) assigned to the primary workspace. |
+| `cloud` | string | `'commercial'` | Target Azure cloud environment (commercial or usgov). |
+| `complianceProfile` | string | `(cloud == 'usgov' ? 'itar-cui' : 'standard')` | Compliance profile applied to the landing zone (standard or itar-cui). |
 
 ## Outputs
 

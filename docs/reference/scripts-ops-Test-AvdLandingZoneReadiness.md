@@ -22,6 +22,8 @@ Preflight for the AVD landing zone, in two stages: -PreDeployment   before deplo
 | `-Jumpbox` | switch | no |  | The operator jumpbox (deploy.sh --jumpbox / --jumpbox-keep-running, decision 0019): check its region and size, and price it. |
 | `-JumpboxOs` | string | no |  |  |
 | `-JumpboxKeepRunningUntil` | string | no |  |  |
+| `-Topology` | string | no |  | Multi-pool, workspace, app group, Private Link and Private DNS topology manifest (JSON string or path to a JSON file). |
+| `-OfflinePricing` | switch | no |  | Use the pinned US Gov retail price snapshot instead of calling prices.azure.com. |
 | `-NamePrefix` | string | yes, in the PostDeployment set |  | ---- Post-deployment ---- |
 | `-Environment` | string | yes, in the PostDeployment set |  |  |
 | `-SessionHostVmSize` | string | no |  | Size and count to check quota for. Before deployment they override the parameter file (deploy.sh --vm-size / --hosts); after it, the size defaults to the deployed hosts' size. |
@@ -32,6 +34,7 @@ Preflight for the AVD landing zone, in two stages: -PreDeployment   before deplo
 | `-WellArchitected` | switch | no |  | Review the deployed landing zone against the Well-Architected Framework (warnings only). |
 | `-SkipPSRule` | switch | no |  | With -WellArchitected: skip PSRule for Azure on the live resources (it installs a module and takes a minute or two). |
 | `-RecoveryLocation` | string | no | `$env:AVD_RECOVERY_LOCATION` | ---- Both ---- Recovery region to check (build/specs/recovery-spec.md). Empty: AVD_RECOVERY_LOCATION, which deploy.sh and the parameter files read. |
+| `-Cloud` | string | no | `$(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' })` |  |
 | `-SubscriptionId` | string | no |  |  |
 | `-Fix` | switch | no |  | Remediate instead of only reporting. |
 | `-Force` | switch | no |  | Skip the per-policy confirmation for Conditional Access changes when fixing. |

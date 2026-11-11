@@ -10,6 +10,7 @@ Deploys a demo host pool and session host into an existing landing zone, then va
 |---|---|---|---|---|
 | `-NamePrefix` | string | yes |  |  |
 | `-Environment` | string | yes |  |  |
+| `-Cloud` | string | no | `$(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' })` |  |
 | `-SubscriptionId` | string | no |  |  |
 | `-SessionHostVmSize` | string | no |  | Empty: the same size as the landing zone's session hosts (memory-optimized E-series by default). |
 | `-SessionHostCount` | int | no | `1` |  |

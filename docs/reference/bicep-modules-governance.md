@@ -18,3 +18,5 @@
 | `alertEmailAddresses` | string[] |  |  |
 | `budgetActionGroupId` | string | `''` | Action group the budget calls at budgetActionPercent of actual cost (the auto-shutdown trigger). Empty = none. |
 | `budgetActionPercent` | int | `100` |  |
+| `cloud` | string | `'commercial'` | Target Azure cloud environment (commercial or usgov). |
+| `complianceProfile` | string | `(cloud == 'usgov' ? 'itar-cui' : 'standard')` | Compliance profile applied to the landing zone (standard or itar-cui). |

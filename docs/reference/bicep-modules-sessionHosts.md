@@ -27,6 +27,9 @@
 | `avdServicePrincipalObjectId` | string |  |  |
 | `autoShutdownTime` | string | `''` | Daily shutdown time (HHmm, in autoShutdownTimeZone) for these hosts; empty = none. The demo sets it: the landing zone auto shutdown covers only its own host pool (avd-second-brain decision 0017). |
 | `autoShutdownTimeZone` | string | `'UTC'` |  |
+| `deployRoleAssignments` | bool | `true` | Create the resource-group role assignments for VM sign-in and power management. Set to false on additional pool modules targeting the same resource group. |
+| `additionalPools` | array | `[]` | Additional host pools whose session hosts share this resource group (created and FSLogix-configured here; registered by registerPoolHosts.bicep). |
+| `hostPoolResourceId` | string | `''` | Resource ID of the host pool these session hosts belong to. When set, hosts and their disks and NICs carry tag cm-resource-parent so Cost Management groups pool spend without filters. |
 
 ## Outputs
 
