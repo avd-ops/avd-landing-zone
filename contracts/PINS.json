@@ -58,8 +58,8 @@
     "avd-m365": {
       "repo": "avd-ops/avd-m365",
       "url": "https://github.com/avd-ops/avd-m365",
-      "commit": "7f283f1b4370a3d4a71440ebe7b068bf3fd7d484",
-      "shortCommit": "7f283f1",
+      "commit": "c8876d24b7936d476243c0609f01e5dc20cbe931",
+      "shortCommit": "c8876d2",
       "entryPoint": "scripts/Deploy-AvdM365.ps1",
       "teardownScript": "scripts/Remove-AvdM365.ps1",
       "consumes": [
@@ -118,7 +118,7 @@
     "schemas/entra-manifest.schema.json": "423aa7fae703c7bf866f48fb599955d26f03151db0723d4389ac6fef984fa4b9",
     "schemas/fact-register.schema.json": "9d1174812123da87439595bb5f3727758655a89d1cf2ad4d9553861c4b328eb5",
     "schemas/intune-manifest.schema.json": "59b4a2a1aa985df16ff412d8fa3973217d9a712dab22d1cd23bef30ec8745f7f",
-    "schemas/m365-manifest.schema.json": "de40756acdf0d1a8dfe82a083c7d05347ef0e11a5911d607aac73df699ed55b6",
+    "schemas/m365-manifest.schema.json": "5cb1ccb9a64e5e67589a92c20f46d48a3992204463f988027090e31638cbfa5b",
     "schemas/power-platform-manifest.schema.json": "5a02ee2bf4fdf9c0b87fd9f3801b5c00baa14ac6061584d5b4f06bfc74dd2702",
     "schemas/run-cost.schema.json": "0dcbc29ad6e91371fe203628f2768f88138a5f5d48a27c0c170850389cc69f7d",
     "schemas/run-journal.schema.json": "08108ab95806e1cba0090d256dbd5e7128b0c68c4cd126f8553cfdd2221860b6",
