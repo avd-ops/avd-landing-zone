@@ -28,22 +28,62 @@
       "enum": [
         "commercial",
         "usgov"
-      ],
-      "default": "commercial"
-    },
-    "complianceProfile": {
-      "type": "string",
-      "enum": [
-        "standard",
-        "itar-cui"
-      ],
-      "default": "standard"
+      ]
     },
     "powerPlatformEnvironmentName": {
       "type": "string"
     },
     "dlpPolicyName": {
       "type": "string"
+    },
+    "enterprisePolicyStatus": {
+      "type": "string",
+      "enum": [
+        "deployed",
+        "not-configured",
+        "skipped: unsupported-in-usgov"
+      ]
+    },
+    "vnetInjectionStatus": {
+      "type": "string",
+      "enum": [
+        "deployed",
+        "not-configured",
+        "skipped: unsupported-in-usgov"
+      ]
+    },
+    "enterprisePolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "deployed",
+            "not-configured",
+            "skipped",
+            "skipped: unsupported-in-usgov"
+          ]
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
     },
     "activeWorkflows": {
       "type": "array",

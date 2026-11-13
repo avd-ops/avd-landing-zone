@@ -17,14 +17,6 @@
     "schema": {
       "const": "avd-ops-azure-outputs/v1"
     },
-    "environment": {
-      "type": "string",
-      "enum": [
-        "dev",
-        "test",
-        "prod"
-      ]
-    },
     "cloud": {
       "type": "string",
       "enum": [
@@ -40,6 +32,14 @@
         "itar-cui"
       ],
       "default": "standard"
+    },
+    "environment": {
+      "type": "string",
+      "enum": [
+        "dev",
+        "test",
+        "prod"
+      ]
     },
     "location": {
       "type": "string",

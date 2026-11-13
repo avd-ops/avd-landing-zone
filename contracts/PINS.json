@@ -27,8 +27,8 @@
     "avd-entra": {
       "repo": "avd-ops/avd-entra",
       "url": "https://github.com/avd-ops/avd-entra",
-      "commit": "67cdff7c9af4b6dcb8b7c10d80fec3ff16abef62",
-      "shortCommit": "67cdff7",
+      "commit": "e161f2684dcaa55fe0c052cfb391cb77fb5972e3",
+      "shortCommit": "e161f26",
       "entryPoint": "scripts/Deploy-AvdEntra.ps1",
       "teardownScript": "scripts/Remove-AvdEntra.ps1",
       "handoffManifest": "entra-manifest.json",
@@ -41,8 +41,8 @@
     "avd-intune": {
       "repo": "avd-ops/avd-intune",
       "url": "https://github.com/avd-ops/avd-intune",
-      "commit": "aa82bc5568078347babe5a461c17acc0695b60a1",
-      "shortCommit": "aa82bc5",
+      "commit": "ca4169f6ead73ecf40014b9d47b18b151a614572",
+      "shortCommit": "ca4169f",
       "entryPoint": "scripts/Deploy-AvdIntune.ps1",
       "teardownScript": "scripts/Remove-AvdIntune.ps1",
       "consumes": [
@@ -58,8 +58,8 @@
     "avd-m365": {
       "repo": "avd-ops/avd-m365",
       "url": "https://github.com/avd-ops/avd-m365",
-      "commit": "f18b14f9866cce604b92738c92afa390e14ee7fc",
-      "shortCommit": "f18b14f",
+      "commit": "968551528fbb6784638dda916c38777367d39de9",
+      "shortCommit": "9685515",
       "entryPoint": "scripts/Deploy-AvdM365.ps1",
       "teardownScript": "scripts/Remove-AvdM365.ps1",
       "consumes": [
@@ -75,8 +75,8 @@
     "avd-azure": {
       "repo": "avd-ops/avd-azure",
       "url": "https://github.com/avd-ops/avd-azure",
-      "commit": "ac01bc41b1e60d04bdfc01f77fe7832255d6644c",
-      "shortCommit": "ac01bc4",
+      "commit": "daa7da53948e6421619b0d811df13fd15f4abe2c",
+      "shortCommit": "daa7da5",
       "entryPoint": "scripts/deploy/deploy.sh",
       "teardownScript": null,
       "consumes": [
@@ -92,8 +92,8 @@
     "avd-power-platform": {
       "repo": "avd-ops/avd-power-platform",
       "url": "https://github.com/avd-ops/avd-power-platform",
-      "commit": "454335695e8db154dd71550788e1ce3694b59e7e",
-      "shortCommit": "4543356",
+      "commit": "cccf46ac00bb396c7c4d59488ee3d085c1b752f2",
+      "shortCommit": "cccf46a",
       "entryPoint": "scripts/Deploy-AvdPowerPlatform.ps1",
       "teardownScript": "scripts/Remove-AvdPowerPlatform.ps1",
       "consumes": [
@@ -114,12 +114,12 @@
     "examples/target-state.example.json": "6f76c725a6b5e5a2b7baf95908032009d37081af537fe977a224a72488744914",
     "fact-register.json": "52a12178817e4189c19329c3cf9b4b3f3ebdd8e87c6e5ec72d54c26b6d1a2651",
     "run-use-cases.json": "e9d981d5584df77d3d806dcb248b0a1159c250af8a349a081288ad0e29ac6714",
-    "schemas/azure-outputs.schema.json": "665cd8748207dc08f75e260931e7979b59e449a851c88f0744a2cd6238a8c71d",
-    "schemas/entra-manifest.schema.json": "4b1013f7118e6b288da6e61f537a5f375e16a7751245032afe3e4ca93fe75b8e",
+    "schemas/azure-outputs.schema.json": "7fa5106e10c39b802fcc062c970694d72e946607737456f5d9bfd239fbf6ea86",
+    "schemas/entra-manifest.schema.json": "423aa7fae703c7bf866f48fb599955d26f03151db0723d4389ac6fef984fa4b9",
     "schemas/fact-register.schema.json": "9d1174812123da87439595bb5f3727758655a89d1cf2ad4d9553861c4b328eb5",
     "schemas/intune-manifest.schema.json": "59b4a2a1aa985df16ff412d8fa3973217d9a712dab22d1cd23bef30ec8745f7f",
-    "schemas/m365-manifest.schema.json": "e864cbbdbabbc18b7097342ec2bbf3b28bd2b8a8216b6e428cfaa34bbfdabb8c",
-    "schemas/power-platform-manifest.schema.json": "2d3cb8e80056302807ff625af8328adb932abe6f4ec73492455a6a86f15a01e1",
+    "schemas/m365-manifest.schema.json": "de40756acdf0d1a8dfe82a083c7d05347ef0e11a5911d607aac73df699ed55b6",
+    "schemas/power-platform-manifest.schema.json": "5a02ee2bf4fdf9c0b87fd9f3801b5c00baa14ac6061584d5b4f06bfc74dd2702",
     "schemas/run-cost.schema.json": "0dcbc29ad6e91371fe203628f2768f88138a5f5d48a27c0c170850389cc69f7d",
     "schemas/run-journal.schema.json": "08108ab95806e1cba0090d256dbd5e7128b0c68c4cd126f8553cfdd2221860b6",
     "schemas/run-record.schema.json": "8f9d0b26c4813c9db9c1dd420330c100ed087313e5d11d32a88181c884f2ffd9",
