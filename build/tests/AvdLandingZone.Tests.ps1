@@ -988,7 +988,7 @@ Describe 'Five control planes orchestrator and pin manifest (decision 0009)' {
     $expected = @(
       @{ Key = 'entra'; Repo = 'avd-entra'; Short = 'e161f26'; Entry = 'scripts/Deploy-AvdEntra.ps1'; Teardown = 'scripts/Remove-AvdEntra.ps1'; Manifest = 'entra-manifest.json' }
       @{ Key = 'intune'; Repo = 'avd-intune'; Short = 'ca4169f'; Entry = 'scripts/Deploy-AvdIntune.ps1'; Teardown = 'scripts/Remove-AvdIntune.ps1'; Manifest = 'intune-manifest.json' }
-      @{ Key = 'm365'; Repo = 'avd-m365'; Short = '9685515'; Entry = 'scripts/Deploy-AvdM365.ps1'; Teardown = 'scripts/Remove-AvdM365.ps1'; Manifest = 'm365-manifest.json' }
+      @{ Key = 'm365'; Repo = 'avd-m365'; Short = '7f283f1'; Entry = 'scripts/Deploy-AvdM365.ps1'; Teardown = 'scripts/Remove-AvdM365.ps1'; Manifest = 'm365-manifest.json' }
       @{ Key = 'azure'; Repo = 'avd-azure'; Short = 'daa7da5'; Entry = 'scripts/deploy/deploy.sh'; Teardown = $null; Manifest = 'azure-outputs.json' }
       @{ Key = 'power-platform'; Repo = 'avd-power-platform'; Short = 'cccf46a'; Entry = 'scripts/Deploy-AvdPowerPlatform.ps1'; Teardown = 'scripts/Remove-AvdPowerPlatform.ps1'; Manifest = 'power-platform-manifest.json' }
     )

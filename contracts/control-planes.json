@@ -97,8 +97,8 @@
       "repo": "avd-ops/avd-m365",
       "url": "https://github.com/avd-ops/avd-m365",
       "branch": "main",
-      "commit": "968551528fbb6784638dda916c38777367d39de9",
-      "shortCommit": "9685515",
+      "commit": "7f283f1b4370a3d4a71440ebe7b068bf3fd7d484",
+      "shortCommit": "7f283f1",
       "entryPoint": "scripts/Deploy-AvdM365.ps1",
       "teardownScript": "scripts/Remove-AvdM365.ps1",
       "dependsOn": [
