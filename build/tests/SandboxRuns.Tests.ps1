@@ -528,3 +528,104 @@ Describe 'Health before spend' {
     @(Get-AvdStaleHostDevice -Devices $d -Prefix (Get-AvdHostDevicePrefix) -VmName @('AVDLZDSH-002') | ForEach-Object id) | Should -Be @('1', '3', '6')
   }
 }
+
+Describe 'Queue sync and result reporting (Initiating repo to and from Queue repo)' {
+  It 'extracts a sandbox-run/v1 item from an initiating issue body or comment, resolves @HEAD, and stamps initiatingIssue' {
+    $sha = 'c' * 40
+    $spec = [ordered]@{
+      schema = 'sandbox-run/v1'; purpose = 'Verify autoscale RG scope'; source = 'avd-ops/avd-landing-zone@HEAD'
+      tests = 'WVDAutoscaleEvaluationPooled has no RBAC error'; kind = 'avd'; sandbox = 'lab'; region = 'northcentralus'
+      shape = 'dev LZ, 1 x D2as_v5'; deploymentKey = 'lz-dev-1xD2as-pl'; ratePerHour = 0.43; hours = 1.5; hoursWhenSharing = 0.25
+      estimateNote = 'Retail prices'; unattended = $true; test = 'echo check-autoscale'; evidence = 'Run record'
+    } | ConvertTo-Json -Depth 10
+    $issue = [pscustomobject]@{
+      number   = 101
+      title    = 'Autoscale power role scope'
+      body     = "Background context.`n`n``````json`n$spec`n``````"
+      comments = @()
+    }
+    $item = ConvertFrom-AvdBatchInitiatingIssue -Repo 'avd-ops/avd-landing-zone' -Issue $issue -HeadSha $sha
+    $item | Should -Not -BeNullOrEmpty
+    $item.number | Should -Be 101
+    $item.initiatingIssue | Should -Be 'avd-ops/avd-landing-zone#101'
+    $item.source | Should -Be "avd-ops/avd-landing-zone@$sha"
+
+    $q = Get-AvdBatchQueueIssue -Item $item
+    $q.problems | Should -BeNullOrEmpty
+    $q.initiatingIssue | Should -Be 'avd-ops/avd-landing-zone#101'
+    $q.title | Should -Match '^Sandbox run \[avd-ops/avd-landing-zone#101\]:'
+    $parsed = Get-AvdBatchItem -Issue $q
+    $parsed.problems | Should -BeNullOrEmpty
+    $parsed.purpose | Should -Match '^avd-ops/avd-landing-zone#101: Verify autoscale RG scope$'
+  }
+
+  It 'returns null when an issue has no sandbox-run/v1 spec, and flags private values in a queue item' {
+    $plain = [pscustomobject]@{ number = 5; title = 'Doc typo'; body = 'Fix a typo in README.md'; comments = @() }
+    ConvertFrom-AvdBatchInitiatingIssue -Repo 'avd-ops/avd-landing-zone' -Issue $plain | Should -BeNullOrEmpty
+
+    $badItem = [ordered]@{
+      schema = 'sandbox-run/v1'; number = 9; initiatingIssue = 'avd-ops/avd-landing-zone#9'; purpose = 'Leak check'
+      source = "avd-ops/avd-landing-zone@$('a' * 40)"; tests = 'Passes'; kind = 'avd'; sandbox = 'lab'; region = 'northcentralus'
+      shape = 'dev LZ'; ratePerHour = 0.43; hours = 1; estimateNote = 'Retail'; test = "az account set -s $Sub"; evidence = 'Record'
+    }
+    (Get-AvdBatchQueueIssue -Item $badItem).problems -join ';' | Should -Match 'Holds private value'
+  }
+
+  It 'builds queue updates and redacted initiating-issue reports per member after a batch group finishes' {
+    $sha = 'd' * 40
+    $i1 = Get-AvdBatchItem -Issue (Get-AvdBatchQueueIssue -Item ([ordered]@{
+          schema = 'sandbox-run/v1'; number = 116; initiatingIssue = 'avd-ops/avd-landing-zone#116'; purpose = 'Host baseline evidence'
+          source = "avd-ops/avd-landing-zone@$sha"; tests = 'Readiness passes'; kind = 'avd'; sandbox = 'lab'; region = 'northcentralus'
+          shape = 'dev LZ'; deploymentKey = 'lz-dev-shared'; ratePerHour = 0.5; hours = 1.5; hoursWhenSharing = 0.5; estimateNote = 'Retail'
+          unattended = $true; deploy = 'echo deploy'; test = 'echo test 116'; teardown = 'echo teardown'; evidence = 'Run record'; keep = @('~/evidence-116.json')
+        }))
+    $i2 = Get-AvdBatchItem -Issue (Get-AvdBatchQueueIssue -Item ([ordered]@{
+          schema = 'sandbox-run/v1'; number = 101; initiatingIssue = 'avd-ops/avd-landing-zone#101'; purpose = 'Autoscale RBAC scope'
+          source = "avd-ops/avd-landing-zone@$sha"; tests = 'Autoscale evaluates'; kind = 'avd'; sandbox = 'lab'; region = 'northcentralus'
+          shape = 'dev LZ'; deploymentKey = 'lz-dev-shared'; ratePerHour = 0.5; hours = 1.0; hoursWhenSharing = 0.25; estimateNote = 'Retail'
+          unattended = $true; deploy = ''; test = 'echo test 101'; teardown = ''; evidence = 'Run record'
+        }))
+    $plan = Get-AvdBatchPlan -Groups @(Get-AvdBatchGroup -Items @($i1, $i2)) -BatchCap 10
+    $pins = @{ "avd-ops/avd-landing-zone@$sha" = @{ repo = 'avd-ops/avd-landing-zone'; sha = $sha } }
+    $batch = Get-AvdBatch -Plan $plan -Items @($i1, $i2) -Pins $pins -Now $Now
+    $results = [ordered]@{
+      schema     = 'sandbox-batch-results/v1'
+      batchId    = $batch.batchId
+      group      = 'G1'
+      outcome    = 'tests-failed'
+      startedAt  = '2026-10-21T01:00:00Z'
+      finishedAt = '2026-10-21T02:15:00Z'
+      runId      = 'run-20261021-0100-q001'
+      spendRunId = '20261021-0100-avd'
+      steps      = @(
+        @{ step = 'start'; item = 0; exitCode = 0 },
+        @{ step = 'deploy'; item = 116; exitCode = 0 },
+        @{ step = 'test'; item = 116; exitCode = 0 },
+        @{ step = 'test'; item = 101; exitCode = 1 },
+        @{ step = 'teardown'; item = 116; exitCode = 0 },
+        @{ step = 'close'; item = 0; exitCode = 0 }
+      )
+      keeps      = @(@{ item = 116; path = '~/evidence-116.json'; status = 'kept'; sha256 = ('f' * 64); verified = $true })
+    }
+    $rep = Get-AvdBatchResultReport -Batch $batch -Group 'G1' -Results $results
+    $rep.queueUpdates.Count | Should -Be 2
+    $rep.initiatingReports.Count | Should -Be 2
+    ($rep.queueUpdates | Where-Object number -eq 116).passed | Should -BeTrue
+    ($rep.queueUpdates | Where-Object number -eq 116).addLabel | Should -Be 'queue:done'
+    ($rep.queueUpdates | Where-Object number -eq 116).closeIssue | Should -BeTrue
+    ($rep.queueUpdates | Where-Object number -eq 101).passed | Should -BeFalse
+    ($rep.queueUpdates | Where-Object number -eq 101).addLabel | Should -Be 'queue:failed'
+    ($rep.queueUpdates | Where-Object number -eq 101).closeIssue | Should -BeFalse
+
+    $r116 = $rep.initiatingReports | Where-Object issueNumber -eq 116
+    $r116.repo | Should -Be 'avd-ops/avd-landing-zone'
+    $r116.passed | Should -BeTrue
+    $r116.comment | Should -Match 'Sandbox verification \(PASSED\)'
+    $r116.comment | Should -Match 'evidence-116\.json'
+    Test-AvdSpendPrivateValue -Text $r116.comment | Should -BeNullOrEmpty
+
+    $r101 = $rep.initiatingReports | Where-Object issueNumber -eq 101
+    $r101.passed | Should -BeFalse
+    $r101.comment | Should -Match 'Sandbox verification \(FAILED\)'
+  }
+}

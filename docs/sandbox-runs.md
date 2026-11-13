@@ -95,7 +95,18 @@ An item is one test you want run. Write it as a JSON file in a folder (no GitHub
 - Optional: `regionReason` (required when `region` isn't `SPEND_DEFAULT_REGION`), `fixedCost`, `record` (a parameter file and flags for the run recorder, below), `keep` (paths to keep before teardown), `dependsOn` (items or PRs that must be merged first).
 - No GUIDs, email addresses or tenant domains in an item: an approved batch freezes its text, and these are refused. Have the step read them from a variable at run time.
 
-### Build, approve, run
+### Enqueue, build, approve, run, report back
+
+To queue open issues that carry a `sandbox-run/v1` block from an initiating repository into your private companion repo (`$env:AVD_PRIVATE_REPO`), then build the batch from that queue:
+
+```powershell
+if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git $HOME/avd-landing-zone }
+Set-Location ~/avd-landing-zone; git pull -q --ff-only
+./scripts/ops/Sync-AvdSandboxQueue.ps1 -SourceRepo avd-ops/avd-landing-zone -PrivateRepo $env:AVD_PRIVATE_REPO
+./scripts/ops/New-AvdSandboxBatch.ps1 -Repo $env:AVD_PRIVATE_REPO -MonthlyCap 150 -RunCap 25 -PostIssue
+```
+
+Or build directly from a folder of `sandbox-run/v1` JSON files:
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git $HOME/avd-landing-zone }
@@ -110,12 +121,12 @@ Set-Location ~/avd-landing-zone
 ./scripts/ops/Approve-AvdSandboxBatch.ps1 -BatchId b20261021-1700
 ```
 
-And runs each group in order, one block per group:
+And runs each group in order, one block per group (pass `-PublishResult` to close out the queue issues in `$env:AVD_PRIVATE_REPO` and post the redacted verification table back to the initiating repository's issues, or run `Publish-AvdSandboxResult.ps1` afterwards):
 
 ```powershell
 if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git $HOME/avd-landing-zone }
 Set-Location ~/avd-landing-zone; git pull -q --ff-only
-./scripts/ops/Invoke-AvdSandboxBatch.ps1 -BatchId b20261021-1700 -Group G1 -MonthlyCap 150 -RunCap 25
+./scripts/ops/Invoke-AvdSandboxBatch.ps1 -BatchId b20261021-1700 -Group G1 -PrivateRepo $env:AVD_PRIVATE_REPO -PublishResult -MonthlyCap 150 -RunCap 25
 ```
 
 A group starts with the health check below; a failure claims, deploys and spends nothing, so the same block runs again once it's fixed. Exit 0: closed clean and every test passed. Exit 3: closed clean with a failed test or deploy; the next group may run. Exit 2: stop the batch (the spend run didn't open, the close found leftovers, the deadline passed, output couldn't be kept, or it refused to start); deal with the reason before the next group.

@@ -26,3 +26,4 @@ Runs one group of an approved sandbox batch: opens the spend run, deploys at the
 | `-SkipHealth` | switch | no |  | Skip the read-only health check (Test-AvdSandboxHealth.ps1) a new group starts with. |
 | `-NoDeadlineTeardown` | switch | no |  | Run without the deadline teardown (decision 0021): a group whose shell dies keeps billing until someone tears it down. Needed with -Local, or a run store set up with -NoDeadlineTeardown. |
 | `-PrivateRepo` | string | no | `$env:AVD_PRIVATE_REPO` | Recorded groups: the private companion repo the run recorder copies the run to after the close. Empty: the run stays in the run store only, and can be copied later. |
+| `-PublishResult` | switch | no |  | Also publish the finished group's results to the private queue and initiating repo issues (Publish-AvdSandboxResult.ps1). |

@@ -1046,6 +1046,14 @@ Describe 'Sandbox batches from Cloud Shell (decision 0020)' {
     Get-StepExit $out 'keep-local' | Should -Be 2
     $out | Should -Match 'RESULT keep-local deploys=0'
   }
+  It 'syncs initiating repo issues into the queue, runs the batch, and builds the redacted report back to the initiating issue' {
+    Get-StepExit $out 'queue-sync' | Should -Be 0
+    Get-StepExit $out 'build4' | Should -Be 0
+    Get-StepExit $out 'approve4' | Should -Be 0
+    Get-StepExit $out 'run4' | Should -Be 0
+    Get-StepExit $out 'publish-result' | Should -Be 0
+    $out | Should -Match 'RESULT publish-result ref=contoso/lab-tests#95 passed=True qlabel=queue:done'
+  }
 }
 
 Describe 'Offline: teardown that does not depend on the shell (decision 0021)' {

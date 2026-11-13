@@ -151,4 +151,26 @@ Invoke-ScenarioStep 'health-ok' { & ./scripts/ops/Test-AvdSandboxHealth.ps1 @hea
 Write-Host "RESULT health-ok healthy=$((Get-Content $json -Raw | ConvertFrom-Json).healthy)"
 Invoke-ScenarioStep 'healthy-group' { & ./scripts/ops/Invoke-AvdSandboxBatch.ps1 -Group G1 @batchArgs }
 Write-Host "RESULT healthy-group outcome=$((& $results G1).outcome) deploys=$(& $count 'deploy rg-lz-g')"
+
+# End-to-end initiating repo issue -> queue sync -> batch build/run -> result report back.
+$initIssuesPath = Join-Path $work 'initiating-issues.json'
+$queueIssuesPath = Join-Path $work 'queue-issues.json'
+$reportOutPath = Join-Path $work 'published-report.json'
+$initSpec = [ordered]@{
+  schema = 'sandbox-run/v1'; purpose = 'Verify PE NSG and KMS'; source = 'contoso/lab-tests@HEAD'; tests = 'KMS reachable'
+  kind = 'avd'; sandbox = 'lab'; region = 'northcentralus'; shape = 'dev LZ, 1 x D2as_v5'; deploymentKey = 'lz-h'
+  ratePerHour = 0.5; hours = 1; hoursWhenSharing = 0.25; estimateNote = 'Retail prices'; unattended = $true
+  deploy = (& $deploy 'rg-lz-h'); test = "echo test 95 >> '$log'"; teardown = (& $teardown 'rg-lz-h'); evidence = 'Spend record'
+} | ConvertTo-Json -Depth 10
+@([ordered]@{ number = 95; title = 'Network PE NSG'; body = "Issue context.`n`n``````json`n$initSpec`n``````"; comments = @() }) | ConvertTo-Json -Depth 10 | Set-Content $initIssuesPath
+Invoke-ScenarioStep 'queue-sync' { & ./scripts/ops/Sync-AvdSandboxQueue.ps1 -SourceRepo 'contoso/lab-tests' -IssuesPath $initIssuesPath -HeadSha $sha -OutPath $queueIssuesPath -DryRun }
+$batchId = 'b20261021-0400'
+$batchArgs.BatchId = $batchId
+Invoke-ScenarioStep 'build4' { & ./scripts/ops/New-AvdSandboxBatch.ps1 -IssuesPath $queueIssuesPath -MonthToDate 12.5 -Now $now.AddHours(3) -BatchCap 10 -MonthlyCap 150 -RunCap 25 @common }
+$batch = Get-Content (Join-Path $records "queue/2026-10/$batchId/batch.json") -Raw | ConvertFrom-Json
+Invoke-ScenarioStep 'approve4' { & ./scripts/ops/Approve-AvdSandboxBatch.ps1 -BatchId $batchId -Phrase ("go batch {0} `${1:N2}" -f $batchId, $batch.total) @common }
+Invoke-ScenarioStep 'run4' { & ./scripts/ops/Invoke-AvdSandboxBatch.ps1 -Group G1 @batchArgs }
+Invoke-ScenarioStep 'publish-result' { & ./scripts/ops/Publish-AvdSandboxResult.ps1 -BatchId $batchId -Group G1 -OutPath $reportOutPath -DryRun @common }
+$pub = Get-Content $reportOutPath -Raw | ConvertFrom-Json
+Write-Host "RESULT publish-result ref=$($pub.initiatingReports[0].ref) passed=$($pub.initiatingReports[0].passed) qlabel=$($pub.queueUpdates[0].addLabel)"
 Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
