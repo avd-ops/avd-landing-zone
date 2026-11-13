@@ -62,20 +62,24 @@ function ConvertFrom-AvdBatchItemFile {
   <#
     A queue item from a sandbox-run/v1 JSON file instead of an issue, so a queue needs no GitHub:
     { "schema": "sandbox-run/v1", "number": 1, "title": "...", "purpose": "...", ... } with the
-    fields in $ItemFileFields. Returns the issue shape Get-AvdBatchItem reads: number, title, and
-    a body of "### <label>" sections. Lists (keep, dependsOn) may be arrays; unattended may be a bool.
+    fields in $ItemFileFields (plus optional "initiatingIssue": "owner/repo#N"). Returns the issue
+    shape Get-AvdBatchItem reads: number, title, and a body of "### <label>" sections. Lists (keep,
+    dependsOn) may be arrays; unattended may be a bool.
   #>
   param([Parameter(Mandatory)][System.Collections.IDictionary] $Item)
   if (-not $Item.Contains('schema') -or $Item.schema -ne 'sandbox-run/v1') { throw 'Not a sandbox-run/v1 item file (schema).' }
   if (-not $Item.Contains('number') -or "$($Item.number)" -notmatch '^\d+$') { throw 'An item file needs a whole "number", unique in the queue.' }
-  $unknown = @($Item.Keys | Where-Object { $_ -notin @('schema', 'number', 'title') -and -not $script:ItemFileFields.Contains($_) })
+  $unknown = @($Item.Keys | Where-Object { $_ -notin @('schema', 'number', 'title', 'initiatingIssue') -and -not $script:ItemFileFields.Contains($_) })
   if ($unknown.Count) { throw "Unknown field(s) in the item file: $($unknown -join ', ')" }
+  $initRef = if ($Item.Contains('initiatingIssue') -and $Item['initiatingIssue']) { "$($Item['initiatingIssue'])".Trim() } else { '' }
+  if ($initRef -and $initRef -notmatch '^[\w.-]+/[\w.-]+#\d+$') { throw "initiatingIssue must be owner/repo#N: $initRef" }
   $body = foreach ($k in $script:ItemFileFields.Keys) {
     if (-not $Item.Contains($k)) { continue }
     $v = $Item[$k]
     $text = if ($v -is [bool]) { if ($v) { 'Yes' } else { 'No' } }
     elseif ($v -is [System.Collections.IEnumerable] -and $v -isnot [string]) { (@($v) -join "`n") }
     else { "$v" }
+    if ($k -eq 'purpose' -and $initRef -and $text -notmatch ([regex]::Escape($initRef))) { $text = "$initRef`: $text" }
     if ($k -eq 'dependsOn') { $text = $text -replace "`n", ', ' }
     "### $($script:ItemFileFields[$k])`n`n$text`n"
   }
@@ -680,6 +684,239 @@ function Format-AvdBatchMoney {
   '${0:N2}' -f [double]$Amount
 }
 
+# =====================================================================
+# Queue sync and result reporting (Initiating repo <-> Queue repo)
+# =====================================================================
+function Get-AvdBatchInitiatingIssue {
+  <#
+    Extracts the initiating repository issue reference (owner/repo#N) from a queue item or batch
+    member: checks initiatingIssue first, then an owner/repo#N token in purpose. Returns $null
+    when the item is not linked to an initiating issue.
+  #>
+  param($Member)
+  if (-not $Member) { return $null }
+  $get = { param($k) if ($Member -is [System.Collections.IDictionary]) { $(if ($Member.Contains($k)) { $Member[$k] } else { '' }) } elseif ($Member.PSObject.Properties[$k]) { $Member.$k } else { '' } }
+  $raw = "$((& $get 'initiatingIssue'))".Trim()
+  if (-not $raw) { $raw = "$((& $get 'purpose'))".Trim() }
+  if ($raw -match '(?<![\w.-])([\w.-]+/[\w.-]+)#(\d+)\b') {
+    return [ordered]@{ repo = $Matches[1]; number = [int]$Matches[2]; ref = "$($Matches[1])#$($Matches[2])" }
+  }
+  $null
+}
+
+function ConvertFrom-AvdBatchInitiatingIssue {
+  <#
+    Extracts a sandbox-run/v1 item definition from an open issue in an initiating repository
+    (body and optional comments). Accepts either a fenced JSON block with "schema": "sandbox-run/v1"
+    (taking the latest matching block so a comment can refine the spec) or "### <Label>" form
+    sections. Stamps initiatingIssue = "<Repo>#<number>" and resolves @HEAD in source when HeadSha
+    is given. Returns $null when the issue has no sandbox-run/v1 spec.
+  #>
+  param(
+    [Parameter(Mandatory)][string] $Repo,
+    [Parameter(Mandatory)] $Issue,
+    [string] $HeadSha
+  )
+  $num = [int]$Issue.number
+  $ref = "$Repo#$num"
+  $texts = @("$($Issue.body)")
+  $comments = if ($Issue -is [System.Collections.IDictionary]) { $Issue['comments'] } elseif ($Issue.PSObject.Properties['comments']) { $Issue.comments } else { @() }
+  foreach ($c in @($comments | Where-Object { $_ })) {
+    $cb = if ($c -is [System.Collections.IDictionary]) { $c['body'] } elseif ($c.PSObject.Properties['body']) { $c.body } else { "$c" }
+    if ($cb) { $texts += "$cb" }
+  }
+  $found = $null
+  foreach ($t in $texts) {
+    foreach ($m in [regex]::Matches($t, '(?s)```(?:json)?\s*\r?\n(\{.*?\})\r?\n?```')) {
+      try {
+        $obj = $m.Groups[1].Value | ConvertFrom-Json -Depth 20 -AsHashtable
+        if ($obj -is [System.Collections.IDictionary] -and $obj.Contains('schema') -and $obj['schema'] -eq 'sandbox-run/v1') { $found = $obj }
+      }
+      catch { $null = $_ }
+    }
+  }
+  if (-not $found) {
+    $fields = ConvertFrom-AvdBatchIssueBody -Body "$($Issue.body)"
+    if ($fields.Contains('Purpose') -and $fields.Contains('Test')) {
+      $found = [ordered]@{ schema = 'sandbox-run/v1'; number = $num }
+      foreach ($k in $script:ItemFileFields.Keys) {
+        $lbl = $script:ItemFileFields[$k]
+        if ($fields.Contains($lbl) -and $fields[$lbl]) { $found[$k] = $fields[$lbl] }
+      }
+    }
+  }
+  if (-not $found) { return $null }
+  $item = [ordered]@{ schema = 'sandbox-run/v1'; number = $(if ($found.Contains('number') -and $found['number']) { [int]$found['number'] } else { $num }); initiatingIssue = $ref }
+  if ($Issue.title -and -not $found.Contains('title')) { $item['title'] = "Sandbox run [$ref]: $($Issue.title)" }
+  foreach ($k in $found.Keys) {
+    if ($k -in @('schema', 'number', 'initiatingIssue')) { continue }
+    $item[$k] = $found[$k]
+  }
+  if ($HeadSha -and $item.Contains('source')) {
+    $src = "$($item['source'])".Trim()
+    if ($src -eq '@HEAD' -or $src -eq "$Repo@HEAD") { $item['source'] = "$Repo@$HeadSha" }
+    elseif ($src -match '^([\w.-]+/[\w.-]+)@HEAD$' -and $Matches[1] -eq $Repo) { $item['source'] = "$Repo@$HeadSha" }
+  }
+  $item
+}
+
+function Get-AvdBatchQueueIssue {
+  <#
+    Builds and validates a queue issue payload (title, body, labels, problems) for the private
+    companion queue repo from a sandbox-run/v1 item definition. Resolves @HEAD when HeadSha is
+    given and checks both Get-AvdBatchItem and Test-AvdSpendPrivateValue so no invalid or
+    unredacted item enters the queue.
+  #>
+  param(
+    [Parameter(Mandatory)][System.Collections.IDictionary] $Item,
+    [string] $HeadSha,
+    [string] $DefaultRegion
+  )
+  $copy = [ordered]@{}
+  foreach ($k in $Item.Keys) { $copy[$k] = $Item[$k] }
+  if ($HeadSha -and $copy.Contains('source')) {
+    $src = "$($copy['source'])".Trim()
+    if ($src -match '^([\w.-]+/[\w.-]+)@HEAD$') { $copy['source'] = "$($Matches[1])@$HeadSha" }
+  }
+  $issueObj = ConvertFrom-AvdBatchItemFile -Item $copy
+  $parsed = Get-AvdBatchItem -Issue $issueObj -DefaultRegion $DefaultRegion
+  $init = Get-AvdBatchInitiatingIssue -Member $copy
+  if (-not $init) { $init = Get-AvdBatchInitiatingIssue -Member $parsed }
+  $initRef = if ($init) { $init.ref } else { '' }
+  $title = if ($copy.Contains('title') -and $copy['title']) { "$($copy['title'])" }
+  elseif ($initRef) { "Sandbox run [$initRef]: $($parsed.purpose -replace "^$([regex]::Escape($initRef)):\s*", '')" }
+  else { "Sandbox run [item #$($parsed.number)]: $($parsed.purpose)" }
+  $priv = @(Test-AvdSpendPrivateValue -Text "$title`n$($issueObj.body)")
+  $problems = @($parsed.problems) + @(if ($priv.Count) { "Holds private value(s): $($priv -join ', ')" })
+  [ordered]@{
+    number          = [int]$parsed.number
+    initiatingIssue = $initRef
+    title           = $title
+    body            = $issueObj.body
+    labels          = @([ordered]@{ name = 'sandbox-run' }, [ordered]@{ name = 'queue:ready' })
+    deploymentKey   = $parsed.deploymentKey
+    problems        = @($problems)
+  }
+}
+
+function Get-AvdBatchResultReport {
+  <#
+    Builds the closeout updates after a batch group finishes:
+      - queueUpdates: for each member item in the private queue repo (label swap queue:ready ->
+        queue:done or queue:failed, comment, and whether to close the queue issue).
+      - initiatingReports: for each member linked to an initiating repo issue (owner/repo#N), a
+        public-safe, leak-checked Markdown verification comment naming the batch, group, pinned
+        commit, step exit codes, teardown close check, and kept artifact hashes.
+  #>
+  param(
+    [Parameter(Mandatory)] $Batch,
+    [Parameter(Mandatory)][string] $Group,
+    [Parameter(Mandatory)] $Results
+  )
+  $g = @($Batch.groups | Where-Object { $_.id -eq $Group }) | Select-Object -First 1
+  if (-not $g) { throw "Batch $($Batch.batchId) has no group $Group." }
+  $outcome = "$($Results.outcome)"
+  if (-not $outcome -or $outcome -eq 'running') { throw "Group $Group of batch $($Batch.batchId) has not finished yet (outcome: $(if ($outcome) { $outcome } else { 'none' }))." }
+  $startState = Get-AvdBatchStepState -Results $Results -Step 'start' -Item 0
+  $deployState = Get-AvdBatchStepState -Results $Results -Step 'deploy' -Item ([int]$g.lead)
+  $teardownState = Get-AvdBatchStepState -Results $Results -Step 'teardown' -Item ([int]$g.lead)
+  $closeState = Get-AvdBatchStepState -Results $Results -Step 'close' -Item 0
+  $infraOk = ($startState.state -eq 'done' -and $startState.exitCode -eq 0) -and
+    ($deployState.state -eq 'done' -and $deployState.exitCode -eq 0) -and
+    ($teardownState.state -eq 'done' -and $teardownState.exitCode -eq 0) -and
+    ($closeState.state -eq 'done' -and $closeState.exitCode -eq 0) -and
+    ($outcome -in @('passed', 'tests-failed'))
+  $runId = if ($Results -is [System.Collections.IDictionary]) { $(if ($Results.Contains('runId')) { $Results['runId'] } else { $null }) } elseif ($Results.PSObject.Properties['runId']) { $Results.runId } else { $null }
+  $spendRunId = if ($Results -is [System.Collections.IDictionary]) { $(if ($Results.Contains('spendRunId')) { $Results['spendRunId'] } else { $null }) } elseif ($Results.PSObject.Properties['spendRunId']) { $Results.spendRunId } else { $null }
+  $finishedAt = if ($Results -is [System.Collections.IDictionary]) { $(if ($Results.Contains('finishedAt')) { $Results['finishedAt'] } else { $null }) } elseif ($Results.PSObject.Properties['finishedAt']) { $Results.finishedAt } else { $null }
+  $allKeeps = @(if ($Results -is [System.Collections.IDictionary]) { $(if ($Results.Contains('keeps')) { $Results['keeps'] } else { @() }) } elseif ($Results.PSObject.Properties['keeps']) { $Results.keeps } else { @() })
+
+  $queueUpdates = [System.Collections.Generic.List[object]]::new()
+  $initiatingReports = [System.Collections.Generic.List[object]]::new()
+  $fmtStep = {
+    param($s)
+    if ($s.state -eq 'done') { if ($s.exitCode -eq 0) { 'passed (`0`)' } else { "failed (``$($s.exitCode)``)" } }
+    else { $s.state }
+  }
+
+  foreach ($m in @($g.members)) {
+    $mNum = [int]$m.number
+    $testState = Get-AvdBatchStepState -Results $Results -Step 'test' -Item $mNum
+    $passed = $infraOk -and ($testState.state -eq 'done' -and $testState.exitCode -eq 0)
+    $mKeeps = @($allKeeps | Where-Object { $_ -and [int]$_.item -eq $mNum })
+    $statusWord = if ($passed) { 'PASSED' } else { 'FAILED' }
+
+    $qLines = @(
+      "### Sandbox batch ``$($Batch.batchId)`` ($Group): **$statusWord**",
+      '',
+      "- **Group outcome:** ``$outcome``",
+      "- **Pinned commit:** ``$($m.repo)@$($m.sha)`` ($($m.role))",
+      "- **Steps:** deploy $(& $fmtStep $deployState) | test $(& $fmtStep $testState) | teardown $(& $fmtStep $teardownState) | spend-close $(& $fmtStep $closeState)"
+    )
+    if ($runId) { $qLines += "- **Recorded run ID:** ``$runId``" }
+    if ($spendRunId) { $qLines += "- **Spend run ID:** ``$spendRunId``" }
+    if ($finishedAt) { $qLines += "- **Finished:** $(Format-AvdBatchTime $finishedAt)" }
+    foreach ($k in $mKeeps) {
+      $leaf = Split-Path "$($k.path)" -Leaf
+      $qLines += "- **Kept artifact:** ``$leaf`` ($($k.status), sha256 ``$($k.sha256)``)"
+    }
+    $queueUpdates.Add([ordered]@{
+        number      = $mNum
+        passed      = [bool]$passed
+        addLabel    = $(if ($passed) { 'queue:done' } else { 'queue:failed' })
+        removeLabel = 'queue:ready'
+        closeIssue  = [bool]$passed
+        comment     = Hide-AvdSpendId ($qLines -join "`n")
+      })
+
+    $init = Get-AvdBatchInitiatingIssue -Member $m
+    if ($init) {
+      $pLines = @(
+        "### Sandbox verification ($statusWord)",
+        '',
+        "| Field | Value |",
+        "|---|---|",
+        "| Batch / group | ``$($Batch.batchId)`` / ``$Group`` (outcome: ``$outcome``) |",
+        "| Pinned source | ``$($m.repo)@$($m.sha)`` |",
+        "| Role in deployment | ``$($m.role)`` (key: ``$($g.deploymentKey)``, region: ``$($g.region)``) |",
+        "| Deploy step | $(& $fmtStep $deployState) |",
+        "| Verification test | $(& $fmtStep $testState) |",
+        "| Teardown & zero-leftover close | teardown $(& $fmtStep $teardownState), close $(& $fmtStep $closeState) |"
+      )
+      if ($runId) { $pLines += "| Recorded run ID (C17) | ``$runId`` |" }
+      if ($finishedAt) { $pLines += "| Finished | $(Format-AvdBatchTime $finishedAt) |" }
+      if ($mKeeps.Count) {
+        $pLines += '', 'Kept evidence artifacts (verified in run store before teardown):', ''
+        foreach ($k in $mKeeps) {
+          $leaf = Split-Path "$($k.path)" -Leaf
+          $pLines += "- ``$leaf``: ``$($k.status)`` (sha256: ``$($k.sha256)``)"
+        }
+      }
+      $pubComment = Hide-AvdSpendId ($pLines -join "`n")
+      $leaks = @(Test-AvdSpendPrivateValue -Text $pubComment)
+      if ($leaks.Count) { throw "Refusing to build public report for $($init.ref): comment holds $($leaks -join ' and ')." }
+      $initiatingReports.Add([ordered]@{
+          repo        = $init.repo
+          issueNumber = $init.number
+          ref         = $init.ref
+          itemNumber  = $mNum
+          passed      = [bool]$passed
+          comment     = $pubComment
+        })
+    }
+  }
+  [ordered]@{
+    batchId           = $Batch.batchId
+    group             = $Group
+    outcome           = $outcome
+    runId             = $runId
+    spendRunId        = $spendRunId
+    queueUpdates      = @($queueUpdates)
+    initiatingReports = @($initiatingReports)
+  }
+}
+
 Export-ModuleMember -Function ConvertFrom-AvdBatchItemFile, Get-AvdBatchStepState, Test-AvdBatchGroupStart, ConvertFrom-AvdBatchIssueBody, ConvertFrom-AvdBatchRecordField, Get-AvdBatchItem, Get-AvdBatchGroup, Get-AvdBatchPlan, Get-AvdBatchHash, Get-AvdBatch, Get-AvdBatchApproval, Test-AvdBatchApproval, Get-AvdBatchNextStep, Get-AvdBatchRunId, Get-AvdBatchRecorderCall, Format-AvdBatchMoney, Format-AvdBatchTime,
   Get-AvdHostDevicePrefix, Get-AvdStaleHostDevice, Test-AvdArmAction, Get-AvdSandboxHealthResult,
-  Get-AvdBatchTeardownBudget, Get-AvdBatchLandingZoneName, Get-AvdBatchDeadline, Test-AvdBatchGroupMayBeRunning
+  Get-AvdBatchTeardownBudget, Get-AvdBatchLandingZoneName, Get-AvdBatchDeadline, Test-AvdBatchGroupMayBeRunning,
+  Get-AvdBatchInitiatingIssue, ConvertFrom-AvdBatchInitiatingIssue, Get-AvdBatchQueueIssue, Get-AvdBatchResultReport

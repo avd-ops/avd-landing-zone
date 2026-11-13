@@ -70,7 +70,9 @@ param(
   [switch] $NoDeadlineTeardown,
   # Recorded groups: the private companion repo the run recorder copies the run to after the close.
   # Empty: the run stays in the run store only, and can be copied later.
-  [string] $PrivateRepo = $env:AVD_PRIVATE_REPO
+  [string] $PrivateRepo = $env:AVD_PRIVATE_REPO,
+  # Also publish the finished group's results to the private queue and initiating repo issues (Publish-AvdSandboxResult.ps1).
+  [switch] $PublishResult
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'AvdLandingZone.psm1') -Force
@@ -449,6 +451,14 @@ if ($recorded) { Write-Host "Recorded as run $($results.runId) (run store runs/$
 $results.outcome = if ($next.action -eq 'stop-batch' -or $stopAfter) { 'stop-batch' } elseif ($deployFailed) { 'deploy-failed' } elseif ($testsFailed) { 'tests-failed' } else { 'passed' }
 $results.finishedAt = (Get-Date).ToUniversalTime().ToString('o')
 & $save
+if ($PublishResult -and $results.outcome -in @('passed', 'tests-failed')) {
+  try {
+    & (Join-Path $PSScriptRoot 'Publish-AvdSandboxResult.ps1') -BatchId $batch.batchId -Group $Group -RecordsPath $RecordsPath -SubscriptionId $subId -PrivateRepo $privateRepo -Local:$store.local | Out-Host
+  }
+  catch {
+    Write-Host "    Publishing results failed ($($_.Exception.Message)); run Publish-AvdSandboxResult.ps1 -BatchId $($batch.batchId) -Group $Group later." -ForegroundColor Yellow
+  }
+}
 foreach ($k in $envBefore.Keys) { [Environment]::SetEnvironmentVariable($k, $envBefore[$k]) }
 Write-Host ''
 Write-Host "Group $Group of batch $($batch.batchId): $($results.outcome). Results: $resultsPath" -ForegroundColor $(if ($results.outcome -eq 'passed') { 'Green' } else { 'Yellow' })

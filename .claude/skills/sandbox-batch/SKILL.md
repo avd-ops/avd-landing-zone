@@ -14,8 +14,8 @@ You prepare; a person approves and runs. Nothing here deploys from this session:
 - **Nothing deletes automatically.** Teardown is the item's own step. When a close finds leftovers, the batch stops; the person clears them, then reruns `Stop-AvdSpendRun.ps1`.
 - **Smallest sizes, tear down right after**, and keep anything that is the only copy (`keep` paths go to the run store before teardown; avd-second-brain decision 0016).
 
-## 1. Write the items
-One `sandbox-run/v1` JSON file per test (format in `docs/sandbox-runs.md`, "Queue items"). Pin `source` to a full 40-hex commit when you can. Give items that can share one deployment the same `deploymentKey`; set `hoursWhenSharing` for the extra hours each adds. Steps are bash, run from the item's checkout, and must be safe to run twice (resume reruns the interrupted step). Set `unattended` only when no step waits for a person. Add `record` for a recorded run, `keep` for output to keep.
+## 1. Write the items (or sync from initiating issues)
+One `sandbox-run/v1` JSON block per test (in the initiating issue body/comment or as a JSON file in a folder; format in `docs/sandbox-runs.md`, "Queue items"). Pin `source` to a full 40-hex commit when you can (or `@HEAD`, which `Sync-AvdSandboxQueue.ps1` resolves). Give items that can share one deployment the same `deploymentKey`; set `hoursWhenSharing` for the extra hours each adds. Steps are bash, run from the item's checkout, and must be safe to run twice (resume reruns the interrupted step). Set `unattended` only when no step waits for a person. Add `record` for a recorded run, `keep` for output to keep.
 
 ## 2. Check offline before handing over
 ```bash
@@ -24,11 +24,11 @@ pwsh -c "Invoke-Pester -Path ./build/tests/SandboxRuns.Tests.ps1 -CI"
 If you changed the scripts, run the `SandboxBatch` offline scenario too (`build/tests/OfflineScenarios.Tests.ps1`), and the analyzer.
 
 ## 3. Hand over
-Give the person one self-contained block for Cloud Shell, which runs from either prompt:
+Give the person one self-contained block for Cloud Shell, which runs from either prompt (using `Sync-AvdSandboxQueue.ps1` + `-Repo $env:AVD_PRIVATE_REPO` when syncing from initiating repo issues, or `-ItemsPath ~/clouddrive/queue` for local JSON files):
 ```shell
-pwsh -NoLogo -Command 'if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git $HOME/avd-landing-zone }; Set-Location ~/avd-landing-zone; git pull -q --ff-only; ./scripts/ops/New-AvdSandboxBatch.ps1 -ItemsPath ~/clouddrive/queue -MonthlyCap 150 -RunCap 25'
+pwsh -NoLogo -Command 'if (-not (Test-Path ~/avd-landing-zone)) { git clone https://github.com/avd-ops/avd-landing-zone.git $HOME/avd-landing-zone }; Set-Location ~/avd-landing-zone; git pull -q --ff-only; ./scripts/ops/Sync-AvdSandboxQueue.ps1 -SourceRepo avd-ops/avd-landing-zone -PrivateRepo $env:AVD_PRIVATE_REPO; ./scripts/ops/New-AvdSandboxBatch.ps1 -Repo $env:AVD_PRIVATE_REPO -MonthlyCap 150 -RunCap 25 -PostIssue'
 ```
-The script prints `batch.md`: the groups, the total and the blocks to approve and run each group. Quote the total and the exact go phrase back to the person, with what each group deploys and for how long. Then stop and wait.
+The script prints `batch.md`: the groups, the total and the blocks to approve and run each group (pass `-PublishResult` to `Invoke-AvdSandboxBatch.ps1` or run `Publish-AvdSandboxResult.ps1` after the group finishes so results post back to the private queue and the initiating repository issues). Quote the total and the exact go phrase back to the person, with what each group deploys and for how long. Then stop and wait.
 
 ## 4. When a run stopped
 A group that refuses to start because the sandbox isn't healthy claimed and spent nothing: read the `[FAIL ]` lines of `Test-AvdSandboxHealth.ps1` and their fixes with the person. Never delete a leftover device or resource group for them; the check only reports.
