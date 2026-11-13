@@ -198,7 +198,7 @@ test('portal HTML declares the Control Planes panel, presets, and all 5 control-
   for (const id of ['cp-entra', 'cp-intune', 'cp-m365', 'cp-azure', 'cp-powerPlatform']) {
     assert.match(html, new RegExp(`id="${id}"`), `checkbox ${id} exists in index.html`);
   }
-  for (const sha of ['67cdff7', 'aa82bc5', 'f18b14f', 'ac01bc4', '4543356']) {
+  for (const sha of ['e161f26', 'ca4169f', '9685515', 'daa7da5', 'cccf46a']) {
     assert.match(html, new RegExp(`@${sha}<\\/code>`), `pinned commit ${sha} shown in index.html`);
   }
 });
