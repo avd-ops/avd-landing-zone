@@ -61,6 +61,7 @@ These hold in every AVD repo. The repo's own rules below and in CLAUDE.md add to
 
 - **avd-landing-zone** deploys and operates the AVD estate (Bicep, PowerShell). With
   avd-current-state it is a self-contained pair that never depends on the layers above.
+- **avd-hcl** deploys and operates native AVD with Terraform and Packer (the enterprise HCL path alongside Bicep).
 - **avd-current-state** collects and validates what is deployed (facts, drift, reports).
 - **avd-assess** is the map and the dictionary: method, standards and the shared contracts.
 - **avd-second-brain** is the family knowledge base and reasoning; it never holds a write credential.
