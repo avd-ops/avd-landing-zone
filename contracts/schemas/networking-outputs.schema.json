@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://assess.avd-ops.dev/schemas/avd-networking-outputs/v1.json",
+  "title": "avd-networking-outputs/v1: Connectivity control-plane deployment outputs",
+  "description": "Redacted/structured Azure Connectivity hub outputs produced by avd-networking (or a compatible IaC hub) and consumed by avd-azure, avd-landing-zone, and avd-current-state.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "cloud",
+    "environment",
+    "location",
+    "profile",
+    "connectivityTopology",
+    "hubVnetResourceId",
+    "dnsServers",
+    "centralPrivateDnsZoneResourceIds"
+  ],
+  "properties": {
+    "schema": {
+      "const": "avd-networking-outputs/v1"
+    },
+    "cloud": {
+      "type": "string",
+      "enum": [
+        "commercial",
+        "usgov"
+      ]
+    },
+    "environment": {
+      "type": "string",
+      "enum": [
+        "dev",
+        "test",
+        "prod"
+      ]
+    },
+    "location": {
+      "type": "string",
+      "minLength": 2
+    },
+    "profile": {
+      "type": "string",
+      "enum": [
+        "lab",
+        "enterprise"
+      ]
+    },
+    "connectivityTopology": {
+      "type": "string",
+      "enum": [
+        "hub-spoke",
+        "vwan"
+      ]
+    },
+    "resourceGroup": {
+      "type": "string"
+    },
+    "hubVnetResourceId": {
+      "type": "string",
+      "pattern": "^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\\.Network/virtualNetworks/[^/]+$"
+    },
+    "hubFirewallPrivateIp": {
+      "type": "string",
+      "description": "Private IP of the hub Azure Firewall or NVA; empty when firewall is disabled in lab profile."
+    },
+    "dnsServers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Private IP(s) of DNS Private Resolver inbound endpoint or Firewall DNS proxy."
+    },
+    "centralPrivateDnsZoneResourceIds": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "keyVault": {
+          "type": "string"
+        },
+        "avd": {
+          "type": "string"
+        },
+        "avdGlobal": {
+          "type": "string"
+        }
+      }
+    },
+    "bastionResourceId": {
+      "type": "string"
+    },
+    "gatewayResourceId": {
+      "type": "string"
+    },
+    "extensions": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

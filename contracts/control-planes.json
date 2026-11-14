@@ -5,6 +5,7 @@
   "description": "Pinned repository URLs, commit SHAs, entry-point scripts, teardown scripts, and handoff manifest contracts for the five AVD control planes.",
   "executionOrder": [
     "entra",
+    "networking",
     "intune",
     "m365",
     "azure",
@@ -15,6 +16,7 @@
     "azure",
     "m365",
     "intune",
+    "networking",
     "entra"
   ],
   "presets": {
@@ -135,6 +137,26 @@
       "runManifest": "azure-outputs.json",
       "schemaId": "avd-ops-azure-outputs/v1",
       "schemaFile": "contracts/schemas/azure-outputs.schema.json"
+    },
+    "networking": {
+      "id": "networking",
+      "key": "networking",
+      "name": "avd-networking",
+      "label": "Connectivity Hub",
+      "stage": 1,
+      "repo": "avd-ops/avd-networking",
+      "url": "https://github.com/avd-ops/avd-networking",
+      "branch": "main",
+      "commit": "db03780cbbb96243500bc3caf17e92313f31397c",
+      "shortCommit": "db03780",
+      "entryPoint": "scripts/deploy/deploy.sh",
+      "teardownScript": null,
+      "dependsOn": [],
+      "consumes": [],
+      "handoffManifest": "networking-outputs.json",
+      "runManifest": "networking-outputs.json",
+      "schemaId": "avd-networking-outputs/v1",
+      "schemaFile": "contracts/schemas/networking-outputs.schema.json"
     },
     "power-platform": {
       "id": "power-platform",

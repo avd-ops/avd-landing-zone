@@ -212,6 +212,7 @@ test('portal UI: Greenfield and Brownfield presets update checkboxes, summary, a
   // Click "Greenfield — all 5 control planes"
   getEl('cp-preset-greenfield').click();
   assert.equal(getEl('cp-entra').checked, true);
+  assert.equal(getEl('cp-networking').checked, false);
   assert.equal(getEl('cp-intune').checked, true);
   assert.equal(getEl('cp-m365').checked, true);
   assert.equal(getEl('cp-azure').checked, true);
@@ -225,6 +226,7 @@ test('portal UI: Greenfield and Brownfield presets update checkboxes, summary, a
   // Click "Brownfield — Entra + Intune + Azure"
   getEl('cp-preset-brownfield').click();
   assert.equal(getEl('cp-entra').checked, true);
+  assert.equal(getEl('cp-networking').checked, false);
   assert.equal(getEl('cp-intune').checked, true);
   assert.equal(getEl('cp-m365').checked, false);
   assert.equal(getEl('cp-azure').checked, true);
@@ -237,6 +239,7 @@ test('portal UI: Greenfield and Brownfield presets update checkboxes, summary, a
   const savedCp = JSON.parse(localStorage.getItem('avdlz.portal.controlPlanes'));
   assert.deepEqual(savedCp, {
     entra: true,
+    networking: false,
     intune: true,
     m365: false,
     azure: true,
