@@ -44,6 +44,7 @@ Describe 'Vendored contracts' {
     $pins = Get-Content (Join-Path $script:contracts 'PINS.json') -Raw | ConvertFrom-Json
     $expectedPlanes = @(
       @{ Source = 'avd-entra'; Repo = 'avd-ops/avd-entra'; Schema = 'schemas/entra-manifest.schema.json' }
+      @{ Source = 'avd-networking'; Repo = 'avd-ops/avd-networking'; Schema = 'schemas/networking-outputs.schema.json' }
       @{ Source = 'avd-intune'; Repo = 'avd-ops/avd-intune'; Schema = 'schemas/intune-manifest.schema.json' }
       @{ Source = 'avd-m365'; Repo = 'avd-ops/avd-m365'; Schema = 'schemas/m365-manifest.schema.json' }
       @{ Source = 'avd-azure'; Repo = 'avd-ops/avd-azure'; Schema = 'schemas/azure-outputs.schema.json' }

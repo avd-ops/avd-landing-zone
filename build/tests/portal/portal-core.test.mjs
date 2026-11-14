@@ -1282,6 +1282,7 @@ test('control planes: pinned commits in portal-core.js match contracts/control-p
   assert.equal(cpManifest.decision, '0009-split-landing-zone-into-five-control-planes');
   const expected = [
     ['entra', 'avd-entra', 'avd-ops/avd-entra', 'e161f26', 'scripts/Deploy-AvdEntra.ps1', 'scripts/Remove-AvdEntra.ps1', 'schemas/entra-manifest.schema.json', 'entra-manifest.json'],
+    ['networking', 'avd-networking', 'avd-ops/avd-networking', 'db03780', 'scripts/deploy/deploy.sh', null, 'schemas/networking-outputs.schema.json', 'networking-outputs.json'],
     ['intune', 'avd-intune', 'avd-ops/avd-intune', 'ca4169f', 'scripts/Deploy-AvdIntune.ps1', 'scripts/Remove-AvdIntune.ps1', 'schemas/intune-manifest.schema.json', 'intune-manifest.json'],
     ['m365', 'avd-m365', 'avd-ops/avd-m365', 'c8876d2', 'scripts/Deploy-AvdM365.ps1', 'scripts/Remove-AvdM365.ps1', 'schemas/m365-manifest.schema.json', 'm365-manifest.json'],
     ['azure', 'avd-azure', 'avd-ops/avd-azure', 'daa7da5', 'scripts/deploy/deploy.sh', null, 'schemas/azure-outputs.schema.json', 'azure-outputs.json'],
@@ -1323,27 +1324,27 @@ test('control planes: pinned commits in portal-core.js match contracts/control-p
 
 test('control planes: presets (Greenfield, Brownfield Entra + Intune + Azure, Azure Only), CSV helpers, and validation', () => {
   const greenfield = P.applyControlPlanePreset('greenfield');
-  assert.deepEqual(greenfield, { entra: true, intune: true, m365: true, azure: true, powerPlatform: true });
+  assert.deepEqual(greenfield, { entra: true, networking: false, intune: true, m365: true, azure: true, powerPlatform: true });
   assert.deepEqual(P.enabledControlPlanes({ controlPlanes: greenfield }), ['entra', 'intune', 'm365', 'azure', 'powerPlatform']);
   assert.equal(P.controlPlanesCsv({ controlPlanes: greenfield }), 'entra,intune,m365,azure,power-platform');
 
   for (const presetId of ['brownfield', 'brownfield-azure-intune']) {
     const brownfield = P.applyControlPlanePreset(presetId);
-    assert.deepEqual(brownfield, { entra: true, intune: true, m365: false, azure: true, powerPlatform: false });
+    assert.deepEqual(brownfield, { entra: true, networking: false, intune: true, m365: false, azure: true, powerPlatform: false });
     assert.deepEqual(P.enabledControlPlanes({ controlPlanes: brownfield }), ['entra', 'intune', 'azure']);
     assert.equal(P.controlPlanesCsv({ controlPlanes: brownfield }), 'entra,intune,azure');
   }
 
   const azureOnly = P.applyControlPlanePreset('azure-only');
-  assert.deepEqual(azureOnly, { entra: false, intune: false, m365: false, azure: true, powerPlatform: false });
+  assert.deepEqual(azureOnly, { entra: false, networking: false, intune: false, m365: false, azure: true, powerPlatform: false });
   assert.deepEqual(P.enabledControlPlanes({ controlPlanes: azureOnly }), ['azure']);
   assert.equal(P.controlPlanesCsv({ controlPlanes: azureOnly }), 'azure');
 
   // Validation rejects non-boolean values and ensures at least one plane is active.
   assert.equal(P.validControlPlanes(null), null);
   assert.equal(P.validControlPlanes({ entra: 'rm -rf /' }), null);
-  assert.deepEqual(P.validControlPlanes({ entra: false, intune: false, m365: false, azure: false, powerPlatform: false }),
-    { entra: false, intune: false, m365: false, azure: true, powerPlatform: false });
+  assert.deepEqual(P.validControlPlanes({ entra: false, networking: false, intune: false, m365: false, azure: false, powerPlatform: false }),
+    { entra: false, networking: false, intune: false, m365: false, azure: true, powerPlatform: false });
 });
 
 test('control planes: standalone Cloud Shell commands, orchestrator, and teardown commands use real entry points and pinned commits', () => {
@@ -1385,6 +1386,14 @@ test('control planes: standalone Cloud Shell commands, orchestrator, and teardow
   const deployStepActions = P.actionsForStep('deploy', cfg);
   assert.ok(deployStepActions.length >= 8);
   assertSelfContained({ actions: deployStepActions });
+
+  // Opt-in Connectivity Hub (avd-networking)
+  const netCfg = { ...cfg, controlPlanes: { ...cfg.controlPlanes, networking: true } };
+  assert.equal(P.controlPlanesCsv(netCfg), 'entra,networking,intune,m365,azure,power-platform');
+  const netActions = P.controlPlaneActions(netCfg);
+  assert.equal(netActions.length, 6);
+  assert.equal(netActions[1].id, 'networking');
+  assert.match(netActions[1].command, /avd-networking.*deploy\.sh.*networking-outputs\.json/);
 });
 
 test('control planes: analyze() parses <<<AVDLZ-STATE ... AVDLZ-STATE>>> for stage controlplanes (succeeded, partial, failed, teardown)', () => {

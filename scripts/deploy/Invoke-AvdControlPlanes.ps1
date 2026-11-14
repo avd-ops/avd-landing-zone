@@ -135,6 +135,8 @@ function ConvertTo-CanonicalPlaneId {
   switch ($trimmed.ToLowerInvariant()) {
     'entra' { return 'entra' }
     'avd-entra' { return 'entra' }
+    'networking' { return 'networking' }
+    'avd-networking' { return 'networking' }
     'intune' { return 'intune' }
     'avd-intune' { return 'intune' }
     'm365' { return 'm365' }
@@ -144,7 +146,7 @@ function ConvertTo-CanonicalPlaneId {
     'power-platform' { return 'power-platform' }
     'powerplatform' { return 'power-platform' }
     'avd-power-platform' { return 'power-platform' }
-    default { throw "Unknown control plane '$trimmed'. Valid planes: entra, intune, m365, azure, power-platform." }
+    default { throw "Unknown control plane '$trimmed'. Valid planes: entra, networking, intune, m365, azure, power-platform." }
   }
 }
 
@@ -297,6 +299,38 @@ function Write-AvdAzureOutputManifest {
       vnetName           = "vnet-$base"
       privateLinkEnabled = $true
     }
+  }
+  $parentDir = Split-Path -Parent $OutputPath
+  if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
+    New-Item -ItemType Directory -Path $parentDir -Force | Out-Null
+  }
+  $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $OutputPath -Encoding utf8
+}
+
+function Write-AvdNetworkingOutputManifest {
+  param(
+    [Parameter(Mandatory)][string] $OutputPath,
+    [Parameter(Mandatory)][string] $Prefix,
+    [Parameter(Mandatory)][string] $EnvName,
+    [Parameter(Mandatory)][string] $Region,
+    [string] $CloudName = 'commercial',
+    [string] $SubId = '00000000-0000-0000-0000-000000000000',
+    [string] $ProfileName = 'lab'
+  )
+  $base = "$Prefix-$EnvName"
+  $effectiveSub = if ($SubId) { $SubId } else { '00000000-0000-0000-0000-000000000000' }
+  $manifest = [ordered]@{
+    schema                           = 'avd-networking-outputs/v1'
+    cloud                            = $CloudName
+    environment                      = $EnvName
+    location                         = $Region
+    profile                          = $ProfileName
+    connectivityTopology             = 'hub-spoke'
+    resourceGroup                    = "rg-$base-hub"
+    hubVnetResourceId                = "/subscriptions/$effectiveSub/resourceGroups/rg-$base-hub/providers/Microsoft.Network/virtualNetworks/vnet-$base-hub"
+    hubFirewallPrivateIp             = ''
+    dnsServers                       = @()
+    centralPrivateDnsZoneResourceIds = [ordered]@{}
   }
   $parentDir = Split-Path -Parent $OutputPath
   if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
@@ -519,6 +553,14 @@ foreach ($planeId in $sequenceOrder) {
         & $removeDemoPath -NamePrefix $NamePrefix -Environment $Environment -Cloud $Cloud -IncludeLandingZone -DiscardLastCopy -Force:$Force
       }
     }
+    elseif ($planeId -eq 'networking') {
+      if ($DryRun) {
+        Write-Host "  [DRY-RUN] Would remove Connectivity Hub resource group rg-$NamePrefix-$Environment-hub" -ForegroundColor DarkGray
+      }
+      elseif ($PSCmdlet.ShouldProcess("avd-networking ($NamePrefix-$Environment)", 'Remove Connectivity Hub resource group')) {
+        Write-Warning "avd-networking uses a dedicated hub resource group (rg-$NamePrefix-$Environment-hub). Remove it explicitly when all spokes are detached."
+      }
+    }
     else {
       if (-not $DryRun -and (-not $teardownScriptPath -or -not (Test-Path -LiteralPath $teardownScriptPath))) {
         throw "Teardown script not found for $($plane.name): $teardownScriptPath"
@@ -664,6 +706,33 @@ foreach ($planeId in $sequenceOrder) {
         }
       }
     }
+    'networking' {
+      if ($DryRun) {
+        Write-AvdNetworkingOutputManifest -OutputPath $handoffPath -Prefix $NamePrefix -EnvName $Environment -Region $Location -CloudName $Cloud -SubId $SubscriptionId
+      }
+      elseif ($PSCmdlet.ShouldProcess("avd-networking ($NamePrefix-$Environment)", 'Deploy Connectivity Hub control plane')) {
+        if (-not (Test-Path -LiteralPath $entryScriptPath)) {
+          throw "Entry-point script not found for avd-networking: $entryScriptPath"
+        }
+        $bashCmd = if ($env:AVDLZ_TEST_BASH) { $env:AVDLZ_TEST_BASH } else { 'bash' }
+        $hubRg = "rg-$NamePrefix-$Environment-hub"
+        $netParamFile = Join-Path $planeRepoDir 'parameters/lab.bicepparam'
+        $deployArgs = @($entryScriptPath, '-p', $netParamFile, '-l', $Location, '-g', $hubRg, '-o', $handoffPath)
+        Push-Location $planeRepoDir
+        try {
+          & $bashCmd @deployArgs
+          if ($LASTEXITCODE -ne 0) {
+            throw "avd-networking deployment failed with exit code $LASTEXITCODE."
+          }
+        }
+        finally {
+          Pop-Location
+        }
+        if (-not (Test-Path -LiteralPath $handoffPath)) {
+          Write-AvdNetworkingOutputManifest -OutputPath $handoffPath -Prefix $NamePrefix -EnvName $Environment -Region $Location -CloudName $Cloud -SubId $SubscriptionId
+        }
+      }
+    }
     'azure' {
       $effectiveUsers = $UsersGroup
       $effectiveAdmins = $AdminsGroup
@@ -671,6 +740,12 @@ foreach ($planeId in $sequenceOrder) {
         $entraData = Test-AvdControlPlaneManifest -ManifestPath $entraManifestPath -SchemaPath $entraSchemaPath -ExpectedSchemaId 'avd-ops-entra-manifest/v1' -ExpectedCloud $Cloud
         if ($entraData.groups.avdUsersGroupId) { $effectiveUsers = [string]$entraData.groups.avdUsersGroupId }
         if ($entraData.groups.avdAdminsGroupId) { $effectiveAdmins = [string]$entraData.groups.avdAdminsGroupId }
+      }
+      $networkingOutputsPath = Join-Path $ManifestDirectory 'networking-outputs.json'
+      $networkingSchemaPath = Join-Path $repoRoot 'contracts/schemas/networking-outputs.schema.json'
+      if (Test-Path -LiteralPath $networkingOutputsPath) {
+        $netData = Test-AvdControlPlaneManifest -ManifestPath $networkingOutputsPath -SchemaPath $networkingSchemaPath -ExpectedSchemaId 'avd-networking-outputs/v1' -ExpectedCloud $Cloud
+        Write-Host "  [Stage $($plane.stage)] Detected Connectivity Hub C31 manifest ($($netData.hubVnetResourceId))" -ForegroundColor DarkCyan
       }
       if ($DryRun) {
         Write-AvdAzureOutputManifest -OutputPath $handoffPath -Prefix $NamePrefix -EnvName $Environment -Region $Location -CloudName $Cloud -SubId $SubscriptionId
@@ -744,6 +819,7 @@ foreach ($planeId in $sequenceOrder) {
 
 $controlPlanesMap = [ordered]@{
   entra         = [bool]($requestedSet -contains 'entra')
+  networking    = [bool]($requestedSet -contains 'networking')
   intune        = [bool]($requestedSet -contains 'intune')
   m365          = [bool]($requestedSet -contains 'm365')
   azure         = [bool]($requestedSet -contains 'azure')

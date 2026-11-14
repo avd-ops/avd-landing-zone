@@ -980,13 +980,14 @@ Describe 'Five control planes orchestrator and pin manifest (decision 0009)' {
     $script:pinsManifest = Get-Content -Raw -Path $script:pinsPath | ConvertFrom-Json
   }
 
-  It 'records all 5 control planes with matching pinned commits, entry points, teardown scripts, and schemas' {
+  It 'records all control planes with matching pinned commits, entry points, teardown scripts, and schemas' {
     $script:cpManifest.schema | Should -Be 'avd-ops-control-planes-pins/v1'
-    @($script:cpManifest.executionOrder) | Should -Be @('entra', 'intune', 'm365', 'azure', 'power-platform')
-    @($script:cpManifest.teardownOrder) | Should -Be @('power-platform', 'azure', 'm365', 'intune', 'entra')
+    @($script:cpManifest.executionOrder) | Should -Be @('entra', 'networking', 'intune', 'm365', 'azure', 'power-platform')
+    @($script:cpManifest.teardownOrder) | Should -Be @('power-platform', 'azure', 'm365', 'intune', 'networking', 'entra')
 
     $expected = @(
       @{ Key = 'entra'; Repo = 'avd-entra'; Short = 'e161f26'; Entry = 'scripts/Deploy-AvdEntra.ps1'; Teardown = 'scripts/Remove-AvdEntra.ps1'; Manifest = 'entra-manifest.json' }
+      @{ Key = 'networking'; Repo = 'avd-networking'; Short = 'db03780'; Entry = 'scripts/deploy/deploy.sh'; Teardown = $null; Manifest = 'networking-outputs.json' }
       @{ Key = 'intune'; Repo = 'avd-intune'; Short = 'ca4169f'; Entry = 'scripts/Deploy-AvdIntune.ps1'; Teardown = 'scripts/Remove-AvdIntune.ps1'; Manifest = 'intune-manifest.json' }
       @{ Key = 'm365'; Repo = 'avd-m365'; Short = 'c8876d2'; Entry = 'scripts/Deploy-AvdM365.ps1'; Teardown = 'scripts/Remove-AvdM365.ps1'; Manifest = 'm365-manifest.json' }
       @{ Key = 'azure'; Repo = 'avd-azure'; Short = 'daa7da5'; Entry = 'scripts/deploy/deploy.sh'; Teardown = $null; Manifest = 'azure-outputs.json' }
@@ -1043,6 +1044,23 @@ Describe 'Five control planes orchestrator and pin manifest (decision 0009)' {
       Test-Path (Join-Path $outDir 'azure-outputs.json') | Should -BeTrue
       Test-Path (Join-Path $outDir 'm365-manifest.json') | Should -BeFalse
       Test-Path (Join-Path $outDir 'power-platform-manifest.json') | Should -BeFalse
+    }
+    finally {
+      if (Test-Path $outDir) { Remove-Item -Path $outDir -Recurse -Force }
+    }
+  }
+
+  It 'executes opt-in networking + azure in DryRun mode and validates C31 networking-outputs.json' {
+    $outDir = Join-Path ([System.IO.Path]::GetTempPath()) "avdlz-cp-net-$([guid]::NewGuid().ToString('N'))"
+    try {
+      $res = & $script:orchestratorPath -Planes 'networking,azure' -NamePrefix 'avdlz' -Environment 'dev' -Location 'eastus2' -ManifestDirectory $outDir -DryRun 6>$null
+      $res.status | Should -Be 'succeeded'
+      @($res.completedPlanes) | Should -Be @('networking', 'azure')
+      $netManifest = Join-Path $outDir 'networking-outputs.json'
+      $netSchema = Join-Path $script:repoRoot 'contracts/schemas/networking-outputs.schema.json'
+      Test-Path $netManifest | Should -BeTrue
+      Test-Json -Path $netManifest -SchemaFile $netSchema | Should -BeTrue
+      Test-Path (Join-Path $outDir 'azure-outputs.json') | Should -BeTrue
     }
     finally {
       if (Test-Path $outDir) { Remove-Item -Path $outDir -Recurse -Force }

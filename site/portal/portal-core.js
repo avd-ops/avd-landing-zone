@@ -441,7 +441,7 @@
   // Pinned commits match contracts/control-planes.json and contracts/PINS.json. Each stage clones its
   // control-plane repo at its pinned commit and passes the handoff manifests in sequence:
   // entra-manifest.json -> intune-manifest.json + m365-manifest.json + azure-outputs.json -> power-platform-manifest.json.
-  var CONTROL_PLANE_ORDER = ['entra', 'intune', 'm365', 'azure', 'powerPlatform'];
+  var CONTROL_PLANE_ORDER = ['entra', 'networking', 'intune', 'm365', 'azure', 'powerPlatform'];
   var CONTROL_PLANES = {
     entra: {
       id: 'entra',
@@ -461,6 +461,25 @@
       output: 'entra-manifest.json',
       runManifest: 'entra-run-manifest.json',
       description: 'Creates AVD security groups, service principals, and Conditional Access exclusions, emitting entra-manifest.json.'
+    },
+    networking: {
+      id: 'networking',
+      cliId: 'networking',
+      stage: 1,
+      label: 'Connectivity Hub',
+      repo: 'avd-ops/avd-networking',
+      repoUrl: 'https://github.com/avd-ops/avd-networking',
+      dir: '~/avd-networking',
+      commit: 'db03780cbbb96243500bc3caf17e92313f31397c',
+      shortCommit: 'db03780',
+      entryPoint: 'scripts/deploy/deploy.sh',
+      teardownScript: null,
+      schemaId: 'avd-networking-outputs/v1',
+      schema: 'contracts/schemas/networking-outputs.schema.json',
+      inputs: [],
+      output: 'networking-outputs.json',
+      runManifest: 'networking-outputs.json',
+      description: 'Deploys optional hub VNet, Azure Firewall, DNS Private Resolver, and central Private DNS zones, emitting networking-outputs.json (C31).'
     },
     intune: {
       id: 'intune',
@@ -542,6 +561,7 @@
 
   var CONTROL_PLANE_DEFAULTS = {
     entra: false,
+    networking: false,
     intune: false,
     m365: false,
     azure: true,
@@ -552,26 +572,26 @@
     greenfield: {
       id: 'greenfield',
       label: 'Greenfield — all 5 control planes',
-      description: 'All five control planes in sequence: Entra ID -> Intune + Microsoft 365 + Azure -> Power Platform.',
-      planes: { entra: true, intune: true, m365: true, azure: true, powerPlatform: true }
+      description: 'All five control planes in sequence: Entra ID -> Intune + Microsoft 365 + Azure -> Power Platform (Connectivity Hub is opt-in).',
+      planes: { entra: true, networking: false, intune: true, m365: true, azure: true, powerPlatform: true }
     },
     brownfield: {
       id: 'brownfield',
       label: 'Brownfield — Entra + Intune + Azure',
       description: 'Entra ID groups, Intune device baselines, and Azure AVD infrastructure (skips Microsoft 365 and Power Platform).',
-      planes: { entra: true, intune: true, m365: false, azure: true, powerPlatform: false }
+      planes: { entra: true, networking: false, intune: true, m365: false, azure: true, powerPlatform: false }
     },
     'brownfield-azure-intune': {
       id: 'brownfield-azure-intune',
       label: 'Brownfield — Entra + Intune + Azure',
       description: 'Entra ID groups, Intune device baselines, and Azure AVD infrastructure (skips Microsoft 365 and Power Platform).',
-      planes: { entra: true, intune: true, m365: false, azure: true, powerPlatform: false }
+      planes: { entra: true, networking: false, intune: true, m365: false, azure: true, powerPlatform: false }
     },
     'azure-only': {
       id: 'azure-only',
       label: 'Azure only',
       description: 'Azure AVD infrastructure only, using existing Entra ID groups.',
-      planes: { entra: false, intune: false, m365: false, azure: true, powerPlatform: false }
+      planes: { entra: false, networking: false, intune: false, m365: false, azure: true, powerPlatform: false }
     }
   };
 
@@ -579,7 +599,7 @@
     if (!raw || typeof raw !== 'object') return null;
     if (Array.isArray(raw)) {
       if (!raw.length) return null;
-      var fromArr = { entra: false, intune: false, m365: false, azure: false, powerPlatform: false }, arrHits = 0;
+      var fromArr = { entra: false, networking: false, intune: false, m365: false, azure: false, powerPlatform: false }, arrHits = 0;
       for (var a = 0; a < raw.length; a++) {
         var item = String(raw[a] || '').trim();
         var mapped = item === 'power-platform' ? 'powerPlatform' : item;
@@ -1283,6 +1303,13 @@
       return clone.concat([
         signIn(c),
         'pwsh -NoLogo -NoProfile -File ~/avd-entra/scripts/Deploy-AvdEntra.ps1 -Prefix ' + psQuote(c.namePrefix) + ' -Environment ' + psQuote(c.environment) + cFlags + ' -OutputPath ~/avd-landing-zone/entra-manifest.json -RunManifestPath ~/avd-landing-zone/entra-run-manifest.json'
+      ]);
+    }
+    if (planeId === 'networking') {
+      var netBase = c.namePrefix + '-' + c.environment;
+      return clone.concat([
+        'Set-Location ~/avd-networking; bash ./scripts/deploy/deploy.sh -p parameters/lab.bicepparam -l ' + c.location + ' -g rg-' + netBase + '-hub -o ~/avd-landing-zone/networking-outputs.json',
+        'Set-Location ~/avd-landing-zone'
       ]);
     }
     if (planeId === 'intune') {
