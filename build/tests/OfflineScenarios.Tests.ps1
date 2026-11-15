@@ -315,6 +315,8 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     Get-Result 'jumpbox-kept-running-jumpbox' | Should -Match '^jumpbox-env deploy=true exists=true until=\d{4}-\d{2}-\d{2}T\d{2}:\d{2}Z os=Linux$'
     Get-StepExit $out 'jumpbox-region' | Should -Be 1
     $out | Should -Match "Azure Bastion Developer isn't offered in eastus"
+    Get-StepExit $out 'jumpbox-usgov' | Should -Be 1
+    $out | Should -Match "--jumpbox can't be used with --cloud usgov"
     Get-Result 'running-jumpbox' | Should -Be 'jumpbox-env deploy= exists= until= os='
   }
   It 'builds a Windows jumpbox with --jumpbox-os windows, and never changes the OS of one that exists' {

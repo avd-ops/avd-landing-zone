@@ -885,7 +885,6 @@ module bastion 'modules/bastionDeveloper.bicep' = if (deployJumpbox) {
     name: names.bastion
     vnetResourceId: network.outputs.vnetResourceId
     adminsGroupObjectId: avdAdminsGroupObjectId
-    cloud: cloud
   }
 }
 
