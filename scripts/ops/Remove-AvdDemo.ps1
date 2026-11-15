@@ -277,6 +277,14 @@ Write-AvdSection 'Landing zone resource groups'
 foreach ($k in 'Portal', 'Jumpbox', 'Hosts', 'ControlPlane', 'Storage', 'Management', 'Network') {
   Remove-AvdResourceGroupIfPresent -Name $lz.ResourceGroups[$k]
 }
+# Extra landing-zone groups such as rg-<prefix>-<env>-liquidware (e.g. recreated by preflight -Fix
+# Key Vault recovery) must also go on -IncludeLandingZone so no leftovers remain.
+$extraRgs = @(Get-AzResourceGroup -ErrorAction SilentlyContinue |
+    Where-Object { $_.ResourceGroupName -like "rg-$($lz.BaseName)-*" -and $_.ResourceGroupName -notin $lz.ResourceGroups.Values } |
+    Sort-Object ResourceGroupName)
+foreach ($rg in $extraRgs) {
+  Remove-AvdResourceGroupIfPresent -Name $rg.ResourceGroupName
+}
 
 Write-AvdSection 'Subscription-level resources'
 # Another landing zone in the subscription (e.g. test beside dev, docs/demo.md) still relies on the

@@ -111,6 +111,7 @@ $refused = try { & ./scripts/ops/Remove-AvdDemo.ps1 @lz -IncludeLandingZone -For
 Write-Host "RESULT remove-lz-refused named=$($refused -match '-DiscardLastCopy') changes=$(@($global:Calls | Where-Object { $_ -match 'del |unlock|backup|rsv|DELETE|RBAC -|PUT' }).Count)"
 
 $global:Calls.Clear()
+$global:St.rgs += 'rg-avdlz-dev-liquidware'
 Invoke-ScenarioStep 'remove-lz' { & ./scripts/ops/Remove-AvdDemo.ps1 @lz -IncludeLandingZone -ResetDefender -Force -DiscardLastCopy }
 $lawDelete = @($global:Calls | Where-Object { $_ -match '^ARM DELETE .*/workspaces/log-avdlz-dev\?api-version=[0-9-]+&force=true$' }).Count
 $lawBeforeRg = @($global:Calls).IndexOf(@($global:Calls | Where-Object { $_ -match '^ARM DELETE .*/workspaces/log-avdlz-dev' })[0]) -lt @($global:Calls).IndexOf(@($global:Calls | Where-Object { $_ -match '^del rg rg-avdlz-dev-management' })[0])

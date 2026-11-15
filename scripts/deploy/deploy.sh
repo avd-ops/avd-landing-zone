@@ -606,8 +606,26 @@ fi
 echo "==> Deploying ($DEPLOY_NAME). A first deployment takes 30-45 minutes."
 echo "    If Cloud Shell disconnects, the deployment keeps running in Azure."
 portal_state started
-if ! arm deployment sub create -n "$DEPLOY_NAME" -l "$LOCATION" -p "$PARAM_FILE" \
-  --query properties.outputs -o jsonc; then
+# A brand-new Log Analytics workspace can return Succeeded before Insights sees it or its
+# Perf/Event tables (BadRequest: The workspace could not be found / InvalidOutputTable).
+deploy_log=$(mktemp)
+deploy_ok=false
+retry_wait="${AVD_DEPLOY_RETRY_WAIT:-30}"
+for attempt in 1 2 3; do
+  if arm deployment sub create -n "$DEPLOY_NAME" -l "$LOCATION" -p "$PARAM_FILE" \
+    --query properties.outputs -o jsonc 2>&1 | tee "$deploy_log"; then
+    deploy_ok=true
+    break
+  fi
+  if (( attempt < 3 )) && grep -qE 'InvalidOutputTable|The workspace could not be found' "$deploy_log"; then
+    echo "==> Log Analytics workspace or its tables are still propagating; waiting ${retry_wait}s before retry ($attempt/2)..."
+    sleep "$retry_wait"
+    continue
+  fi
+  break
+done
+rm -f "$deploy_log"
+if ! $deploy_ok; then
   restore_hosts
   portal_state failed
   exit 1
