@@ -2930,40 +2930,65 @@ function Test-AvdDeletedKeyVault {
   $names = @($deleted.name)
   $fail = @{ Id = 'kv-softdeleted'; Data = @{ vaults = $names } }
   $detail = "Deleted, purge-protected: $($names -join ', ')"
-  if ($deleted.Count -gt 1) {
-    Add-AvdCheckResult $area $check 'Fail' @fail -Detail $detail -Remediation 'Recover the one to keep with Undo-AzKeyVaultRemoval, or change namePrefix.'
-    return
-  }
-  $v = $deleted[0]; $vaultId = $v.properties.vaultId; $rg = ($vaultId -split '/')[4]
-  if (-not $Fix -or -not $PSCmdlet.ShouldProcess($v.name, "Recover the soft-deleted Key Vault into $rg")) {
-    Add-AvdCheckResult $area $check 'Fail' @fail -Detail $detail -Remediation "Rerun with -Fix to recover it into $rg (the deployment reuses it), or change namePrefix."
+  if (-not $Fix) {
+    $hint = if ($deleted.Count -eq 1) {
+      $rg = ($deleted[0].properties.vaultId -split '/')[4]
+      "Rerun with -Fix to recover it into $rg (the deployment reuses it), or change namePrefix."
+    }
+    else {
+      'Rerun with -Fix to recover them into their resource groups (the deployment reuses the matching one), or change namePrefix.'
+    }
+    Add-AvdCheckResult $area $check 'Fail' @fail -Detail $detail -Remediation $hint
     return
   }
 
-  Write-Host "  Recovering Key Vault $($v.name) into $rg (up to 2 minutes)..." -ForegroundColor DarkGray
-  try {
-    # Recovery needs the original resource group; the cleanup deleted it with the vault.
-    if (-not (Get-AzResourceGroup -Name $rg -ErrorAction SilentlyContinue)) {
-      Invoke-AvdArm -Method PUT -Path "$sub/resourcegroups/$($rg)?api-version=2021-04-01" -Body @{ location = $Location } | Out-Null
+  $recovered = [System.Collections.Generic.List[string]]::new()
+  $rgs = [System.Collections.Generic.List[string]]::new()
+  foreach ($v in $deleted) {
+    $vaultId = $v.properties.vaultId; $rg = ($vaultId -split '/')[4]
+    if (-not $PSCmdlet.ShouldProcess($v.name, "Recover the soft-deleted Key Vault into $rg")) {
+      Add-AvdCheckResult $area $check 'Fail' @fail -Detail $detail -Remediation "Rerun with -Fix to recover it into $rg (the deployment reuses it), or change namePrefix."
+      return
     }
-    Invoke-AvdArm -Method PUT -Path "$($vaultId)?api-version=2023-07-01" -Body @{
-      location   = $v.properties.location
-      properties = @{ tenantId = $Lz.TenantId; sku = @{ family = 'A'; name = 'standard' }; createMode = 'recover' }
-    } | Out-Null
-    # "Fixed" means the vault is back, not that the request was accepted.
-    $state = $null
-    for ($i = 0; $i -lt 24; $i++) {
-      $kv = Invoke-AvdArm -Path "$($vaultId)?api-version=2023-07-01" -AllowNotFound
-      $state = if ($kv) { $kv.properties.provisioningState } else { 'not found' }
-      if ($state -eq 'Succeeded') { break }
-      Start-Sleep -Seconds 5
+
+    Write-Host "  Recovering Key Vault $($v.name) into $rg (up to 2 minutes)..." -ForegroundColor DarkGray
+    try {
+      # Recovery needs the original resource group; the cleanup deleted it with the vault.
+      if (-not (Get-AzResourceGroup -Name $rg -ErrorAction SilentlyContinue)) {
+        Invoke-AvdArm -Method PUT -Path "$sub/resourcegroups/$($rg)?api-version=2021-04-01" -Body @{ location = $Location } | Out-Null
+      }
+      Invoke-AvdArm -Method PUT -Path "$($vaultId)?api-version=2023-07-01" -Body @{
+        location   = $v.properties.location
+        properties = @{ tenantId = $Lz.TenantId; sku = @{ family = 'A'; name = 'standard' }; createMode = 'recover' }
+      } | Out-Null
+      # "Fixed" means the vault is back, not that the request was accepted.
+      $state = $null
+      for ($i = 0; $i -lt 24; $i++) {
+        $kv = Invoke-AvdArm -Path "$($vaultId)?api-version=2023-07-01" -AllowNotFound
+        $state = if ($kv) { $kv.properties.provisioningState } else { 'not found' }
+        if ($state -eq 'Succeeded') { break }
+        Start-Sleep -Seconds 5
+      }
+      if ($state -ne 'Succeeded') {
+        Add-AvdCheckResult $area $check 'Fail' @fail -Detail "Recovery of $($v.name) requested; the vault is still $state after 2 minutes." -Remediation 'Rerun the preflight in a few minutes.'
+        return
+      }
+      $recovered.Add($v.name)
+      $rgs.Add($rg)
     }
-    if ($state -eq 'Succeeded') { Add-AvdCheckResult $area $check 'Fixed' -Detail "Recovered $($v.name) into $rg; the deployment reuses it." }
-    else { Add-AvdCheckResult $area $check 'Fail' @fail -Detail "Recovery of $($v.name) requested; the vault is still $state after 2 minutes." -Remediation 'Rerun the preflight in a few minutes.' }
+    catch {
+      Add-AvdCheckResult $area $check 'Fail' @fail -Detail "Recovering $($v.name) into $rg failed: $($_.Exception.Message)" -Remediation 'Recover it with Undo-AzKeyVaultRemoval, or change namePrefix.'
+      return
+    }
   }
-  catch {
-    Add-AvdCheckResult $area $check 'Fail' @fail -Detail "Recovering $($v.name) into $rg failed: $($_.Exception.Message)" -Remediation 'Recover it with Undo-AzKeyVaultRemoval, or change namePrefix.'
+
+  $summary = if ($recovered.Count -eq 1) {
+    "Recovered $($recovered[0]) into $($rgs[0]); the deployment reuses it."
   }
+  else {
+    "Recovered $($recovered -join ', ') into $(($rgs | Select-Object -Unique) -join ', '); the deployment reuses the matching one."
+  }
+  Add-AvdCheckResult $area $check 'Fixed' -Detail $summary
 }
 
 function Test-AvdPreDeployment {

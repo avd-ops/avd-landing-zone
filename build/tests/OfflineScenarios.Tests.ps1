@@ -134,7 +134,7 @@ Describe 'Pre-deployment: empty subscription, then a blocked prod deployment' {
   }
   It 'gives the portal the context and structured failures it needs' {
     $s = Get-PortalState $out
-    ($s | ForEach-Object { "$($_.stage):$($_.status)" }) -join ' ' | Should -Be 'predeploy:notready predeploy:ready predeploy:ready predeploy:notready predeploy:notready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:notready predeploy:ready predeploy:ready predeploy:ready'
+    ($s | ForEach-Object { "$($_.stage):$($_.status)" }) -join ' ' | Should -Be 'predeploy:notready predeploy:ready predeploy:ready predeploy:notready predeploy:notready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:ready predeploy:notready predeploy:ready predeploy:ready predeploy:ready predeploy:notready predeploy:ready'
     $s[1].context.parameterFile | Should -Be 'parameters/dev.bicepparam'
     $s[1].context.location | Should -Be 'northcentralus'
     $s[1].context.usersGroup | Should -Be 'AVD Users'
@@ -172,6 +172,12 @@ Describe 'Pre-deployment: empty subscription, then a blocked prod deployment' {
   }
   It 'check mode points at -Fix for the vault' {
     ((Get-PortalState $out)[3].failures | Where-Object id -eq 'kv-softdeleted').remediation | Should -Match 'Rerun with -Fix to recover it into rg-avdlz-prod-management'
+  }
+  It '-Fix recovers multiple soft-deleted vaults matching the prefix in the same region' {
+    Get-StepExit $out 'vault-multi-check' | Should -Be 1
+    ((Get-PortalState $out)[15].failures | Where-Object id -eq 'kv-softdeleted').remediation | Should -Match 'Rerun with -Fix to recover them'
+    Get-StepExit $out 'vault-multi-recover' | Should -Be 0
+    $out | Should -Match 'Recovered kvavdlzdevs7abc123, kvavdlzdevold999 into rg-avdlz-dev-management'
   }
 }
 

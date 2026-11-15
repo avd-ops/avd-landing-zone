@@ -1632,13 +1632,15 @@
       }
       var quota = byId(failures, 'quota'), kv = byId(failures, 'kv-softdeleted'), hp = byId(failures, 'hostpool-region'), lzr = byId(failures, 'lz-region');
       var others = failures.filter(function (f) { return ['quota', 'kv-softdeleted', 'hostpool-region', 'lz-region'].indexOf(f.id) < 0; });
-      // -Fix recovers a soft-deleted vault into its resource group, so the name prefix can stay.
-      var kvFix = kv.length > 0 && !state.fix && kv.some(function (f) { return ((f.data && f.data.vaults) || []).length === 1; });
+      // -Fix recovers soft-deleted vaults into their resource groups, so the name prefix can stay.
+      var kvFix = kv.length > 0 && !state.fix && kv.some(function (f) { return ((f.data && f.data.vaults) || []).length > 0; });
       var fixFirst = ((others.length > 0 && hasFixable(others)) || kvFix) && !state.fix;
       var regionChange = false;
       if (fixFirst)
         note('Run the preflight again with -Fix', [others.length > 0 && hasFixable(others) ? 'It creates the missing groups and service principal and registers providers and features, waiting until they finish.' : '',
-          kvFix ? 'It recovers the deleted Key Vault (' + kv[0].data.vaults[0] + ') into its resource group, so the deployment reuses it and keeps the name prefix.' : ''].filter(Boolean).join(' '), cmd.predeploy(cfg, true));
+          kvFix ? (kv[0].data.vaults.length === 1
+            ? 'It recovers the deleted Key Vault (' + kv[0].data.vaults[0] + ') into its resource group, so the deployment reuses it and keeps the name prefix.'
+            : 'It recovers the deleted Key Vaults (' + kv[0].data.vaults.join(', ') + ') into their resource groups, so the deployment reuses the matching one and keeps the name prefix.') : ''].filter(Boolean).join(' '), cmd.predeploy(cfg, true));
       if (hp.length) {
         var regions = pastedList('location', hp[0].data && hp[0].data.regions);
         var pick = pastedList('location', ctx.rankedRegions).filter(function (r) { return regions.indexOf(r) >= 0; })[0] || regions[0];
