@@ -1285,7 +1285,7 @@ test('control planes: pinned commits in portal-core.js match contracts/control-p
     ['networking', 'avd-networking', 'avd-ops/avd-networking', 'db03780', 'scripts/deploy/deploy.sh', null, 'schemas/networking-outputs.schema.json', 'networking-outputs.json'],
     ['intune', 'avd-intune', 'avd-ops/avd-intune', 'ca4169f', 'scripts/Deploy-AvdIntune.ps1', 'scripts/Remove-AvdIntune.ps1', 'schemas/intune-manifest.schema.json', 'intune-manifest.json'],
     ['m365', 'avd-m365', 'avd-ops/avd-m365', 'c8876d2', 'scripts/Deploy-AvdM365.ps1', 'scripts/Remove-AvdM365.ps1', 'schemas/m365-manifest.schema.json', 'm365-manifest.json'],
-    ['azure', 'avd-azure', 'avd-ops/avd-azure', 'daa7da5', 'scripts/deploy/deploy.sh', null, 'schemas/azure-outputs.schema.json', 'azure-outputs.json'],
+    ['azure', 'avd-azure', 'avd-ops/avd-azure', '0a83c5b', 'scripts/deploy/deploy.sh', null, 'schemas/azure-outputs.schema.json', 'azure-outputs.json'],
     ['powerPlatform', 'avd-power-platform', 'avd-ops/avd-power-platform', 'cccf46a', 'scripts/Deploy-AvdPowerPlatform.ps1', 'scripts/Remove-AvdPowerPlatform.ps1', 'schemas/power-platform-manifest.schema.json', 'power-platform-manifest.json']
   ];
   assert.deepEqual(P.CONTROL_PLANE_ORDER, expected.map((e) => e[0]));
