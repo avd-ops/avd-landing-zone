@@ -1079,12 +1079,12 @@ Describe 'Offline: teardown that does not depend on the shell (decision 0021)' {
     $out | Should -Match 'could not be armed: PUT .*/schedules/deadline-b20261021-0100-G1.* failed \(400\): .*at least 5 minutes'
   }
   It 'arms the deadline after the deadline and teardown budget, deleting only when the approved teardown discards the last copy' {
-    $out | Should -Match 'Deadline teardown armed: at .* it deletes rg-avdlz-dev-\*, unless this group has closed clean\.'
+    $out | Should -Match 'Deadline teardown armed: at .* it deletes rg-lz[0-9a-f]{4}-dev-\*, unless this group has closed clean\.'
   }
   It 'tears the group down and closes it when the runner stops on an error, then disarms the deadline' {
     Get-StepExit $out 'crash' | Should -Be 2
     $out | Should -Match 'The runner stopped on an error: .*ServerBusy'
-    $out | Should -Match 'RESULT crash outcome=stop-batch steps=start:0,deploy:0,test:0,teardown:0,close:0 teardowns=1 action=Delete prefix=rg-avdlz-dev- armed=False schedules= jobSchedules=0'
+    $out | Should -Match 'RESULT crash outcome=stop-batch steps=start:0,deploy:0,test:0,teardown:0,close:0 teardowns=1 action=Delete prefix=rg-lz[0-9a-f]{4}-dev- armed=False schedules= jobSchedules=0'
   }
   It 'does nothing at the deadline for a group that closed clean' {
     Get-StepExit $out 'runbook-closed' | Should -Be 0
