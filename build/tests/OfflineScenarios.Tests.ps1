@@ -267,6 +267,11 @@ Describe 'deploy.sh with session hosts that are not running (real run, 2026-10-0
     Get-Result 'running-calls' | Should -Be 'group-exists,vm-list,deployment-create'
     Get-Result 'first-calls' | Should -Be 'group-exists,deployment-create'
   }
+  It 'retries when Log Analytics workspace or its tables are still propagating' {
+    Get-StepExit $out 'law-retry' | Should -Be 0
+    Get-Result 'law-retry-calls' | Should -Be 'group-exists,vm-list,deployment-create,deployment-create'
+    $out | Should -Match 'Log Analytics workspace or its tables are still propagating'
+  }
   It 'refuses to deploy while auto shutdown has the hosts locked, before touching a host' {
     Get-StepExit $out 'locked' | Should -Be 1
     Get-Result 'locked-calls' | Should -Be 'group-exists'

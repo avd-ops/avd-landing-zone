@@ -49,6 +49,11 @@ Invoke-Deploy 'whatif' @('--what-if')
 $env:FAKE_NOT_RUNNING = ''
 Invoke-Deploy 'running'
 
+# Transient Log Analytics workspace/table propagation failure: deploy.sh retries and succeeds.
+$env:AVD_DEPLOY_RETRY_WAIT = '0'; $env:FAKE_DEPLOY_TRANSIENT_FAILS = '1'
+Invoke-Deploy 'law-retry'
+$env:FAKE_DEPLOY_TRANSIENT_FAILS = ''; $env:AVD_DEPLOY_RETRY_WAIT = ''
+
 # First deployment: no hosts resource group yet, so no VM calls.
 $env:FAKE_HOSTS_RG_EXISTS = 'false'
 Invoke-Deploy 'first'
