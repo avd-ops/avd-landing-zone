@@ -70,3 +70,13 @@ Invoke-ScenarioStep 'recovery-planned' { & ./scripts/ops/Test-AvdLandingZoneRead
 $global:St.foreignAllowed = @('northcentralus')
 Invoke-ScenarioStep 'recovery-foreign' { & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @pre -RecoveryLocation southcentralus }
 $global:St.foreignAllowed = $null
+
+# Multiple soft-deleted vaults matching the prefix in the same region (e.g. an older naming
+# scheme alongside the current one): check mode points at -Fix, and -Fix recovers all of them.
+$global:St.rgs = @()
+$global:St.deletedVaults = @(
+  [pscustomobject]@{ VaultName = 'kvavdlzdevs7abc123'; Location = 'northcentralus'; ResourceGroup = 'rg-avdlz-dev-management' },
+  [pscustomobject]@{ VaultName = 'kvavdlzdevold999'; Location = 'northcentralus'; ResourceGroup = 'rg-avdlz-dev-management' })
+Invoke-ScenarioStep 'vault-multi-check' { & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @pre }
+Invoke-ScenarioStep 'vault-multi-recover' { & ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 @pre -Fix -Force }
+$global:St.deletedVaults = @()

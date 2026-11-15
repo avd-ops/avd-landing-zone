@@ -733,6 +733,7 @@ Describe 'Security review baseline guards (avd-assess security-review.yaml)' {
     function Get-Resource($Template) { if ($Template['resources'] -is [System.Collections.IDictionary]) { @($Template['resources'].Values) } else { @($Template['resources']) } }
     $script:main = Get-CompiledTemplate 'parameters/dev.bicepparam'
     $script:gov = Get-ModuleTemplate 'bicep/modules/governance.bicep'
+    $script:govRbac = Get-ModuleTemplate 'bicep/modules/governanceRbac.bicep'
     $script:storage = Get-ModuleTemplate 'bicep/modules/storage.bicep'
     $script:cp = Get-ModuleTemplate 'bicep/modules/controlPlane.bicep'
     $script:kv = Get-ModuleTemplate 'bicep/modules/keyVault.bicep'
@@ -744,7 +745,11 @@ Describe 'Security review baseline guards (avd-assess security-review.yaml)' {
     $script:gov['$schema'] | Should -Match 'subscriptionDeploymentTemplate\.json'
     $res = Get-Resource $script:gov
     @($res | Where-Object { $_['type'] -eq 'Microsoft.Authorization/policyAssignments' }).Count | Should -BeGreaterOrEqual 3
-    @($res | Where-Object { $_['type'] -eq 'Microsoft.Authorization/roleAssignments' }).Count | Should -BeGreaterOrEqual 1
+    @($res | Where-Object { $_['type'] -eq 'Microsoft.Resources/deployments' -and $_['name'] -match 'inherit-rg-tag-rbac' }).Count | Should -BeGreaterOrEqual 1
+    $rbacRes = Get-Resource $script:govRbac
+    $ra = @($rbacRes | Where-Object { $_['type'] -eq 'Microsoft.Authorization/roleAssignments' })
+    $ra.Count | Should -Be 1
+    $ra[0]['name'] | Should -Match "guid\(subscription\(\)\.id, 'avdlz-inherit-rg-tag', parameters\('tag'\), parameters\('principalId'\)\)"
   }
 
   It 'grants least-privilege built-in RBAC roles on storage, control plane, and Key Vault (lz-rbac)' {

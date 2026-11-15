@@ -115,12 +115,12 @@ resource inheritTagAssignments 'Microsoft.Authorization/policyAssignments@2024-0
   }
 ]
 
-resource inheritTagRoleAssignments 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
+module inheritTagRoleAssignments 'governanceRbac.bicep' = [
   for (tag, i) in governedTags: if (enablePolicyGuardrails) {
-    name: guid(subscription().id, 'avdlz-inherit-rg-tag', tag)
-    properties: {
+    name: take('avdlz-inherit-rg-tag-rbac-${tag}', 64)
+    params: {
+      tag: tag
       principalId: inheritTagAssignments[i]!.identity.principalId
-      principalType: 'ServicePrincipal'
       roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', tagContributorRoleId)
     }
   }
