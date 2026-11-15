@@ -103,7 +103,9 @@ $poolId = $lz.HostPool.ResourceId
 # deploy.sh takes the landing zone's name from the parameter file, so the file must name this pool.
 $pfPath = if ([IO.Path]::IsPathRooted($ParameterFile)) { $ParameterFile } else { Join-Path $repo $ParameterFile }
 $pfText = if (Test-Path $pfPath) { Get-Content $pfPath -Raw } else { '' }
-$pfPrefix = if ($pfText -match "(?m)^param namePrefix = '([^']*)'") { $Matches[1].Replace('-', '').ToLower() } else { '' }
+$pfPrefix = if ($env:AVD_NAME_PREFIX) { $env:AVD_NAME_PREFIX.Replace('-', '').ToLower() }
+  elseif ($pfText -match "(?m)^param namePrefix = (?:'([^']*)'|[^\r\n]*\?\s*'([^']*)')") { $(if ($Matches[1]) { $Matches[1] } else { $Matches[2] }).Replace('-', '').ToLower() }
+  else { '' }
 $pfEnv = if ($pfText -match "(?m)^param environmentName = '([^']*)'") { $Matches[1] } else { '' }
 if ($pfPrefix -ne $lz.NamePrefix -or $pfEnv -ne $Environment) {
   Add-AvdCheckResult 'Rotation' 'Parameter file names this landing zone' 'Fail' -Id 'rotation-parameter-file' `

@@ -69,7 +69,11 @@ if ($facts.signedIn) {
   catch { $facts.permissions = @(); $facts.permissionsError = $_.Exception.Message }
 
   Write-Host '  Listing resource groups from Resource Graph ...' -ForegroundColor DarkGray
-  try { $facts.leftoverGroups = @(Get-AvdSpendInventory -SubscriptionId $sub | Where-Object { $_.type -eq 'microsoft.resources/subscriptions/resourcegroups' -and $_.name -like "rg-$NamePrefix-$Environment-*" } | ForEach-Object { $_.name }) }
+  try {
+    $allRgs = @(Get-AvdSpendInventory -SubscriptionId $sub | Where-Object { $_.type -eq 'microsoft.resources/subscriptions/resourcegroups' } | ForEach-Object { $_.name })
+    $facts.leftoverGroups = @($allRgs | Where-Object { $_ -like "rg-$NamePrefix-$Environment-*" })
+    $facts.otherEnvGroups = @($allRgs | Where-Object { $_ -like "rg-*-$Environment-*" -and $_ -notlike "rg-$NamePrefix-$Environment-*" })
+  }
   catch { $facts.groupsError = $_.Exception.Message }
 
   # One read per host prefix also proves Graph access.
@@ -120,6 +124,9 @@ foreach ($c in $results) {
   $tag = if ($c.ok) { '[PASS ]' } else { '[FAIL ]' }
   Write-Host "  $tag $($c.check): $($c.detail)" -ForegroundColor $(if ($c.ok) { 'Green' } else { 'Red' })
   if (-not $c.ok -and $c.fix) { Write-Host "          -> $($c.fix)" -ForegroundColor Yellow }
+}
+if ($facts.otherEnvGroups -and @($facts.otherEnvGroups).Count) {
+  Write-Host "  [WARN ] Other $Environment resource groups exist in this subscription (not blocking isolated prefix '$NamePrefix'): $($facts.otherEnvGroups -join ', ')" -ForegroundColor Yellow
 }
 $failed = @($results | Where-Object { -not $_.ok }).Count
 if ($JsonPath) { [ordered]@{ checkedAt = (Get-Date).ToUniversalTime().ToString('o'); healthy = -not $failed; results = $results } | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $JsonPath -Encoding utf8NoBOM }

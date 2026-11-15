@@ -135,6 +135,8 @@ $batchArgs.BatchId = $batchId
 Invoke-ScenarioStep 'build3' { & ./scripts/ops/New-AvdSandboxBatch.ps1 -ItemsPath $items -MonthToDate 12.5 -Now $now.AddHours(2) -BatchCap 10 -MonthlyCap 150 -RunCap 25 @common }
 $batch = Get-Content (Join-Path $records "queue/2026-10/$batchId/batch.json") -Raw | ConvertFrom-Json
 Invoke-ScenarioStep 'approve3' { & ./scripts/ops/Approve-AvdSandboxBatch.ps1 -BatchId $batchId -Phrase ("go batch {0} `${1:N2}" -f $batchId, $batch.total) @common }
+$g1Prefix = Get-AvdBatchNamePrefix -BatchId $batchId -GroupId 'G1'
+$sp.devices += @(@{ displayName = "$($g1Prefix)dsh-001" })
 Invoke-ScenarioStep 'unhealthy-group' { & ./scripts/ops/Invoke-AvdSandboxBatch.ps1 -Group G1 @batchArgs }
 Write-Host "RESULT unhealthy-group claimed=$(Test-Path (Join-Path $records "queue/2026-10/$batchId/results-G1.json")) deploys=$(& $count 'deploy rg-lz-g')"
 $sp.devices = @(); $sp.graphStatus = 403

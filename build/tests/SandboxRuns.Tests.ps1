@@ -629,3 +629,73 @@ Describe 'Queue sync and result reporting (Initiating repo to and from Queue rep
     $r101.comment | Should -Match 'Sandbox verification \(FAILED\)'
   }
 }
+
+Describe 'Per-batch-group NamePrefix isolation' {
+  It 'derives a deterministic, valid 2-8 char lowercase alphanumeric NamePrefix per batch and group' {
+    $p1 = Get-AvdBatchNamePrefix -BatchId 'b20261115-1200' -GroupId 'G1'
+    $p1Again = Get-AvdBatchNamePrefix -BatchId 'b20261115-1200' -GroupId 'G1'
+    $p2 = Get-AvdBatchNamePrefix -BatchId 'b20261115-1200' -GroupId 'G2'
+    $pOtherBatch = Get-AvdBatchNamePrefix -BatchId 'b20261115-1300' -GroupId 'G1'
+
+    $p1 | Should -Be $p1Again
+    $p1 | Should -Match '^lz[0-9a-f]{4}$'
+    $p2 | Should -Match '^lz[0-9a-f]{4}$'
+    $p1 | Should -Not -Be $p2
+    $p1 | Should -Not -Be $pOtherBatch
+  }
+
+  It 'overrides default avdlz record prefix with the per-group prefix but preserves explicit custom prefixes' {
+    $pDefault = Get-AvdBatchNamePrefix -BatchId 'b20261115-1200' -GroupId 'G1' -Group @{ record = @{ namePrefix = 'avdlz'; environment = 'dev' } }
+    $pCustom = Get-AvdBatchNamePrefix -BatchId 'b20261115-1200' -GroupId 'G1' -Group @{ record = @{ namePrefix = 'lab1'; environment = 'dev' } }
+    $pDefault | Should -Match '^lz[0-9a-f]{4}$'
+    $pCustom | Should -Be 'lab1'
+  }
+
+  It 'scopes deadline teardown resourceGroupPrefix and recorder calls to the group NamePrefix' {
+    $p = Get-AvdBatchNamePrefix -BatchId 'b20261115-1200' -GroupId 'G2'
+    $g = @{ id = 'G2'; hours = 2; deadlineHours = 3; region = 'northcentralus'; estimate = 1.5; record = @{ parameterFile = 'parameters/dev.bicepparam'; namePrefix = 'avdlz'; environment = 'dev'; demoHostCount = 0 }; members = @(@{ role = 'lead'; teardown = 'pwsh -File ./scripts/ops/Remove-AvdDemo.ps1 -IncludeLandingZone -Force -DiscardLastCopy' }) }
+    $b = @{ batchId = 'b20261115-1200' }
+    $d = Get-AvdBatchDeadline -Batch $b -Group $g -Now ([datetime]'2026-11-15T12:00:00Z') -SubscriptionId '00000000-0000-0000-0000-000000000000' -StorageAccount 'avdlzruns0123456789ab' -ResultsBlob 'queue/2026-11/b20261115-1200/results-G2.json' -NamePrefix $p
+    $d.resourceGroupPrefix | Should -Be "rg-$p-dev-"
+    $d.parameters.ResourceGroupPrefix | Should -Be "rg-$p-dev-"
+
+    $openCall = Get-AvdBatchRecorderCall -Group $g -RunId 'run-20261115-1200-q002' -Step 'open' -NamePrefix $p
+    $openCall.env.AVD_NAME_PREFIX | Should -Be $p
+    $closeCall = Get-AvdBatchRecorderCall -Group $g -RunId 'run-20261115-1200-q002' -Step 'close' -NamePrefix $p
+    ($closeCall.args -join ' ') | Should -Match "-NamePrefix $p -Environment dev"
+  }
+
+  It 'scopes stale device and health checks to the isolated NamePrefix without blocking on unrelated prefixes' {
+    $p = Get-AvdBatchNamePrefix -BatchId 'b20261115-1200' -GroupId 'G1'
+    $prefixes = @(Get-AvdHostDevicePrefix -NamePrefix $p -Environment 'dev')
+    $prefixes | Should -Contain "$($p)dsh"
+    $devices = @(@{ displayName = 'avdlzdsh-001' }, @{ displayName = "$($p)dsh-001" })
+    $stale = @(Get-AvdStaleHostDevice -Devices $devices -Prefix $prefixes -VmName @())
+    $stale.displayName | Should -Be @("$($p)dsh-001")
+
+    $healthy = Get-AvdSandboxHealthResult -Facts @{
+      signedIn = $true; subscriptionName = 'Sandbox'; namePrefix = $p; environment = 'dev'
+      permissions = @(@{ actions = @('*') }); graphStatus = 200; staleDevices = @(); leftoverGroups = @()
+      otherEnvGroups = @('rg-avdlz-dev-avd'); monthlyCap = 150; runCap = 25; estimate = 2.5
+    }
+    @($healthy | Where-Object { -not $_.ok }).Count | Should -Be 0
+  }
+
+  It 'wires AVD_NAME_PREFIX in Invoke-AvdSandboxBatch.ps1, deploy.sh, dev.bicepparam, and Remove-AvdDemo.ps1' {
+    $root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
+    $batchRunner = Get-Content (Join-Path $root 'scripts/ops/Invoke-AvdSandboxBatch.ps1') -Raw
+    $deploySh = Get-Content (Join-Path $root 'scripts/deploy/deploy.sh') -Raw
+    $devParam = Get-Content (Join-Path $root 'parameters/dev.bicepparam') -Raw
+    $removeDemo = Get-Content (Join-Path $root 'scripts/ops/Remove-AvdDemo.ps1') -Raw
+    $healthScript = Get-Content (Join-Path $root 'scripts/ops/Test-AvdSandboxHealth.ps1') -Raw
+
+    $batchRunner | Should -Match 'Get-AvdBatchNamePrefix'
+    $batchRunner | Should -Match '\$env:AVD_NAME_PREFIX\s*=\s*\$groupNamePrefix'
+    $batchRunner | Should -Match 'Get-AvdBatchDeadline.*-NamePrefix \$groupNamePrefix'
+    $deploySh | Should -Match 'NAME_PREFIX_ARG="\$\{AVD_NAME_PREFIX:-\}"'
+    $deploySh | Should -Match 'export AVD_NAME_PREFIX="\$NAME_PREFIX_ARG"'
+    $devParam | Should -Match "readEnvironmentVariable\('AVD_NAME_PREFIX',\s*''\)"
+    $removeDemo | Should -Match '\$env:AVD_NAME_PREFIX'
+    $healthScript | Should -Match 'otherEnvGroups'
+  }
+}

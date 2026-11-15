@@ -52,7 +52,7 @@
 #>
 [CmdletBinding(SupportsShouldProcess, ConfirmImpact = 'High')]
 param(
-  [Parameter(Mandatory)][ValidateLength(2, 8)][string] $NamePrefix,
+  [ValidatePattern('^$|^[A-Za-z0-9-]{2,8}$')][string] $NamePrefix = $env:AVD_NAME_PREFIX,
   [Parameter(Mandatory)][ValidateSet('dev', 'test', 'prod')][string] $Environment,
   [ValidateSet('commercial', 'usgov')][string] $Cloud = $(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' }),
   [string] $SubscriptionId,
@@ -74,6 +74,7 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'AvdLandingZone.psm1') -Force
 if ($Force) { $ConfirmPreference = 'None' }
 
+if (-not $NamePrefix) { throw 'Pass -NamePrefix (2-8 chars) or set AVD_NAME_PREFIX.' }
 $env:AVD_CLOUD = $Cloud
 $ctx = Initialize-AvdAzContext -SubscriptionId $SubscriptionId -Cloud $Cloud
 $lz = Get-AvdLandingZone -NamePrefix $NamePrefix -Environment $Environment
