@@ -69,7 +69,7 @@ JUMPBOX_OS="${AVD_JUMPBOX_OS:-}"
 TOPOLOGY="${AVD_TOPOLOGY_JSON:-}"
 PLANES=""
 AZURE_OUTPUTS=""
-NAME_PREFIX_ARG=""
+NAME_PREFIX_ARG="${AVD_NAME_PREFIX:-}"
 ENVIRONMENT_ARG=""
 TEARDOWN=false
 DISCARD_LAST_COPY=false
@@ -120,6 +120,13 @@ while [[ $# -gt 0 ]]; do
     *) usage ;;
   esac
 done
+
+if [[ -n "$NAME_PREFIX_ARG" ]]; then
+  NAME_PREFIX_ARG=${NAME_PREFIX_ARG//-/}
+  NAME_PREFIX_ARG=${NAME_PREFIX_ARG,,}
+  [[ "$NAME_PREFIX_ARG" =~ ^[a-z0-9]{2,8}$ ]] || { echo "--name-prefix / AVD_NAME_PREFIX takes 2 to 8 lowercase letters or digits: '$NAME_PREFIX_ARG'" >&2; exit 1; }
+  export AVD_NAME_PREFIX="$NAME_PREFIX_ARG"
+fi
 
 case "${CLOUD,,}" in
   commercial|usgov) CLOUD="${CLOUD,,}" ;;
@@ -423,8 +430,16 @@ portal_state() {
 # A redeploy updates each existing host's run commands, and Azure refuses that on a VM that isn't
 # running ("Cannot modify extensions in the VM when the VM is not running"). Power management keeps
 # hosts deallocated most of the time, so a redeploy starts them and deallocates them again after.
-param_value() { sed -n "s/^param $1 = '\([^']*\)'.*/\1/p" "$PARAM_FILE" | head -n 1; }
-NAME_PREFIX=$(param_value namePrefix); ENV_NAME=$(param_value environmentName)
+param_value() {
+  local line
+  line=$(sed -n "s/^param $1 = //p" "$PARAM_FILE" | head -n 1)
+  if [[ "$line" =~ ^\'([^\']*)\' ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  elif [[ "$line" =~ \?[[:space:]]*\'([^\']*)\' ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  fi
+}
+NAME_PREFIX="${NAME_PREFIX_ARG:-$(param_value namePrefix)}"; ENV_NAME=$(param_value environmentName)
 NAME_PREFIX=${NAME_PREFIX//-/}; NAME_PREFIX=${NAME_PREFIX,,}   # cleanPrefix in bicep/main.bicep
 HOSTS_RG="rg-$NAME_PREFIX-$ENV_NAME-hosts"
 STOPPED_HOSTS=()

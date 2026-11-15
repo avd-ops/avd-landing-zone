@@ -97,6 +97,9 @@ $check = Test-AvdBatchApproval -Batch $batch -Approval $approval
 if (-not $check.valid) { Write-Host "Not starting: $($check.reasons -join ' ')" -ForegroundColor Red; exit 2 }
 $g = @($batch.groups | Where-Object { $_.id -eq $Group }) | Select-Object -First 1
 if (-not $g) { throw "Batch $($batch.batchId) has no group $Group." }
+$groupNamePrefix = Get-AvdBatchNamePrefix -BatchId $batch.batchId -GroupId $Group -Group $g
+$groupEnv = if ($g.record -and $g.record.environment) { $g.record.environment } else { 'dev' }
+Write-Host "Group $Group landing zone prefix: $groupNamePrefix ($groupEnv)" -ForegroundColor DarkGray
 if ($RequireUnattended -and -not $g.unattended) { Write-Host "Not starting: group $Group has steps that need a person. Run it from Cloud Shell." -ForegroundColor Red; exit 2 }
 $keepers = @($g.members | Where-Object { @($_.keep | Where-Object { $_ }).Count })
 $runStore = Get-AvdRunStoreName -SubscriptionId $subId
@@ -145,7 +148,7 @@ $may = Test-AvdBatchGroupStart -Results $prior -Mode $mode
 if (-not $may.allowed) { Write-Host "Not starting: $($may.reason)" -ForegroundColor Red; exit 2 }
 if ($mode -eq 'start' -and -not $SkipHealth) {
   # Read-only, before the claim: a failure here claims, deploys and spends nothing, so the same block runs again once it's fixed.
-  $lzName = if ($g.record) { @{ NamePrefix = $g.record.namePrefix; Environment = $g.record.environment } } else { @{} }
+  $lzName = @{ NamePrefix = $groupNamePrefix; Environment = $groupEnv }
   $global:LASTEXITCODE = 0
   & (Join-Path $PSScriptRoot 'Test-AvdSandboxHealth.ps1') @lzName -MonthlyCap $MonthlyCap -RunCap $RunCap -Estimate ([double]$g.estimate) -NeedsRunStore:(-not $store.local) -SubscriptionId $subId | Out-Host
   if ($LASTEXITCODE) { Write-Host "Not starting: the sandbox isn't healthy (above). Fix what failed and run the same block again; nothing was claimed, deployed or spent." -ForegroundColor Red; exit 2 }
@@ -177,7 +180,7 @@ if ($mode -eq 'start') {
     }
     $jobSchedule = [guid]::NewGuid().ToString()
     try {
-      $plan = Get-AvdBatchDeadline -Batch $batch -Group $g -Now (Get-Date) -SubscriptionId $subId -StorageAccount $runStore -ResultsBlob $resultsName
+      $plan = Get-AvdBatchDeadline -Batch $batch -Group $g -Now (Get-Date) -SubscriptionId $subId -StorageAccount $runStore -ResultsBlob $resultsName -NamePrefix $groupNamePrefix
       $schedule = "$aa/schedules/$($plan.scheduleName)?api-version=$apiAa"
       # A schedule left by an earlier attempt goes first, with its link to the runbook.
       $null = Invoke-AvdSpendArm -Method DELETE -Path $schedule -AllowNotFound
@@ -312,7 +315,7 @@ function Get-Checkout($Member) {
 }
 function Invoke-Recorder([string] $Step, [string] $Status = 'torn-down') {
   # The run recorder at the pinned commit, as its own process, so its modules never replace these.
-  $call = Get-AvdBatchRecorderCall -Group $g -RunId $script:results.runId -Step $Step -Status $Status -SubscriptionId $subId
+  $call = Get-AvdBatchRecorderCall -Group $g -RunId $script:results.runId -Step $Step -Status $Status -SubscriptionId $subId -NamePrefix $groupNamePrefix
   $dir = Get-Checkout $g.record
   $saved = @{}; foreach ($k in $call.env.Keys) { $saved[$k] = [Environment]::GetEnvironmentVariable($k); [Environment]::SetEnvironmentVariable($k, $call.env[$k]) }
   try { & pwsh -NoProfile -File (Join-Path $dir $call.script) @($call.args) | Out-Host; $LASTEXITCODE }
@@ -357,7 +360,8 @@ if ($recorded -and -not $TeardownOnly) {
 $recorded = $recorded -and [bool]$results.runId -and (Test-StepPassed 'record-open')
 # Every step the group runs (the items' bash and the landing zone scripts they call) writes to the run's journal.
 # Put back afterwards, so landing zone scripts run later in this shell don't write to a closed run.
-$envBefore = @{ AVDLZ_RECORD = $env:AVDLZ_RECORD; AVDLZ_RUN_ID = $env:AVDLZ_RUN_ID }
+$envBefore = @{ AVDLZ_RECORD = $env:AVDLZ_RECORD; AVDLZ_RUN_ID = $env:AVDLZ_RUN_ID; AVD_NAME_PREFIX = $env:AVD_NAME_PREFIX }
+$env:AVD_NAME_PREFIX = $groupNamePrefix
 if ($recorded) { $env:AVDLZ_RECORD = 'azure'; $env:AVDLZ_RUN_ID = $results.runId }
 $stopAfter = $false; $testsFailed = $false; $deployFailed = $false
 $keepFailed = $false; $exportFailed = $false

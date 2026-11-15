@@ -448,11 +448,13 @@ function Get-AvdBatchRecorderCall {
     [Parameter(Mandatory)][string] $RunId,
     [Parameter(Mandatory)][ValidateSet('open', 'export', 'close', 'copy')][string] $Step,
     [ValidateSet('succeeded', 'failed', 'torn-down', 'abandoned')][string] $Status = 'torn-down',
-    [string] $SubscriptionId
+    [string] $SubscriptionId,
+    [string] $NamePrefix
   )
   $r = $Group.record
   if (-not $r) { throw "Group $($Group.id) is not recorded." }
-  $lz = @('-NamePrefix', $r.namePrefix, '-Environment', $r.environment)
+  $effectivePrefix = if ($NamePrefix) { $NamePrefix } else { $r.namePrefix }
+  $lz = @('-NamePrefix', $effectivePrefix, '-Environment', $r.environment)
   $call = switch ($Step) {
     'open' {
       # Start-AvdRunRecorder passes a run whose expected total is at most half of -Cap, every line priced.
@@ -466,7 +468,10 @@ function Get-AvdBatchRecorderCall {
   }
   if ($SubscriptionId) { $call.args += @('-SubscriptionId', $SubscriptionId) }
   $call.env = [ordered]@{}
-  if ($Step -eq 'open' -and $r.Contains('sessionHostVmSize') -and $r.sessionHostVmSize) { $call.env.AVD_SESSION_HOST_VM_SIZE = $r.sessionHostVmSize }
+  if ($Step -eq 'open') {
+    if ($r.Contains('sessionHostVmSize') -and $r.sessionHostVmSize) { $call.env.AVD_SESSION_HOST_VM_SIZE = $r.sessionHostVmSize }
+    if ($NamePrefix) { $call.env.AVD_NAME_PREFIX = $NamePrefix }
+  }
   $call
 }
 
@@ -516,15 +521,36 @@ function Get-AvdBatchTeardownBudget {
   [math]::Max(60, [double]$Group.hours * 30)
 }
 
+function Get-AvdBatchNamePrefix {
+  <#
+    Deterministic, Bicep/VM-valid landing zone NamePrefix (2-8 lowercase alphanumeric chars) for a
+    sandbox batch group so concurrent or back-to-back batch runs do not collide on avdlz-dev.
+    Format: lz<4 lowercase hex chars of SHA-256("batchId/groupId")> (6 chars total).
+    If a recorded group explicitly specifies a non-default -NamePrefix, that prefix is preserved.
+  #>
+  param(
+    [Parameter(Mandatory)][string] $BatchId,
+    [Parameter(Mandatory)][string] $GroupId,
+    $Group
+  )
+  if ($Group) {
+    $r = if ($Group -is [System.Collections.IDictionary]) { $(if ($Group.Contains('record')) { $Group.record } else { $null }) } else { $Group.record }
+    if ($r -and $r.namePrefix -and "$($r.namePrefix)" -ne 'avdlz') { return "$($r.namePrefix)" }
+  }
+  $bytes = [System.Text.Encoding]::UTF8.GetBytes("$BatchId/$GroupId")
+  $hash = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::HashData($bytes)).Replace('-', '').ToLowerInvariant()
+  "lz$($hash.Substring(0, 4))"
+}
+
 function Get-AvdBatchLandingZoneName {
   <#
-    The landing zone a group deploys, by its naming convention: a recorded group's own -NamePrefix
-    and -Environment, any other the defaults (as Test-AvdSandboxHealth.ps1 checks). Its resource
-    groups are rg-<base>-*, with base as bicep/main.bicep builds it.
+    The landing zone a group deploys, by its naming convention: an explicit -NamePrefix, a recorded
+    group's own -NamePrefix and -Environment, or the defaults. Its resource groups are rg-<base>-*,
+    with base as bicep/main.bicep builds it.
   #>
-  param([Parameter(Mandatory)] $Group)
+  param([Parameter(Mandatory)] $Group, [string] $NamePrefix)
   $r = if ($Group -is [System.Collections.IDictionary]) { $(if ($Group.Contains('record')) { $Group.record } else { $null }) } else { $Group.record }
-  $prefix = if ($r -and $r.namePrefix) { "$($r.namePrefix)" } else { 'avdlz' }
+  $prefix = if ($NamePrefix) { $NamePrefix } elseif ($r -and $r.namePrefix) { "$($r.namePrefix)" } else { 'avdlz' }
   $envName = if ($r -and $r.environment) { "$($r.environment)" } else { 'dev' }
   $base = "$($prefix.ToLowerInvariant().Replace('-', ''))-$envName"
   [ordered]@{ namePrefix = $prefix; environment = $envName; baseName = $base; resourceGroupPrefix = "rg-$base-" }
@@ -546,11 +572,12 @@ function Get-AvdBatchDeadline {
     [Parameter(Mandatory)][string] $SubscriptionId,
     [Parameter(Mandatory)][string] $StorageAccount,
     [Parameter(Mandatory)][string] $ResultsBlob,
-    [int] $GraceMinutes = 30
+    [int] $GraceMinutes = 30,
+    [string] $NamePrefix
   )
   $lead = @($Group.members | Where-Object { $_.role -eq 'lead' }) | Select-Object -First 1
   $discards = [bool]($lead -and "$($lead.teardown)" -match '(?i)(^|\s)-DiscardLastCopy\b')
-  $lz = Get-AvdBatchLandingZoneName -Group $Group
+  $lz = Get-AvdBatchLandingZoneName -Group $Group -NamePrefix $NamePrefix
   # The runbook accepts only this shape; arming a value it would reject leaves nothing to fire.
   if ($lz.resourceGroupPrefix -cnotmatch '^rg-[a-z0-9]{2,8}-(dev|test|prod)-$') {
     throw "The deadline teardown can't cover $($lz.resourceGroupPrefix)*: the runbook takes rg-<2 to 8 lowercase letters or digits>-<dev|test|prod>-."
@@ -918,5 +945,5 @@ function Get-AvdBatchResultReport {
 
 Export-ModuleMember -Function ConvertFrom-AvdBatchItemFile, Get-AvdBatchStepState, Test-AvdBatchGroupStart, ConvertFrom-AvdBatchIssueBody, ConvertFrom-AvdBatchRecordField, Get-AvdBatchItem, Get-AvdBatchGroup, Get-AvdBatchPlan, Get-AvdBatchHash, Get-AvdBatch, Get-AvdBatchApproval, Test-AvdBatchApproval, Get-AvdBatchNextStep, Get-AvdBatchRunId, Get-AvdBatchRecorderCall, Format-AvdBatchMoney, Format-AvdBatchTime,
   Get-AvdHostDevicePrefix, Get-AvdStaleHostDevice, Test-AvdArmAction, Get-AvdSandboxHealthResult,
-  Get-AvdBatchTeardownBudget, Get-AvdBatchLandingZoneName, Get-AvdBatchDeadline, Test-AvdBatchGroupMayBeRunning,
+  Get-AvdBatchTeardownBudget, Get-AvdBatchNamePrefix, Get-AvdBatchLandingZoneName, Get-AvdBatchDeadline, Test-AvdBatchGroupMayBeRunning,
   Get-AvdBatchInitiatingIssue, ConvertFrom-AvdBatchInitiatingIssue, Get-AvdBatchQueueIssue, Get-AvdBatchResultReport

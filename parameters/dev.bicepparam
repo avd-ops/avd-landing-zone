@@ -4,7 +4,7 @@
 
 using '../bicep/main.bicep'
 
-param namePrefix = 'avdlz'
+param namePrefix = empty(readEnvironmentVariable('AVD_NAME_PREFIX', '')) ? 'avdlz' : readEnvironmentVariable('AVD_NAME_PREFIX', '')
 param environmentName = 'dev'
 // Default region; deploy.sh -l and the preflight's -Location override it (AVD_LOCATION).
 param location = empty(readEnvironmentVariable('AVD_LOCATION', ''))
