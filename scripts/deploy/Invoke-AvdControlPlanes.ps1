@@ -754,6 +754,7 @@ foreach ($planeId in $sequenceOrder) {
         $deploySh = if (Test-Path -LiteralPath $entryScriptPath) { $entryScriptPath } else { Join-Path $repoRoot 'scripts/deploy/deploy.sh' }
         $bashCmd = if ($env:AVDLZ_TEST_BASH) { $env:AVDLZ_TEST_BASH } else { 'bash' }
         $deployArgs = @($deploySh, '-p', $ParameterFile, '-l', $Location, '--users-group', $effectiveUsers, '--admins-group', $effectiveAdmins, '--azure-outputs', $handoffPath)
+        if (Test-Path -LiteralPath $networkingOutputsPath) { $deployArgs += @('--networking-outputs', $networkingOutputsPath) }
         if ($Cloud -eq 'usgov') { $deployArgs += @('--cloud', 'usgov') }
         if ($ComplianceProfile -eq 'itar-cui') { $deployArgs += @('--compliance-profile', 'itar-cui') }
         if ($SubscriptionId) { $deployArgs += @('-s', $SubscriptionId) }
