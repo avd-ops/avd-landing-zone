@@ -207,7 +207,14 @@
     Standard_E4as_v5: { vcpu: 4, ramGiB: 32, recommended: true }, Standard_E8as_v5: { vcpu: 8, ramGiB: 64, recommended: true }, Standard_E16as_v5: { vcpu: 16, ramGiB: 128, recommended: true },
     Standard_E4s_v5: { vcpu: 4, ramGiB: 32, recommended: true }, Standard_E8s_v5: { vcpu: 8, ramGiB: 64, recommended: true }, Standard_E16s_v5: { vcpu: 16, ramGiB: 128, recommended: true },
     Standard_D4as_v5: { vcpu: 4, ramGiB: 16 }, Standard_D8as_v5: { vcpu: 8, ramGiB: 32 }, Standard_D16as_v5: { vcpu: 16, ramGiB: 64 },
-    Standard_D4s_v5: { vcpu: 4, ramGiB: 16 }, Standard_D8s_v5: { vcpu: 8, ramGiB: 32 }, Standard_D16s_v5: { vcpu: 16, ramGiB: 64 }
+    Standard_D4s_v5: { vcpu: 4, ramGiB: 16 }, Standard_D8s_v5: { vcpu: 8, ramGiB: 32 }, Standard_D16s_v5: { vcpu: 16, ramGiB: 64 },
+    Standard_NV6ads_A10_v5: { vcpu: 6, ramGiB: 55, gpu: true, gpuVendor: 'nvidia', maxSessionsCap: 25 },
+    Standard_NV12ads_A10_v5: { vcpu: 12, ramGiB: 110, gpu: true, gpuVendor: 'nvidia', maxSessionsCap: 25 },
+    Standard_NV18ads_A10_v5: { vcpu: 18, ramGiB: 220, gpu: true, gpuVendor: 'nvidia', maxSessionsCap: 25 },
+    Standard_NV36ads_A10_v5: { vcpu: 36, ramGiB: 440, gpu: true, gpuVendor: 'nvidia', maxSessionsCap: 25 },
+    Standard_NV4ads_V710_v5: { vcpu: 4, ramGiB: 16, gpu: true, gpuVendor: 'amd' },
+    Standard_NV8ads_V710_v5: { vcpu: 8, ramGiB: 32, gpu: true, gpuVendor: 'amd' },
+    Standard_NV12ads_V710_v5: { vcpu: 12, ramGiB: 48, gpu: true, gpuVendor: 'amd' }
   };
   var OS_DISK = 'Premium SSD (P10, 128 GiB)';
   var DEFAULT_RDP_PROPERTIES = 'enablerdsaadauth:i:1;targetisaadjoined:i:1;drivestoredirect:s:;usbdevicestoredirect:s:;redirectcomports:i:0;redirectsmartcards:i:1;redirectprinters:i:1;redirectclipboard:i:1;redirectwebauthn:i:1;audiomode:i:0;audiocapturemode:i:1;camerastoredirect:s:*;use multimon:i:1';
@@ -287,6 +294,19 @@
         type: 'pooled', hostPoolType: 'Pooled', personalDesktopAssignmentType: 'Automatic',
         loadBalancerType: 'BreadthFirst', preferredAppGroupType: 'Desktop',
         workload: 'power', vmSize: 'Standard_E16as_v5', profileGiBPerUser: 15, fslogixProfileSizeMiB: 61440,
+        rdpProperties: DEFAULT_RDP_PROPERTIES, validationEnvironment: false,
+        startVmOnConnect: true, deployScalingPlan: true, scalingTimeZone: 'UTC',
+        encryptionAtHost: true, enrollInIntune: true, enablePrivateEndpoint: true, publicNetworkAccess: 'EnabledForClientsOnly'
+      }
+    },
+    graphics: {
+      id: 'graphics',
+      label: 'Graphics / CAD / 3D (NV6ads_A10_v5 GPU)',
+      description: 'GPU-accelerated NVIDIA A10 hosts for CAD, GIS, 3D, and video workloads, capped at 25 concurrent users per GRID license.',
+      settings: {
+        type: 'pooled', hostPoolType: 'Pooled', personalDesktopAssignmentType: 'Automatic',
+        loadBalancerType: 'BreadthFirst', preferredAppGroupType: 'Desktop',
+        workload: 'power', vmSize: 'Standard_NV6ads_A10_v5', maxSessionLimit: 6, profileGiBPerUser: 15, fslogixProfileSizeMiB: 61440,
         rdpProperties: DEFAULT_RDP_PROPERTIES, validationEnvironment: false,
         startVmOnConnect: true, deployScalingPlan: true, scalingTimeZone: 'UTC',
         encryptionAtHost: true, enrollInIntune: true, enablePrivateEndpoint: true, publicNetworkAccess: 'EnabledForClientsOnly'
