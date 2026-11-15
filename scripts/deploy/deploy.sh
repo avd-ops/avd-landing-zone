@@ -213,7 +213,12 @@ fi
 # Regions with Azure Bastion Developer (Microsoft Learn, bastion-sku-comparison; the same list as
 # Get-AvdBastionDeveloperRegion in scripts/ops/AvdLandingZone.psm1, a test checks they match).
 BASTION_DEVELOPER_REGIONS=" brazilsouth canadacentral canadaeast centralus centraluseuap eastus2 eastus2euap mexicocentral northcentralus westcentralus westus francecentral germanywestcentral italynorth northeurope norwayeast spaincentral swedencentral switzerlandnorth uksouth ukwest westeurope australiacentral australiaeast australiasoutheast centralindia eastasia japaneast japanwest koreacentral koreasouth southindia southeastasia southafricanorth uaenorth "
-if $JUMPBOX && [[ "$CLOUD" != "usgov" ]] && [[ "$BASTION_DEVELOPER_REGIONS" != *" ${LOCATION,,} "* ]]; then
+# Azure US Government has no Bastion Developer, and this landing zone deploys no other SKU.
+if $JUMPBOX && [[ "$CLOUD" == "usgov" ]]; then
+  echo "--jumpbox can't be used with --cloud usgov: Azure Bastion Developer isn't offered in Azure US Government, and this landing zone deploys no other Bastion SKU."
+  exit 1
+fi
+if $JUMPBOX && [[ "$BASTION_DEVELOPER_REGIONS" != *" ${LOCATION,,} "* ]]; then
   echo "Azure Bastion Developer isn't offered in $LOCATION, so --jumpbox can't be used there. Regions:$BASTION_DEVELOPER_REGIONS"
   exit 1
 fi

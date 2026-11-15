@@ -117,6 +117,7 @@ Invoke-Deploy 'jumpbox-kept-windows'
 $env:FAKE_JUMPBOX_OS = ''
 $env:FAKE_JUMPBOX_RG_EXISTS = ''; $env:FAKE_JUMPBOX_VM_EXISTS = ''
 Invoke-Deploy 'jumpbox-region' @('--jumpbox', '-l', 'eastus')
+Invoke-Deploy 'jumpbox-usgov' @('--jumpbox', '--cloud', 'usgov', '-l', 'usgovvirginia')
 Invoke-Deploy 'jumpbox-windows' @('--jumpbox', '--jumpbox-os', 'Windows')
 Invoke-Deploy 'jumpbox-os-bad' @('--jumpbox', '--jumpbox-os', 'macos')
 Invoke-Deploy 'jumpbox-os-alone' @('--jumpbox-os', 'windows')
