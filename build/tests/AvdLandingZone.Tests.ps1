@@ -1061,6 +1061,7 @@ Describe 'Five control planes orchestrator and pin manifest (decision 0009)' {
       Test-Path $netManifest | Should -BeTrue
       Test-Json -Path $netManifest -SchemaFile $netSchema | Should -BeTrue
       Test-Path (Join-Path $outDir 'azure-outputs.json') | Should -BeTrue
+      (Get-Content -Raw -Path $script:orchestratorPath) | Should -Match '--networking-outputs'
     }
     finally {
       if (Test-Path $outDir) { Remove-Item -Path $outDir -Recurse -Force }
