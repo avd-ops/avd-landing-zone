@@ -14,6 +14,21 @@ An **enterprise-ready Azure Virtual Desktop landing zone for greenfield, cloud-n
 
 It is deliberately *not* a general-purpose accelerator. Microsoft's [AVD Landing Zone Accelerator](https://github.com/Azure/avdaccelerator) (LZA) covers every identity model and brownfield scenario through a wide option surface. This repo makes the opposite trade: **one opinionated path — no domain controllers, no line of sight to on-premises, no post-deployment scripts** — and hardens that path fully. See [`docs/design-decisions.md`](docs/design-decisions.md) for the side-by-side.
 
+## How it connects
+
+| Direction | Repo | Relationship |
+|---|---|---|
+| Front door | [avd-ops](https://github.com/avd-ops/avd-ops#readme) | Overview, [repo page](https://avd-ops.dev/docs/repos/avd-landing-zone.html), and [deploy portal](https://avd-ops.app/deploy/) |
+| Control plane | [avd-entra](https://github.com/avd-ops/avd-entra#readme) | Entra ID security groups, Conditional Access, and Entra Kerberos |
+| Control plane | [avd-intune](https://github.com/avd-ops/avd-intune#readme) | Intune policy-as-code, enrollment, filters, and Windows 365 |
+| Control plane | [avd-m365](https://github.com/avd-ops/avd-m365#readme) | OneDrive KFM, Teams VDI, and Microsoft 365 Apps baselines |
+| Control plane | [avd-azure](https://github.com/avd-ops/avd-azure#readme) | Azure ARM/Bicep workspaces, host pools, Private Link, and FSLogix |
+| Control plane | [avd-networking](https://github.com/avd-ops/avd-networking#readme) | Optional Hub VNet, Azure Firewall, Private DNS, and gateways |
+| Control plane | [avd-power-platform](https://github.com/avd-ops/avd-power-platform#readme) | Day-2 Power Platform environments and approval workflows |
+| Upstream | [avd-migrate](https://github.com/avd-ops/avd-migrate#readme) | Supplies `C14` target-state manifests (`ConvertFrom-AvdTargetState.ps1`) |
+| Assess & drift | [avd-current-state](https://github.com/avd-ops/avd-current-state#readme) / [avd-assess](https://github.com/avd-ops/avd-assess#readme) | Validates live deployments and checks for configuration drift |
+| Enterprise IaC | [avd-hcl](https://github.com/avd-ops/avd-hcl#readme) | Separate Terraform + Packer path (neither depends on the other) |
+
 ## What you get
 
 | Area | What's deployed | Why it matters |
