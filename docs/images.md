@@ -45,6 +45,7 @@ This adds `snet-image-build` (`10.100.2.128/27`) and `snet-image-aci` (`10.100.2
 - Windows Update, the Microsoft 365 CDN and Defender updates;
 - the AIB service endpoints;
 - `github.com` and `codeload.github.com`, for WDOT.
+- If you enable `EUCPilots` `Evergreen` / `VcRedist` in `scripts/image/custom/Invoke-CustomImageStep.ps1`, also allow PowerShell Gallery (`www.powershellgallery.com` / NuGet CDN) and the target application vendor CDNs.
 
 ### 2. Resource providers
 
