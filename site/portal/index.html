@@ -447,6 +447,7 @@
           <label class="switch"><input type="checkbox" id="cp-m365"><span><strong>4. Microsoft 365 (<code>avd-ops/avd-m365@c8876d2</code>)</strong><br><span class="muted">Runs <code>scripts/Deploy-AvdM365.ps1</code> consuming <code>entra-manifest.json</code> and emitting <code>m365-manifest.json</code>.</span></span></label>
           <label class="switch"><input type="checkbox" id="cp-azure" checked><span><strong>5. Azure Infrastructure (<code>avd-ops/avd-azure@0a83c5b</code>)</strong><br><span class="muted">Runs <code>scripts/deploy/deploy.sh</code> consuming <code>entra-manifest.json</code> and emitting <code>azure-outputs.json</code>.</span></span></label>
           <label class="switch"><input type="checkbox" id="cp-powerPlatform"><span><strong>6. Power Platform (<code>avd-ops/avd-power-platform@cccf46a</code>)</strong><br><span class="muted">Runs <code>scripts/Deploy-AvdPowerPlatform.ps1</code> consuming <code>entra-manifest.json</code> and <code>azure-outputs.json</code>, emitting <code>power-platform-manifest.json</code>.</span></span></label>
+          <label class="switch"><input type="checkbox" id="cp-win365"><span><strong>Include Windows 365 Cloud PCs (<code>-IncludeWin365</code>, opt-in)</strong><br><span class="muted">Adds Windows 365 user/Cloud PC groups in <code>avd-entra</code> and declarative Cloud PC provisioning policies &amp; user settings in <code>avd-intune</code>.</span></span></label>
         </div>
       </details>
 
