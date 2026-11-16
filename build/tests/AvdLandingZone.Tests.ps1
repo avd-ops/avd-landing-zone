@@ -1160,3 +1160,32 @@ Describe 'Get-AvdStorageKerberosApp (build/lessons/0038)' {
     $only.Rejected | Should -Match 'eve@contoso\.com'
   }
 }
+
+Describe 'Assert-AvdRequiredModule' {
+  BeforeAll {
+    Import-Module PowerShellGet -ErrorAction SilentlyContinue
+  }
+  It 'throws with a -Fix hint when a module is missing and -Fix is not set' {
+    Mock -ModuleName AvdLandingZone Get-Module { $null }
+    { Assert-AvdRequiredModule -Name 'Az.Compute' } | Should -Throw '*Pass -Fix*'
+  }
+
+  It 'installs a missing module into CurrentUser scope when -Fix is set' {
+    $script:installed = $false
+    Mock -ModuleName AvdLandingZone Get-Module {
+      if ($script:installed) { [pscustomobject]@{ Name = $Name } } else { $null }
+    }
+    Mock -ModuleName AvdLandingZone Install-Module { $script:installed = $true }
+    { Assert-AvdRequiredModule -Name 'Az.Compute' -Fix } | Should -Not -Throw
+    Should -Invoke -ModuleName AvdLandingZone Install-Module -Times 1 -ParameterFilter {
+      $Name -eq 'Az.Compute' -and $Scope -eq 'CurrentUser'
+    }
+  }
+
+  It 'does not call Install-Module when the module is already available' {
+    Mock -ModuleName AvdLandingZone Get-Module { [pscustomobject]@{ Name = $Name } }
+    Mock -ModuleName AvdLandingZone Install-Module {}
+    { Assert-AvdRequiredModule -Name 'Az.Compute' -Fix } | Should -Not -Throw
+    Should -Invoke -ModuleName AvdLandingZone Install-Module -Times 0
+  }
+}

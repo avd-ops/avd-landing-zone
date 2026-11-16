@@ -150,7 +150,7 @@ $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'AvdLandingZone.psm1') -Force
 
 $env:AVD_CLOUD = $Cloud
-$ctx = Initialize-AvdAzContext -SubscriptionId $SubscriptionId -Cloud $Cloud
+$ctx = Initialize-AvdAzContext -SubscriptionId $SubscriptionId -Cloud $Cloud -Fix:$Fix
 Clear-AvdCheckResult
 
 if ($PreDeployment) {

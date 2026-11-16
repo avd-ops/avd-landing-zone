@@ -26,7 +26,8 @@ param(
   [string] $SubscriptionId,
   [string] $RecordsPath,
   [switch] $Local,
-  [datetime] $Now = (Get-Date)
+  [datetime] $Now = (Get-Date),
+  [switch] $Fix
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'AvdLandingZone.psm1') -Force
@@ -37,7 +38,7 @@ if (-not $RecordsPath) { $RecordsPath = Get-AvdRecordsDefaultPath }
 
 $store = $null
 if ($PSCmdlet.ParameterSetName -eq 'Id') {
-  $subId = if ($Local) { $SubscriptionId } else { (Initialize-AvdAzContext -SubscriptionId $SubscriptionId).Subscription.Id }
+  $subId = if ($Local) { $SubscriptionId } else { (Initialize-AvdAzContext -SubscriptionId $SubscriptionId -Fix:$Fix).Subscription.Id }
   $store = Open-AvdRunRecordStore -RecordsPath $RecordsPath -SubscriptionId $subId -Local:$Local
   $BatchPath = Get-ChildItem -Path (Join-Path $RecordsPath 'queue') -Recurse -Filter 'batch.json' -ErrorAction SilentlyContinue |
     Where-Object { $_.Directory.Name -eq $BatchId } | Select-Object -First 1 -ExpandProperty FullName
