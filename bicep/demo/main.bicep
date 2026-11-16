@@ -27,6 +27,9 @@ param namePrefix string
 ])
 param environmentName string
 
+@description('Optional sandbox batch ID (for example b20261116-1425).')
+param batchId string = ''
+
 param location string = deployment().location
 
 // ---------- Landing zone inputs (discovered by Deploy-AvdDemo.ps1) ----------
@@ -67,14 +70,18 @@ param localAdminPassword string
 param rdpProperties string = 'enablerdsaadauth:i:1;targetisaadjoined:i:1;drivestoredirect:s:;usbdevicestoredirect:s:;redirectcomports:i:0;redirectsmartcards:i:1;redirectprinters:i:1;redirectclipboard:i:1;redirectwebauthn:i:1;audiomode:i:0;audiocapturemode:i:1;camerastoredirect:s:*;use multimon:i:1'
 
 var cleanPrefix = toLower(replace(namePrefix, '-', ''))
-var baseName = '${cleanPrefix}-${environmentName}-demo'
-var tags = {
-  workload: 'avd'
-  environment: environmentName
-  managedBy: 'bicep'
-  landingZone: 'avd-cloud-native'
-  purpose: 'demo'
-}
+var cleanBatchId = toLower(trim(batchId))
+var baseName = empty(cleanBatchId) ? '${cleanPrefix}-${environmentName}-demo' : '${cleanPrefix}-${environmentName}-${cleanBatchId}-demo'
+var tags = union(
+  {
+    workload: 'avd'
+    environment: environmentName
+    managedBy: 'bicep'
+    landingZone: 'avd-cloud-native'
+    purpose: 'demo'
+  },
+  empty(cleanBatchId) ? {} : { 'avdlz-batch-id': cleanBatchId }
+)
 
 resource rgDemo 'Microsoft.Resources/resourceGroups@2024-03-01' = {
   name: 'rg-${baseName}'

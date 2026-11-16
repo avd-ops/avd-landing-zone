@@ -463,10 +463,10 @@ Describe 'Deadline teardown (decision 0021)' {
   }
   It 'scopes it to the group''s landing zone by name, the defaults or the recorded group''s own' {
     $d = Get-AvdBatchDeadline -Group (& $Down 'x') @Common
-    $d.resourceGroupPrefix | Should -Be 'rg-avdlz-dev-'
-    $d.parameters.ResourceGroupPrefix | Should -Be 'rg-avdlz-dev-'
+    $d.resourceGroupPrefix | Should -Be 'rg-avdlz-dev-b20261021-0100-'
+    $d.parameters.ResourceGroupPrefix | Should -Be 'rg-avdlz-dev-b20261021-0100-'
     $d.parameters.ResultsBlob | Should -Be 'queue/2026-10/b20261021-0100/results-G2.json'
-    (Get-AvdBatchDeadline -Group (& $Down 'x' @{ namePrefix = 'Lab-1'; environment = 'test' }) @Common).resourceGroupPrefix | Should -Be 'rg-lab1-test-'
+    (Get-AvdBatchDeadline -Group (& $Down 'x' @{ namePrefix = 'Lab-1'; environment = 'test' }) @Common).resourceGroupPrefix | Should -Be 'rg-lab1-test-b20261021-0100-'
   }
   It 'refuses to arm a scope the runbook would reject, so a firing never fails on its parameters' {
     { Get-AvdBatchDeadline -Group (& $Down 'x' @{ namePrefix = 'avd-sandbox1'; environment = 'dev' }) @Common } | Should -Throw '*runbook takes*'
@@ -656,11 +656,19 @@ Describe 'Per-batch-group NamePrefix isolation' {
     $g = @{ id = 'G2'; hours = 2; deadlineHours = 3; region = 'northcentralus'; estimate = 1.5; record = @{ parameterFile = 'parameters/dev.bicepparam'; namePrefix = 'avdlz'; environment = 'dev'; demoHostCount = 0 }; members = @(@{ role = 'lead'; teardown = 'pwsh -File ./scripts/ops/Remove-AvdDemo.ps1 -IncludeLandingZone -Force -DiscardLastCopy' }) }
     $b = @{ batchId = 'b20261115-1200' }
     $d = Get-AvdBatchDeadline -Batch $b -Group $g -Now ([datetime]'2026-11-15T12:00:00Z') -SubscriptionId '00000000-0000-0000-0000-000000000000' -StorageAccount 'avdlzruns0123456789ab' -ResultsBlob 'queue/2026-11/b20261115-1200/results-G2.json' -NamePrefix $p
-    $d.resourceGroupPrefix | Should -Be "rg-$p-dev-"
-    $d.parameters.ResourceGroupPrefix | Should -Be "rg-$p-dev-"
+    $d.resourceGroupPrefix | Should -Be "rg-$p-dev-b20261115-1200-"
+    $d.parameters.ResourceGroupPrefix | Should -Be "rg-$p-dev-b20261115-1200-"
 
-    $openCall = Get-AvdBatchRecorderCall -Group $g -RunId 'run-20261115-1200-q002' -Step 'open' -NamePrefix $p
+    $lzNoBatch = Get-AvdBatchLandingZoneName -Group $g -NamePrefix $p
+    $lzNoBatch.baseName | Should -Be "$p-dev"
+    $lzNoBatch.resourceGroupPrefix | Should -Be "rg-$p-dev-"
+    $lzWithBatch = Get-AvdBatchLandingZoneName -Group $g -NamePrefix $p -BatchId 'b20261115-1200'
+    $lzWithBatch.baseName | Should -Be "$p-dev-b20261115-1200"
+    $lzWithBatch.resourceGroupPrefix | Should -Be "rg-$p-dev-b20261115-1200-"
+
+    $openCall = Get-AvdBatchRecorderCall -Group $g -RunId 'run-20261115-1200-q002' -Step 'open' -NamePrefix $p -BatchId 'b20261115-1200'
     $openCall.env.AVD_NAME_PREFIX | Should -Be $p
+    $openCall.env.BATCH_ID | Should -Be 'b20261115-1200'
     $closeCall = Get-AvdBatchRecorderCall -Group $g -RunId 'run-20261115-1200-q002' -Step 'close' -NamePrefix $p
     ($closeCall.args -join ' ') | Should -Match "-NamePrefix $p -Environment dev"
   }
@@ -681,21 +689,36 @@ Describe 'Per-batch-group NamePrefix isolation' {
     @($healthy | Where-Object { -not $_.ok }).Count | Should -Be 0
   }
 
-  It 'wires AVD_NAME_PREFIX in Invoke-AvdSandboxBatch.ps1, deploy.sh, dev.bicepparam, and Remove-AvdDemo.ps1' {
+  It 'wires AVD_NAME_PREFIX and BATCH_ID across Invoke-AvdSandboxBatch.ps1, deploy.sh, Bicep, and ops scripts' {
     $root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
     $batchRunner = Get-Content (Join-Path $root 'scripts/ops/Invoke-AvdSandboxBatch.ps1') -Raw
     $deploySh = Get-Content (Join-Path $root 'scripts/deploy/deploy.sh') -Raw
     $devParam = Get-Content (Join-Path $root 'parameters/dev.bicepparam') -Raw
+    $mainBicep = Get-Content (Join-Path $root 'bicep/main.bicep') -Raw
+    $demoBicep = Get-Content (Join-Path $root 'bicep/demo/main.bicep') -Raw
     $removeDemo = Get-Content (Join-Path $root 'scripts/ops/Remove-AvdDemo.ps1') -Raw
     $healthScript = Get-Content (Join-Path $root 'scripts/ops/Test-AvdSandboxHealth.ps1') -Raw
+    $deadlineScript = Get-Content (Join-Path $root 'scripts/automation/Invoke-AvdSandboxDeadline.ps1') -Raw
 
     $batchRunner | Should -Match 'Get-AvdBatchNamePrefix'
     $batchRunner | Should -Match '\$env:AVD_NAME_PREFIX\s*=\s*\$groupNamePrefix'
+    $batchRunner | Should -Match '\$env:BATCH_ID\s*=\s*\$batch\.batchId'
+    $batchRunner | Should -Match 'BATCH_ID\s*=\s*\$env:BATCH_ID'
+    $batchRunner | Should -Match 'finally\s*\{[\s\S]*\$envBefore\.Keys'
     $batchRunner | Should -Match 'Get-AvdBatchDeadline.*-NamePrefix \$groupNamePrefix'
     $deploySh | Should -Match 'NAME_PREFIX_ARG="\$\{AVD_NAME_PREFIX:-\}"'
     $deploySh | Should -Match 'export AVD_NAME_PREFIX="\$NAME_PREFIX_ARG"'
+    $deploySh | Should -Match 'export BATCH_ID="\$BATCH_ID_ARG"'
     $devParam | Should -Match "readEnvironmentVariable\('AVD_NAME_PREFIX',\s*''\)"
+    $devParam | Should -Match "readEnvironmentVariable\('BATCH_ID',\s*''\)"
+    $mainBicep | Should -Match 'param batchId string'
+    $mainBicep | Should -Match "'avdlz-batch-id'"
+    $demoBicep | Should -Match 'param batchId string'
+    $demoBicep | Should -Match "'avdlz-batch-id'"
     $removeDemo | Should -Match '\$env:AVD_NAME_PREFIX'
+    $removeDemo | Should -Match '\$env:BATCH_ID'
     $healthScript | Should -Match 'otherEnvGroups'
+    $healthScript | Should -Match 'param\([\s\S]*\$BatchId'
+    $deadlineScript | Should -Match 'b\[0-9\]\{8\}-\[0-9\]\{4\}'
   }
 }

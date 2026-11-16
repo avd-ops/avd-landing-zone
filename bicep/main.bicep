@@ -32,6 +32,9 @@ param namePrefix string
 ])
 param environmentName string
 
+@description('Optional sandbox batch ID (for example b20261116-1425). Included in resource group and non-length-constrained resource names and the avdlz-batch-id tag when set.')
+param batchId string = ''
+
 @description('Azure region for all regional resources.')
 param location string = deployment().location
 
@@ -342,7 +345,8 @@ var roleIds = {
   desktopVirtualizationPowerOnOffContributor: '40c5ff49-9181-41f8-ae61-143b0e78555e'
   tagContributor: '4a9ae827-6dc8-4573-8ac7-8239d42aa03f'
 }
-var baseName = '${cleanPrefix}-${environmentName}'
+var cleanBatchId = toLower(trim(batchId))
+var baseName = empty(cleanBatchId) ? '${cleanPrefix}-${environmentName}' : '${cleanPrefix}-${environmentName}-${cleanBatchId}'
 var uniq = uniqueString(subscription().id, cleanPrefix, environmentName, location)
 
 var defaultStandardRdpProperties = 'enablerdsaadauth:i:1;targetisaadjoined:i:1;drivestoredirect:s:;usbdevicestoredirect:s:;redirectcomports:i:0;redirectsmartcards:i:1;redirectprinters:i:1;redirectclipboard:i:1;redirectwebauthn:i:1;audiomode:i:0;audiocapturemode:i:1;camerastoredirect:s:*;use multimon:i:1'
@@ -360,6 +364,7 @@ var allTags = union(
     cloud: cloud
     complianceProfile: complianceProfile
   },
+  empty(cleanBatchId) ? {} : { 'avdlz-batch-id': cleanBatchId },
   tags
 )
 

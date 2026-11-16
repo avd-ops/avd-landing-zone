@@ -133,6 +133,7 @@ $templateParams = @{
   encryptionAtHost                = $EncryptionAtHost
   localAdminPassword              = Get-AvdRandomPassword
 }
+if ($lz.BatchId) { $templateParams.batchId = $lz.BatchId }
 if (-not $PSCmdlet.ShouldProcess("rg-$($lz.BaseName)-demo", 'Deploy demo host pool and session host(s)')) { return }
 
 Write-Host "  $deploymentName -> rg-$($lz.BaseName)-demo ($SessionHostCount x $SessionHostVmSize). This takes 15-25 minutes." -ForegroundColor DarkGray

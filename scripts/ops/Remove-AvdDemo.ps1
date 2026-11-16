@@ -54,6 +54,7 @@
 param(
   [ValidatePattern('^$|^[A-Za-z0-9-]{2,8}$')][string] $NamePrefix = $env:AVD_NAME_PREFIX,
   [Parameter(Mandatory)][ValidateSet('dev', 'test', 'prod')][string] $Environment,
+  [string] $BatchId = $(if ($env:BATCH_ID) { $env:BATCH_ID } else { $env:AVD_BATCH_ID }),
   [ValidateSet('commercial', 'usgov')][string] $Cloud = $(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' }),
   [string] $SubscriptionId,
   [switch] $IncludeLandingZone,
@@ -77,7 +78,7 @@ if ($Force) { $ConfirmPreference = 'None' }
 if (-not $NamePrefix) { throw 'Pass -NamePrefix (2-8 chars) or set AVD_NAME_PREFIX.' }
 $env:AVD_CLOUD = $Cloud
 $ctx = Initialize-AvdAzContext -SubscriptionId $SubscriptionId -Cloud $Cloud
-$lz = Get-AvdLandingZone -NamePrefix $NamePrefix -Environment $Environment
+$lz = Get-AvdLandingZone -NamePrefix $NamePrefix -Environment $Environment -BatchId $BatchId
 $sub = "/subscriptions/$($lz.SubscriptionId)"
 Clear-AvdCheckResult
 Write-Host "AVD cleanup - $($lz.BaseName) in '$($ctx.Subscription.Name)'$(if ($IncludeLandingZone) { ' (DEMO + LANDING ZONE)' } else { ' (demo only)' })" -ForegroundColor White

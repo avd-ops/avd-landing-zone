@@ -30,6 +30,7 @@
 param(
   [ValidateLength(2, 8)][string] $NamePrefix = 'avdlz',
   [ValidateSet('dev', 'test', 'prod')][string] $Environment = 'dev',
+  [string] $BatchId = '',
   [double] $MonthlyCap = $(if ($env:SPEND_MONTHLY_CAP) { [double]$env:SPEND_MONTHLY_CAP } else { 0 }),
   [double] $RunCap = $(if ($env:SPEND_RUN_CAP) { [double]$env:SPEND_RUN_CAP } else { 0 }),
   [Nullable[double]] $Estimate,
@@ -71,8 +72,10 @@ if ($facts.signedIn) {
   Write-Host '  Listing resource groups from Resource Graph ...' -ForegroundColor DarkGray
   try {
     $allRgs = @(Get-AvdSpendInventory -SubscriptionId $sub | Where-Object { $_.type -eq 'microsoft.resources/subscriptions/resourcegroups' } | ForEach-Object { $_.name })
-    $facts.leftoverGroups = @($allRgs | Where-Object { $_ -like "rg-$NamePrefix-$Environment-*" })
-    $facts.otherEnvGroups = @($allRgs | Where-Object { $_ -like "rg-*-$Environment-*" -and $_ -notlike "rg-$NamePrefix-$Environment-*" })
+    $cleanBatch = if ($BatchId) { $BatchId.Trim().ToLowerInvariant() } else { '' }
+    $rgBase = if ($cleanBatch) { "rg-$NamePrefix-$Environment-$cleanBatch-" } else { "rg-$NamePrefix-$Environment-" }
+    $facts.leftoverGroups = @($allRgs | Where-Object { $_ -like "$rgBase*" })
+    $facts.otherEnvGroups = @($allRgs | Where-Object { $_ -like "rg-*-$Environment-*" -and $_ -notlike "$rgBase*" })
   }
   catch { $facts.groupsError = $_.Exception.Message }
 
