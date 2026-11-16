@@ -2,17 +2,17 @@
 
 Part of [avd-ops](https://avd-ops.dev/), the open toolkit for Azure Virtual Desktop.
 
-An **enterprise-ready Azure Virtual Desktop landing zone for greenfield, cloud-native organizations** — Entra ID-joined, Intune-managed, private by default, and deployed end to end from one Bicep template.
+An **enterprise-ready Azure Virtual Desktop landing zone for greenfield, cloud-native organizations** â€” Entra ID-joined, Intune-managed, private by default, and deployed end to end from one Bicep template.
 
 > [!WARNING]
-> **Personal project. Research and learning only. Not for production. No warranty.**
+> **Community research project. Use at your own risk. No warranty.**
 >
 > - This is my own personal project, built on my own time **for research and learning**. It is **not affiliated with, endorsed by or supported by my employer**, and it does not represent my employer's views, products or guidance. It is also not an official Microsoft product.
-> - **Do not run it in production** or against subscriptions and tenants that matter. Test it first in a dedicated lab subscription and tenant.
+> - Test it first in a dedicated lab subscription and tenant before using it in production; you are responsible for reviewing the code and validating it for your environment.
 > - It is provided **"as is", without warranty of any kind**, under the [MIT License](LICENSE). You use it at your own risk: you are responsible for what it deploys, for the Azure charges it incurs, and for reviewing the code before you run it.
 > - **Contributions and forks are welcome and encouraged.** See [Contributing](#contributing).
 
-It is deliberately *not* a general-purpose accelerator. Microsoft's [AVD Landing Zone Accelerator](https://github.com/Azure/avdaccelerator) (LZA) covers every identity model and brownfield scenario through a wide option surface. This repo makes the opposite trade: **one opinionated path — no domain controllers, no line of sight to on-premises, no post-deployment scripts** — and hardens that path fully. See [`docs/design-decisions.md`](docs/design-decisions.md) for the side-by-side.
+It is deliberately *not* a general-purpose accelerator. Microsoft's [AVD Landing Zone Accelerator](https://github.com/Azure/avdaccelerator) (LZA) covers every identity model and brownfield scenario through a wide option surface. This repo makes the opposite trade: **one opinionated path â€” no domain controllers, no line of sight to on-premises, no post-deployment scripts** â€” and hardens that path fully. See [`docs/design-decisions.md`](docs/design-decisions.md) for the side-by-side.
 
 ## How it connects
 
@@ -51,7 +51,7 @@ Everything is built from pinned [Azure Verified Modules](https://aka.ms/avm).
 **Easiest path: the [deployment portal](https://deploy.avd-ops.dev/portal/).** It picks the closest region by measuring latency from your browser, configures multiple workspaces, application groups, and host pools with per-pool settings and setting templates (plus AVD Private Link and new or existing Private DNS zones), sizes and prices the pools at Azure list prices for the region, gives you each command to paste into Cloud Shell, and reads the output you paste back to tell you what to run next, all the way to signing in. Pasted output never leaves your browser. If you get stuck, **Report a problem** turns the output into a GitHub issue, with private details removed in your browser first.
 
 Prerequisites (details in [`docs/deploy.md`](docs/deploy.md)):
-- A **dedicated subscription** where you are Owner, plus Azure CLI ≥ 2.65.
+- A **dedicated subscription** where you are Owner, plus Azure CLI â‰¥ 2.65.
 - Two Entra ID security groups: AVD users and AVD admins.
 - Intune licensing in the tenant (or set `enrollInIntune = false`).
 - vCPU quota for the session host size in your region.
@@ -69,7 +69,7 @@ pwsh ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -PreDeployment -ParameterFil
 ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus \
   --users-group "AVD Users" --admins-group "AVD Admins" --what-if
 
-# Deploy (≈30-45 min the first time)
+# Deploy (â‰ˆ30-45 min the first time)
 ./scripts/deploy/deploy.sh -p parameters/dev.bicepparam -l northcentralus \
   --users-group "AVD Users" --admins-group "AVD Admins"
 ```
@@ -89,38 +89,38 @@ The repo is split by who it is for. **If you only want to deploy and run the lan
 
 ```
 avd-landing-zone/
-├── bicep/                         # what you deploy
-│   ├── main.bicep                 # subscription-scope orchestration
-│   ├── demo/main.bicep            # demo host pool inside a deployed landing zone
-│   ├── portal/                    # optional: your own copy of the deployment portal (Static Web Apps or storage)
-│   ├── images/                    # golden image gallery and monthly build
-│   └── modules/                   # governance, monitoring, network, privateDns, keyVault,
-│                                  # storage, backup, controlPlane, sessionHosts, autoShutdown
-├── bicepconfig.json               # linter: security rules are errors
-├── parameters/                    # dev, test, prod, images: tenant values come from environment variables
-├── scripts/
-│   ├── deploy/deploy.sh           # providers, features, lookups, deploy
-│   ├── ops/                       # Cloud Shell: preflight (-Fix), demo deploy + validation, cleanup, image build
-│   ├── automation/                # auto shutdown runbook
-│   ├── image/                     # golden image customization steps
-│   └── sessionhost/               # embedded into Run Commands at compile time
-├── contracts/                     # vendored avd-second-brain contracts the scripts read
-├── docs/                          # how to deploy, operate and understand it
-├── releases/                      # how to get a released version, and each release's notes
-│
-├── site/                          # the website (GitHub Pages, .github/workflows/pages.yml)
-│   ├── index.html, family/        # redirects to the avd-ops site (avd-ops.dev)
-│   ├── portal/                    # the deployment portal
-│   └── region-latency/
-│
-├── build/                         # how the project is built: not needed to use it
-│   ├── tests/                     # Pester unit tests, offline scenarios, template guards; portal tests
-│   ├── lessons/                   # what real runs taught, each with its guard
-│   ├── decisions/                 # why things are the way they are
-│   └── specs/                     # design specs and their red-team reviews
-├── scripts/kb/                    # knowledge capture and handoff hooks (left out of releases)
-├── ps-rule.yaml, .ps-rule/        # PSRule for Azure (CI, and the -WellArchitected review)
-└── .github/workflows/             # validate, deploy, image-build, pages, secret-scan, lanes
+â”œâ”€â”€ bicep/                         # what you deploy
+â”‚   â”œâ”€â”€ main.bicep                 # subscription-scope orchestration
+â”‚   â”œâ”€â”€ demo/main.bicep            # demo host pool inside a deployed landing zone
+â”‚   â”œâ”€â”€ portal/                    # optional: your own copy of the deployment portal (Static Web Apps or storage)
+â”‚   â”œâ”€â”€ images/                    # golden image gallery and monthly build
+â”‚   â””â”€â”€ modules/                   # governance, monitoring, network, privateDns, keyVault,
+â”‚                                  # storage, backup, controlPlane, sessionHosts, autoShutdown
+â”œâ”€â”€ bicepconfig.json               # linter: security rules are errors
+â”œâ”€â”€ parameters/                    # dev, test, prod, images: tenant values come from environment variables
+â”œâ”€â”€ scripts/
+â”‚   â”œâ”€â”€ deploy/deploy.sh           # providers, features, lookups, deploy
+â”‚   â”œâ”€â”€ ops/                       # Cloud Shell: preflight (-Fix), demo deploy + validation, cleanup, image build
+â”‚   â”œâ”€â”€ automation/                # auto shutdown runbook
+â”‚   â”œâ”€â”€ image/                     # golden image customization steps
+â”‚   â””â”€â”€ sessionhost/               # embedded into Run Commands at compile time
+â”œâ”€â”€ contracts/                     # vendored avd-second-brain contracts the scripts read
+â”œâ”€â”€ docs/                          # how to deploy, operate and understand it
+â”œâ”€â”€ releases/                      # how to get a released version, and each release's notes
+â”‚
+â”œâ”€â”€ site/                          # the website (GitHub Pages, .github/workflows/pages.yml)
+â”‚   â”œâ”€â”€ index.html, family/        # redirects to the avd-ops site (avd-ops.dev)
+â”‚   â”œâ”€â”€ portal/                    # the deployment portal
+â”‚   â””â”€â”€ region-latency/
+â”‚
+â”œâ”€â”€ build/                         # how the project is built: not needed to use it
+â”‚   â”œâ”€â”€ tests/                     # Pester unit tests, offline scenarios, template guards; portal tests
+â”‚   â”œâ”€â”€ lessons/                   # what real runs taught, each with its guard
+â”‚   â”œâ”€â”€ decisions/                 # why things are the way they are
+â”‚   â””â”€â”€ specs/                     # design specs and their red-team reviews
+â”œâ”€â”€ scripts/kb/                    # knowledge capture and handoff hooks (left out of releases)
+â”œâ”€â”€ ps-rule.yaml, .ps-rule/        # PSRule for Azure (CI, and the -WellArchitected review)
+â””â”€â”€ .github/workflows/             # validate, deploy, image-build, pages, secret-scan, lanes
 ```
 
 ## Documentation
@@ -147,7 +147,7 @@ avd-landing-zone/
 
 - [`build/lessons`](build/lessons/README.md): what real deployments taught, each with the guard that now catches it
 - [`build/decisions`](build/decisions/README.md): the choices that shape the repo, and why
-- [`build/specs/image-pipeline-spec.md`](build/specs/image-pipeline-spec.md): proposed spec for a golden image pipeline (Azure Image Builder → Compute Gallery) and blue/green host rotation
+- [`build/specs/image-pipeline-spec.md`](build/specs/image-pipeline-spec.md): proposed spec for a golden image pipeline (Azure Image Builder â†’ Compute Gallery) and blue/green host rotation
 - [`build/specs/verify-access-spec.md`](build/specs/verify-access-spec.md): verifying access from the operator's device
 - [`build/specs/rebuild-spec.md`](build/specs/rebuild-spec.md): one prompt to rebuild this from an empty repo, with the protocol to count the prompts it takes
 
