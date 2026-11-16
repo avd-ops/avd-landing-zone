@@ -90,7 +90,8 @@
     environment: 'dev',
     testUserUpn: '',
     // The avd-opsbot app's client ID (Initialize-AvdGraphApp.ps1, decision 0016); empty: Microsoft's default app.
-    graphClientId: ''
+    graphClientId: '',
+    includeWin365: false
   };
 
   // ---------------------------------------------------------------- helpers
@@ -146,7 +147,13 @@
     for (k in patch || {}) {
       if (!Object.prototype.hasOwnProperty.call(patch, k)) continue;
       v = patch[k];
-      if (SETTINGS[k]) {
+      if (k === 'includeWin365') {
+        if (v === null || v === undefined || v === '') continue;
+        if (v === true || v === 'true') out.settings.includeWin365 = true;
+        else if (v === false || v === 'false') out.settings.includeWin365 = false;
+        else out.rejected.push(k);
+      }
+      else if (SETTINGS[k]) {
         if (v === null || v === undefined || v === '') continue;
         v = String(v).trim();
         if (SETTINGS[k].test(v)) out.settings[k] = v; else out.rejected.push(k);
@@ -1283,12 +1290,13 @@
     controlPlaneOrchestrator: function (cfg) {
       var c = merge(DEFAULTS, cfg);
       var csv = controlPlanesCsv(c);
+      var w365 = c.includeWin365 === true || c.includeWin365 === 'true' ? ' -IncludeWin365' : '';
       return block(c, [
         './scripts/deploy/Invoke-AvdControlPlanes.ps1 -Planes ' + psQuote(csv) +
           ' -NamePrefix ' + c.namePrefix + ' -Environment ' + c.environment +
           ' -ParameterFile ' + c.parameterFile + ' -Location ' + c.location +
           ' -UsersGroup ' + psQuote(c.usersGroup) + ' -AdminsGroup ' + psQuote(c.adminsGroup) +
-          cloudArgs(c, true) + complianceArgs(c, true)
+          cloudArgs(c, true) + complianceArgs(c, true) + w365
       ]);
     },
     controlPlaneTeardown: function (cfg) {
@@ -1319,10 +1327,11 @@
     var cFlags = cloudArgs(c, true) + complianceArgs(c, true);
     var cloudVal = validCloud(c.cloud);
     var cpVal = validComplianceProfile(c.complianceProfile, c.cloud);
+    var w365 = c.includeWin365 === true || c.includeWin365 === 'true' ? ' -IncludeWin365' : '';
     if (planeId === 'entra') {
       return clone.concat([
         signIn(c),
-        'pwsh -NoLogo -NoProfile -File ~/avd-entra/scripts/Deploy-AvdEntra.ps1 -Prefix ' + psQuote(c.namePrefix) + ' -Environment ' + psQuote(c.environment) + cFlags + ' -OutputPath ~/avd-landing-zone/entra-manifest.json -RunManifestPath ~/avd-landing-zone/entra-run-manifest.json'
+        'pwsh -NoLogo -NoProfile -File ~/avd-entra/scripts/Deploy-AvdEntra.ps1 -Prefix ' + psQuote(c.namePrefix) + ' -Environment ' + psQuote(c.environment) + cFlags + w365 + ' -OutputPath ~/avd-landing-zone/entra-manifest.json -RunManifestPath ~/avd-landing-zone/entra-run-manifest.json'
       ]);
     }
     if (planeId === 'networking') {
@@ -1334,7 +1343,7 @@
     }
     if (planeId === 'intune') {
       return clone.concat([
-        'pwsh -NoLogo -NoProfile -File ~/avd-intune/scripts/Deploy-AvdIntune.ps1 -EntraManifestPath ~/avd-landing-zone/entra-manifest.json -OutputPath ~/avd-landing-zone/intune-manifest.json -RunManifestPath ~/avd-landing-zone/intune-run-manifest.json -Prefix ' + psQuote(c.namePrefix) + cFlags
+        'pwsh -NoLogo -NoProfile -File ~/avd-intune/scripts/Deploy-AvdIntune.ps1 -EntraManifestPath ~/avd-landing-zone/entra-manifest.json -OutputPath ~/avd-landing-zone/intune-manifest.json -RunManifestPath ~/avd-landing-zone/intune-run-manifest.json -Prefix ' + psQuote(c.namePrefix) + cFlags + w365
       ]);
     }
     if (planeId === 'm365') {

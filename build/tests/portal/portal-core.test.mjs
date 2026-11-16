@@ -1393,6 +1393,15 @@ test('control planes: standalone Cloud Shell commands, orchestrator, and teardow
   const netActions = P.controlPlaneActions(netCfg);
   assert.equal(netActions.length, 6);
   assert.equal(netActions[1].id, 'networking');
+
+  // Opt-in Windows 365 (-IncludeWin365)
+  assert.doesNotMatch(orch, /-IncludeWin365/);
+  const w365Cfg = { ...cfg, includeWin365: true };
+  assert.match(P.commands.controlPlaneOrchestrator(w365Cfg), /-IncludeWin365/);
+  const w365Actions = P.controlPlaneActions(w365Cfg);
+  assert.match(w365Actions[0].command, /Deploy-AvdEntra\.ps1.*-IncludeWin365/);
+  assert.match(w365Actions[1].command, /Deploy-AvdIntune\.ps1.*-IncludeWin365/);
+  assert.doesNotMatch(w365Actions[2].command, /-IncludeWin365/);
   assert.match(netActions[1].command, /avd-networking.*deploy\.sh.*networking-outputs\.json/);
 });
 

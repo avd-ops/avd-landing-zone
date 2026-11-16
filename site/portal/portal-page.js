@@ -36,7 +36,7 @@
   $('issues-link').textContent = repoSlug;
 
   // Saved settings are checked like typed ones: an old or edited value that no longer fits is dropped.
-  var cfg = Object.assign({}, P.DEFAULTS, P.validSettings(load('config', {})).settings, { repoUrl: repoUrl, ref: site.ref, sizing: P.validSizing(load('sizing', null)), topology: P.validTopology(load('topology', null)), controlPlanes: P.validControlPlanes(load('controlPlanes', null)), power: P.validPower(load('power', null)), hoursWorkedPerWeek: load('hoursWorked', 50), launch: P.launchTarget(load('launch', null)), record: load('record', null) });
+  var cfg = Object.assign({}, P.DEFAULTS, P.validSettings(load('config', {})).settings, { repoUrl: repoUrl, ref: site.ref, sizing: P.validSizing(load('sizing', null)), topology: P.validTopology(load('topology', null)), controlPlanes: P.validControlPlanes(load('controlPlanes', null)), includeWin365: !!load('includeWin365', false), power: P.validPower(load('power', null)), hoursWorkedPerWeek: load('hoursWorked', 50), launch: P.launchTarget(load('launch', null)), record: load('record', null) });
   var step = load('step', null);
   // Furthest step reached, by id: later steps stay hidden until the deployment gets there. (Saved as an
   // index before the Cost step existed; those indexes are read against the old step list.)
@@ -1206,6 +1206,7 @@
       var chk = $('cp-' + k);
       if (chk) chk.checked = !!controlPlanes[k];
     });
+    if ($('cp-win365')) $('cp-win365').checked = !!cfg.includeWin365;
     if ($('cp-summary')) $('cp-summary').textContent = controlPlaneSummaryText(controlPlanes);
   }
 
@@ -1237,6 +1238,14 @@
         applyControlPlanesState(next, '');
       });
     });
+    if ($('cp-win365')) {
+      $('cp-win365').addEventListener('change', function () {
+        cfg.includeWin365 = !!$('cp-win365').checked;
+        save('includeWin365', cfg.includeWin365);
+        lastAnalysis = null;
+        render();
+      });
+    }
   }
 
   function renderSizeResult() {
