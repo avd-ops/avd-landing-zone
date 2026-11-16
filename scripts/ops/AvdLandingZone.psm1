@@ -699,10 +699,10 @@ function Get-AvdPrivateEndpointDnsZoneId {
 }
 
 function Find-AvdLandingZone {
-  <# Landing zones in the current subscription, from their rg-<prefix>-<env>-network resource groups. #>
+  <# Landing zones in the current subscription, from their rg-<prefix>-<env>[-bYYYYMMDD-HHMM]-network resource groups. #>
   @(Get-AzResourceGroup -ErrorAction SilentlyContinue | ForEach-Object {
-      if ($_.ResourceGroupName -match '^rg-(?<prefix>[a-z0-9]+)-(?<env>dev|test|prod)-network$') {
-        [pscustomobject]@{ NamePrefix = $Matches.prefix; Environment = $Matches.env; Location = $_.Location }
+      if ($_.ResourceGroupName -match '^rg-(?<prefix>[a-z0-9]+)-(?<env>dev|test|prod)(?:-(?<batch>b[0-9]{8}-[0-9]{4}))?-network$') {
+        [pscustomobject]@{ NamePrefix = $Matches.prefix; Environment = $Matches.env; BatchId = $Matches.batch; Location = $_.Location }
       }
     })
 }
@@ -716,11 +716,13 @@ function Get-AvdLandingZone {
   param(
     [Parameter(Mandatory)][string] $NamePrefix,
     [Parameter(Mandatory)][string] $Environment,
+    [string] $BatchId = $(if ($env:BATCH_ID) { $env:BATCH_ID } else { $env:AVD_BATCH_ID }),
     [string] $ProfileShareName = 'profiles'
   )
   $ctx = Get-AzContext
   $clean = $NamePrefix.ToLower().Replace('-', '')
-  $base = "$clean-$Environment"
+  $cleanBatch = if ($BatchId) { $BatchId.Trim().ToLowerInvariant() } else { '' }
+  $base = if ($cleanBatch) { "$clean-$Environment-$cleanBatch" } else { "$clean-$Environment" }
   $sub = "/subscriptions/$($ctx.Subscription.Id)"
   $rg = [ordered]@{
     Network      = "rg-$base-network"
@@ -739,6 +741,7 @@ function Get-AvdLandingZone {
   $lz = [ordered]@{
     NamePrefix       = $clean
     Environment      = $Environment
+    BatchId          = $cleanBatch
     BaseName         = $base
     SubscriptionId   = $ctx.Subscription.Id
     TenantId         = $ctx.Tenant.Id

@@ -70,6 +70,7 @@ TOPOLOGY="${AVD_TOPOLOGY_JSON:-}"
 PLANES=""
 AZURE_OUTPUTS=""
 NAME_PREFIX_ARG="${AVD_NAME_PREFIX:-}"
+BATCH_ID_ARG="${BATCH_ID:-${AVD_BATCH_ID:-}}"
 ENVIRONMENT_ARG=""
 TEARDOWN=false
 DISCARD_LAST_COPY=false
@@ -110,6 +111,7 @@ while [[ $# -gt 0 ]]; do
     --planes) PLANES="$2"; shift 2 ;;
     --azure-outputs) AZURE_OUTPUTS="$2"; shift 2 ;;
     --name-prefix) NAME_PREFIX_ARG="$2"; shift 2 ;;
+    --batch-id) BATCH_ID_ARG="$2"; shift 2 ;;
     --environment) ENVIRONMENT_ARG="$2"; shift 2 ;;
     --teardown) TEARDOWN=true; shift ;;
     --discard-last-copy) DISCARD_LAST_COPY=true; shift ;;
@@ -126,6 +128,12 @@ if [[ -n "$NAME_PREFIX_ARG" ]]; then
   NAME_PREFIX_ARG=${NAME_PREFIX_ARG,,}
   [[ "$NAME_PREFIX_ARG" =~ ^[a-z0-9]{2,8}$ ]] || { echo "--name-prefix / AVD_NAME_PREFIX takes 2 to 8 lowercase letters or digits: '$NAME_PREFIX_ARG'" >&2; exit 1; }
   export AVD_NAME_PREFIX="$NAME_PREFIX_ARG"
+fi
+
+if [[ -n "$BATCH_ID_ARG" ]]; then
+  BATCH_ID_ARG=${BATCH_ID_ARG,,}
+  [[ "$BATCH_ID_ARG" =~ ^[a-z0-9-]+$ ]] || { echo "--batch-id / BATCH_ID takes lowercase letters, digits, or hyphens: '$BATCH_ID_ARG'" >&2; exit 1; }
+  export BATCH_ID="$BATCH_ID_ARG"
 fi
 
 case "${CLOUD,,}" in
@@ -441,7 +449,10 @@ param_value() {
 }
 NAME_PREFIX="${NAME_PREFIX_ARG:-$(param_value namePrefix)}"; ENV_NAME=$(param_value environmentName)
 NAME_PREFIX=${NAME_PREFIX//-/}; NAME_PREFIX=${NAME_PREFIX,,}   # cleanPrefix in bicep/main.bicep
-HOSTS_RG="rg-$NAME_PREFIX-$ENV_NAME-hosts"
+BATCH_ID_VAL="${BATCH_ID_ARG:-$(param_value batchId)}"; BATCH_ID_VAL=${BATCH_ID_VAL,,}
+BASE_NAME="$NAME_PREFIX-$ENV_NAME"
+[[ -n "$BATCH_ID_VAL" ]] && BASE_NAME="$BASE_NAME-$BATCH_ID_VAL"
+HOSTS_RG="rg-$BASE_NAME-hosts"
 STOPPED_HOSTS=()
 # Read whether or not the hosts resource group exists: a pool that outlived its hosts still records
 # their image, generation and any rotation in progress.
@@ -453,14 +464,14 @@ if [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]]; then
   # Only a pool that doesn't exist counts as having no tags: any other read error stops here, because
   # deploying on a guess could change the hosts' image or names (lesson 0012: report what Azure said).
   POOL_ERR=$(mktemp)
-  if ! POOL_STATE=$(arm resource show -g "rg-$NAME_PREFIX-$ENV_NAME-avd" -n "vdpool-$NAME_PREFIX-$ENV_NAME" \
+  if ! POOL_STATE=$(arm resource show -g "rg-$BASE_NAME-avd" -n "vdpool-$BASE_NAME" \
     --resource-type Microsoft.DesktopVirtualization/hostPools \
     --query '{"avdlz-image": tags."avdlz-image", "avdlz-generation": tags."avdlz-generation", "avdlz-image-next": tags."avdlz-image-next", "avdlz-image-previous": tags."avdlz-image-previous", "avdlz-rotation": tags."avdlz-rotation"}' \
     -o json 2>"$POOL_ERR"); then
     if grep -qE 'ResourceNotFound|ResourceGroupNotFound|was not found' "$POOL_ERR"; then
       POOL_STATE=""
     else
-      echo "==> Could not read the host pool vdpool-$NAME_PREFIX-$ENV_NAME to keep its image and generation. Not deploying." >&2
+      echo "==> Could not read the host pool vdpool-$BASE_NAME to keep its image and generation. Not deploying." >&2
       cat "$POOL_ERR" >&2; rm -f "$POOL_ERR"
       exit 1
     fi
@@ -483,7 +494,7 @@ if [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]]; then
       # A rotation in progress owns the pool, and only a rotation changes its image or generation:
       # Azure rejects a new image on an existing VM, and a new generation deploys a second set of hosts.
       if [[ $POOL_STATE =~ \"avdlz-rotation\":\ *\" ]]; then
-        echo "==> A host rotation is in progress on vdpool-$NAME_PREFIX-$ENV_NAME (tag avdlz-rotation). Not deploying." >&2
+        echo "==> A host rotation is in progress on vdpool-$BASE_NAME (tag avdlz-rotation). Not deploying." >&2
         echo "    Finish or roll it back first: ./scripts/ops/Invoke-AvdHostRotation.ps1 -NamePrefix $NAME_PREFIX -Environment $ENV_NAME" >&2
         exit 1
       fi
@@ -500,7 +511,7 @@ if [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(arm group exists -n "$HOST
   # Lock tags the host pool, drains and tags the hosts and turns Start VM on Connect off. A
   # deployment would start every host, replace the tags and turn Start VM on Connect back on,
   # silently undoing what the budget alert bought. So it is refused until Resume has run.
-  POWER_LOCK=$(arm resource show -g "rg-$NAME_PREFIX-$ENV_NAME-avd" -n "vdpool-$NAME_PREFIX-$ENV_NAME" \
+  POWER_LOCK=$(arm resource show -g "rg-$BASE_NAME-avd" -n "vdpool-$BASE_NAME" \
     --resource-type Microsoft.DesktopVirtualization/hostPools --query 'tags."avdlz-power-lock"' -o tsv 2>/dev/null || true)
   if [[ -n "$POWER_LOCK" ]]; then
     if $WHATIF; then
@@ -542,9 +553,9 @@ fi
 # --- Operator jumpbox (decision 0019) ---
 # Once the jumpbox exists, a deployment without --jumpbox would try to remove its subnet while the VM
 # is in it, and fail: keep it. Remove-AvdDemo.ps1 -IncludeJumpbox removes it.
-if ! $JUMPBOX && [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(arm group exists -n "rg-$NAME_PREFIX-$ENV_NAME-jumpbox")" == "true" ]]; then
+if ! $JUMPBOX && [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]] && [[ "$(arm group exists -n "rg-$BASE_NAME-jumpbox")" == "true" ]]; then
   JUMPBOX=true
-  echo "==> Keeping the jumpbox in rg-$NAME_PREFIX-$ENV_NAME-jumpbox (Remove-AvdDemo.ps1 -IncludeJumpbox removes it)."
+  echo "==> Keeping the jumpbox in rg-$BASE_NAME-jumpbox (Remove-AvdDemo.ps1 -IncludeJumpbox removes it)."
 fi
 [[ -z "$JUMPBOX_KEEP_RUNNING" ]] || $JUMPBOX || { echo "--jumpbox-keep-running needs --jumpbox (or a jumpbox that already exists)"; exit 1; }
 [[ -z "$JUMPBOX_OS" ]] || $JUMPBOX || { echo "--jumpbox-os needs --jumpbox"; exit 1; }
@@ -554,7 +565,7 @@ fi
 JUMPBOX_EXISTS=''
 if $JUMPBOX && [[ -n "$NAME_PREFIX" && -n "$ENV_NAME" ]]; then
   jumpbox_err=$(mktemp)
-  if existing_os=$(arm vm show -g "rg-$NAME_PREFIX-$ENV_NAME-jumpbox" -n "vm-$NAME_PREFIX-$ENV_NAME-jumpbox" --query storageProfile.osDisk.osType -o tsv 2>"$jumpbox_err"); then
+  if existing_os=$(arm vm show -g "rg-$BASE_NAME-jumpbox" -n "vm-$BASE_NAME-jumpbox" --query storageProfile.osDisk.osType -o tsv 2>"$jumpbox_err"); then
     JUMPBOX_EXISTS=true
     if [[ -n "$JUMPBOX_OS" && "$JUMPBOX_OS" != "$existing_os" ]]; then
       echo "The jumpbox runs $existing_os; --jumpbox-os can't change it. Remove it first (Remove-AvdDemo.ps1 -IncludeJumpbox -DiscardLastCopy)."
@@ -633,16 +644,18 @@ fi
 restore_hosts
 
 STORAGE_NAME=$(arm deployment sub show -n "$DEPLOY_NAME" --query properties.outputs.storageAccountName.value -o tsv)
-# rg-<prefix>-<env>-avd -> <prefix> and <env>, for the post-deployment command.
+# rg-<prefix>-<env>[-<batchId>]-avd -> <prefix> and <env>, for the post-deployment command.
 BASE_NAME=$(arm deployment sub show -n "$DEPLOY_NAME" --query properties.outputs.resourceGroups.value.controlPlane -o tsv)
 BASE_NAME=${BASE_NAME#rg-}; BASE_NAME=${BASE_NAME%-avd}
+POST_PREFIX="${NAME_PREFIX:-${BASE_NAME%%-*}}"
+POST_ENV="${ENV_NAME:-${BASE_NAME#*-}}"; [[ "$POST_ENV" == *-* ]] && POST_ENV="${POST_ENV%%-*}"
 
 if [[ -n "$AZURE_OUTPUTS" ]]; then
   cat > "$AZURE_OUTPUTS" <<JSONEOF
 {
   "schema": "avd-ops-azure-outputs/v1",
   "cloud": "$CLOUD",
-  "environment": "${BASE_NAME##*-}",
+  "environment": "$POST_ENV",
   "location": "$LOCATION",
   "resourceGroups": {
     "controlPlane": "rg-$BASE_NAME-avd",
@@ -679,8 +692,8 @@ storage account's Entra app, excluding it from MFA Conditional Access policies,
 and the profile share permissions. The post-deployment preflight checks and
 applies all three. From Azure Cloud Shell (PowerShell):
 
-  ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -NamePrefix ${BASE_NAME%-*} -Environment ${BASE_NAME##*-} -SubscriptionId $SUB_ID$POST_CLOUD_FLAG -Fix -AllowHostStart
+  ./scripts/ops/Test-AvdLandingZoneReadiness.ps1 -NamePrefix $POST_PREFIX -Environment $POST_ENV -SubscriptionId $SUB_ID$POST_CLOUD_FLAG -Fix -AllowHostStart
 
 To do them by hand instead (storage account $STORAGE_NAME), see docs/deploy.md#5-post-deployment.
 EOF
-portal_state succeeded ",\"namePrefix\":$(json_str "${BASE_NAME%-*}"),\"environment\":$(json_str "${BASE_NAME##*-}"),\"storageAccount\":$(json_str "$STORAGE_NAME")"
+portal_state succeeded ",\"namePrefix\":$(json_str "$POST_PREFIX"),\"environment\":$(json_str "$POST_ENV"),\"storageAccount\":$(json_str "$STORAGE_NAME")"

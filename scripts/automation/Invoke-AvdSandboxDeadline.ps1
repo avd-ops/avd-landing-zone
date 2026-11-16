@@ -39,8 +39,8 @@ param(
   [Parameter(Mandatory)][ValidatePattern('^queue/[0-9]{4}-[0-9]{2}/b[0-9]{8}-[0-9]{4}/results-G[0-9]+\.json$')][string] $ResultsBlob,
   [Parameter(Mandatory)][ValidatePattern('^b[0-9]{8}-[0-9]{4}$')][string] $BatchId,
   [Parameter(Mandatory)][ValidatePattern('^G[0-9]+$')][string] $Group,
-  # rg-<prefix>-<env>- : bicep/main.bicep's resource group names, nothing broader.
-  [Parameter(Mandatory)][ValidatePattern('^rg-[a-z0-9]{2,8}-(dev|test|prod)-$')][string] $ResourceGroupPrefix,
+  # rg-<prefix>-<env>[-bYYYYMMDD-HHMM]- : bicep/main.bicep's resource group names, nothing broader.
+  [Parameter(Mandatory)][ValidatePattern('^rg-[a-z0-9]{2,8}-(dev|test|prod)(?:-b[0-9]{8}-[0-9]{4})?-$')][string] $ResourceGroupPrefix,
   [Parameter(Mandatory)][ValidateSet('Delete', 'Deallocate')][string] $Action,
   # How long to wait for deletes to finish before writing what is left.
   [int] $WaitMinutes = 120

@@ -6,6 +6,7 @@ using '../bicep/main.bicep'
 
 param namePrefix = empty(readEnvironmentVariable('AVD_NAME_PREFIX', '')) ? 'avdlz' : readEnvironmentVariable('AVD_NAME_PREFIX', '')
 param environmentName = 'dev'
+param batchId = empty(readEnvironmentVariable('BATCH_ID', '')) ? readEnvironmentVariable('AVD_BATCH_ID', '') : readEnvironmentVariable('BATCH_ID', '')
 // Default region; deploy.sh -l and the preflight's -Location override it (AVD_LOCATION).
 param location = empty(readEnvironmentVariable('AVD_LOCATION', ''))
   ? 'northcentralus'

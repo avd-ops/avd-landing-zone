@@ -35,7 +35,7 @@ $item = {
     deploy = (& $deploy "rg-$key"); test = $test; teardown = $down; evidence = 'Spend record'
   } | ConvertTo-Json | Set-Content (Join-Path $items "item-$n.json")
 }
-& $item 1 'lz-a' "echo test 1 >> '$log'" (& $teardown 'rg-lz-a')
+& $item 1 'lz-a' "echo test 1 batch=`$BATCH_ID >> '$log'" (& $teardown 'rg-lz-a')
 & $item 2 'lz-a' "echo test 2 >> '$log'; exit 1" ''
 & $item 3 'lz-b' "echo test 3 >> '$log'" "echo teardown rg-lz-b left >> '$log'"
 & $item 4 'lz-c' "echo test 4 >> '$log'" (& $teardown 'rg-lz-c')
@@ -57,7 +57,8 @@ Invoke-ScenarioStep 'approve' { & ./scripts/ops/Approve-AvdSandboxBatch.ps1 -Bat
 
 Invoke-ScenarioStep 'g1' { & ./scripts/ops/Invoke-AvdSandboxBatch.ps1 -Group G1 @batchArgs }
 $r = & $results G1
-Write-Host "RESULT g1 outcome=$($r.outcome) steps=$(($r.steps | ForEach-Object { "$($_.step):$($_.exitCode)" }) -join ',') spend=$([bool]$r.spendRunId) tests=$(& $count 'test 1')$(& $count 'test 2')"
+$envClean = [string]::IsNullOrEmpty($env:BATCH_ID) -and [string]::IsNullOrEmpty($env:AVD_NAME_PREFIX)
+Write-Host "RESULT g1 outcome=$($r.outcome) steps=$(($r.steps | ForEach-Object { "$($_.step):$($_.exitCode)" }) -join ',') spend=$([bool]$r.spendRunId) tests=$(& $count "test 1 batch=$batchId")$(& $count 'test 2') envClean=$envClean"
 Invoke-ScenarioStep 'g1-again' { & ./scripts/ops/Invoke-AvdSandboxBatch.ps1 -Group G1 @batchArgs }
 
 Invoke-ScenarioStep 'g2-leftover' { & ./scripts/ops/Invoke-AvdSandboxBatch.ps1 -Group G2 @batchArgs }

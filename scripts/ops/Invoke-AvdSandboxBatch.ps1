@@ -99,7 +99,7 @@ $g = @($batch.groups | Where-Object { $_.id -eq $Group }) | Select-Object -First
 if (-not $g) { throw "Batch $($batch.batchId) has no group $Group." }
 $groupNamePrefix = Get-AvdBatchNamePrefix -BatchId $batch.batchId -GroupId $Group -Group $g
 $groupEnv = if ($g.record -and $g.record.environment) { $g.record.environment } else { 'dev' }
-Write-Host "Group $Group landing zone prefix: $groupNamePrefix ($groupEnv)" -ForegroundColor DarkGray
+Write-Host "Group $Group landing zone prefix: $groupNamePrefix ($groupEnv, batch $($batch.batchId))" -ForegroundColor DarkGray
 if ($RequireUnattended -and -not $g.unattended) { Write-Host "Not starting: group $Group has steps that need a person. Run it from Cloud Shell." -ForegroundColor Red; exit 2 }
 $keepers = @($g.members | Where-Object { @($_.keep | Where-Object { $_ }).Count })
 $runStore = Get-AvdRunStoreName -SubscriptionId $subId
@@ -148,7 +148,7 @@ $may = Test-AvdBatchGroupStart -Results $prior -Mode $mode
 if (-not $may.allowed) { Write-Host "Not starting: $($may.reason)" -ForegroundColor Red; exit 2 }
 if ($mode -eq 'start' -and -not $SkipHealth) {
   # Read-only, before the claim: a failure here claims, deploys and spends nothing, so the same block runs again once it's fixed.
-  $lzName = @{ NamePrefix = $groupNamePrefix; Environment = $groupEnv }
+  $lzName = @{ NamePrefix = $groupNamePrefix; Environment = $groupEnv; BatchId = $batch.batchId }
   $global:LASTEXITCODE = 0
   & (Join-Path $PSScriptRoot 'Test-AvdSandboxHealth.ps1') @lzName -MonthlyCap $MonthlyCap -RunCap $RunCap -Estimate ([double]$g.estimate) -NeedsRunStore:(-not $store.local) -SubscriptionId $subId | Out-Host
   if ($LASTEXITCODE) { Write-Host "Not starting: the sandbox isn't healthy (above). Fix what failed and run the same block again; nothing was claimed, deployed or spent." -ForegroundColor Red; exit 2 }
@@ -360,8 +360,9 @@ if ($recorded -and -not $TeardownOnly) {
 $recorded = $recorded -and [bool]$results.runId -and (Test-StepPassed 'record-open')
 # Every step the group runs (the items' bash and the landing zone scripts they call) writes to the run's journal.
 # Put back afterwards, so landing zone scripts run later in this shell don't write to a closed run.
-$envBefore = @{ AVDLZ_RECORD = $env:AVDLZ_RECORD; AVDLZ_RUN_ID = $env:AVDLZ_RUN_ID; AVD_NAME_PREFIX = $env:AVD_NAME_PREFIX }
+$envBefore = @{ AVDLZ_RECORD = $env:AVDLZ_RECORD; AVDLZ_RUN_ID = $env:AVDLZ_RUN_ID; AVD_NAME_PREFIX = $env:AVD_NAME_PREFIX; BATCH_ID = $env:BATCH_ID }
 $env:AVD_NAME_PREFIX = $groupNamePrefix
+$env:BATCH_ID = $batch.batchId
 if ($recorded) { $env:AVDLZ_RECORD = 'azure'; $env:AVDLZ_RUN_ID = $results.runId }
 $stopAfter = $false; $testsFailed = $false; $deployFailed = $false
 $keepFailed = $false; $exportFailed = $false
@@ -434,6 +435,7 @@ finally {
     $results.outcome = 'stop-batch'; $results.finishedAt = (Get-Date).ToUniversalTime().ToString('o')
     try { & $save } catch { Write-Host "    Saving the results failed: $($_.Exception.Message)" -ForegroundColor Red }
   }
+  foreach ($k in $envBefore.Keys) { [Environment]::SetEnvironmentVariable($k, $envBefore[$k]) }
 }
 # Closed clean: the deadline teardown has nothing to do, so take its schedule down (it would only find the group closed).
 if ($results.Contains('deadline') -and $results.deadline -and $results.deadline.armed -and (Test-StepPassed 'close')) {
@@ -463,7 +465,6 @@ if ($PublishResult -and $results.outcome -in @('passed', 'tests-failed')) {
     Write-Host "    Publishing results failed ($($_.Exception.Message)); run Publish-AvdSandboxResult.ps1 -BatchId $($batch.batchId) -Group $Group later." -ForegroundColor Yellow
   }
 }
-foreach ($k in $envBefore.Keys) { [Environment]::SetEnvironmentVariable($k, $envBefore[$k]) }
 Write-Host ''
 Write-Host "Group $Group of batch $($batch.batchId): $($results.outcome). Results: $resultsPath" -ForegroundColor $(if ($results.outcome -eq 'passed') { 'Green' } else { 'Yellow' })
 if ($results.outcome -eq 'stop-batch') { Write-Host 'Stop here: do not run the next group until the reason above is dealt with.' -ForegroundColor Red; exit 2 }

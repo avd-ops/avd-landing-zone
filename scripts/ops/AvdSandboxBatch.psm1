@@ -449,7 +449,8 @@ function Get-AvdBatchRecorderCall {
     [Parameter(Mandatory)][ValidateSet('open', 'export', 'close', 'copy')][string] $Step,
     [ValidateSet('succeeded', 'failed', 'torn-down', 'abandoned')][string] $Status = 'torn-down',
     [string] $SubscriptionId,
-    [string] $NamePrefix
+    [string] $NamePrefix,
+    [string] $BatchId
   )
   $r = $Group.record
   if (-not $r) { throw "Group $($Group.id) is not recorded." }
@@ -471,6 +472,7 @@ function Get-AvdBatchRecorderCall {
   if ($Step -eq 'open') {
     if ($r.Contains('sessionHostVmSize') -and $r.sessionHostVmSize) { $call.env.AVD_SESSION_HOST_VM_SIZE = $r.sessionHostVmSize }
     if ($NamePrefix) { $call.env.AVD_NAME_PREFIX = $NamePrefix }
+    if ($BatchId) { $call.env.BATCH_ID = $BatchId }
   }
   $call
 }
@@ -545,15 +547,17 @@ function Get-AvdBatchNamePrefix {
 function Get-AvdBatchLandingZoneName {
   <#
     The landing zone a group deploys, by its naming convention: an explicit -NamePrefix, a recorded
-    group's own -NamePrefix and -Environment, or the defaults. Its resource groups are rg-<base>-*,
-    with base as bicep/main.bicep builds it.
+    group's own -NamePrefix and -Environment, or the defaults, plus an optional -BatchId so every
+    resource group is traceable to its batch. Its resource groups are rg-<base>-*, with base as
+    bicep/main.bicep builds it.
   #>
-  param([Parameter(Mandatory)] $Group, [string] $NamePrefix)
+  param([Parameter(Mandatory)] $Group, [string] $NamePrefix, [string] $BatchId)
   $r = if ($Group -is [System.Collections.IDictionary]) { $(if ($Group.Contains('record')) { $Group.record } else { $null }) } else { $Group.record }
   $prefix = if ($NamePrefix) { $NamePrefix } elseif ($r -and $r.namePrefix) { "$($r.namePrefix)" } else { 'avdlz' }
   $envName = if ($r -and $r.environment) { "$($r.environment)" } else { 'dev' }
-  $base = "$($prefix.ToLowerInvariant().Replace('-', ''))-$envName"
-  [ordered]@{ namePrefix = $prefix; environment = $envName; baseName = $base; resourceGroupPrefix = "rg-$base-" }
+  $cleanBatch = if ($BatchId) { $BatchId.Trim().ToLowerInvariant() } else { '' }
+  $base = if ($cleanBatch) { "$($prefix.ToLowerInvariant().Replace('-', ''))-$envName-$cleanBatch" } else { "$($prefix.ToLowerInvariant().Replace('-', ''))-$envName" }
+  [ordered]@{ namePrefix = $prefix; environment = $envName; batchId = $cleanBatch; baseName = $base; resourceGroupPrefix = "rg-$base-" }
 }
 
 function Get-AvdBatchDeadline {
@@ -577,10 +581,10 @@ function Get-AvdBatchDeadline {
   )
   $lead = @($Group.members | Where-Object { $_.role -eq 'lead' }) | Select-Object -First 1
   $discards = [bool]($lead -and "$($lead.teardown)" -match '(?i)(^|\s)-DiscardLastCopy\b')
-  $lz = Get-AvdBatchLandingZoneName -Group $Group -NamePrefix $NamePrefix
+  $lz = Get-AvdBatchLandingZoneName -Group $Group -NamePrefix $NamePrefix -BatchId "$($Batch.batchId)"
   # The runbook accepts only this shape; arming a value it would reject leaves nothing to fire.
-  if ($lz.resourceGroupPrefix -cnotmatch '^rg-[a-z0-9]{2,8}-(dev|test|prod)-$') {
-    throw "The deadline teardown can't cover $($lz.resourceGroupPrefix)*: the runbook takes rg-<2 to 8 lowercase letters or digits>-<dev|test|prod>-."
+  if ($lz.resourceGroupPrefix -cnotmatch '^rg-[a-z0-9]{2,8}-(dev|test|prod)(?:-b[0-9]{8}-[0-9]{4})?-$') {
+    throw "The deadline teardown can't cover $($lz.resourceGroupPrefix)*: the runbook takes rg-<2 to 8 lowercase letters or digits>-<dev|test|prod>[-bYYYYMMDD-HHMM]-."
   }
   $minutes = [double]$Group.deadlineHours * 60 + (Get-AvdBatchTeardownBudget -Group $Group) + $GraceMinutes
   $fireAt = $Now.ToUniversalTime().AddMinutes([math]::Ceiling($minutes))
