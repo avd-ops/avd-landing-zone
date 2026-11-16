@@ -438,7 +438,12 @@ function Assert-AvdRequiredModule {
       throw "PowerShell module $m is required (preinstalled in Azure Cloud Shell). Pass -Fix (or run: Install-Module $m -Scope CurrentUser) to install it."
     }
     Write-Host "  Installing missing PowerShell module $m (Scope: CurrentUser)..." -ForegroundColor Yellow
-    Install-Module -Name $m -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
+    if (Get-Command Install-PSResource -ErrorAction SilentlyContinue) {
+      Install-PSResource -Name $m -Scope CurrentUser -TrustRepository -Quiet -ErrorAction Stop
+    }
+    else {
+      Install-Module -Name $m -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
+    }
     if (-not (Get-Module -ListAvailable -Name $m)) {
       throw "PowerShell module $m was installed but is still not discoverable in PSModulePath."
     }
