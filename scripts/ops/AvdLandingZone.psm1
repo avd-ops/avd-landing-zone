@@ -427,11 +427,15 @@ function Test-AvdCloudShell {
 }
 
 function Assert-AvdRequiredModule {
-  <# Checks that each PowerShell module is installed; with -Fix, installs missing ones into CurrentUser scope. #>
+  <# Checks that each PowerShell module is installed; with -Fix, installs missing ones into CurrentUser scope (or LocalAppData outside OneDrive). #>
   param(
     [Parameter(Mandatory)][string[]] $Name,
     [switch] $Fix
   )
+  $localModules = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'PowerShell\Modules' } else { $null }
+  if ($localModules -and (Test-Path -LiteralPath $localModules) -and ($env:PSModulePath -split [IO.Path]::PathSeparator) -notcontains $localModules) {
+    $env:PSModulePath = "$localModules$([IO.Path]::PathSeparator)$env:PSModulePath"
+  }
   foreach ($m in $Name) {
     if (Get-Module -ListAvailable -Name $m) { continue }
     if (-not $Fix) {
@@ -439,7 +443,18 @@ function Assert-AvdRequiredModule {
     }
     Write-Host "  Installing missing PowerShell module $m (Scope: CurrentUser)..." -ForegroundColor Yellow
     if (Get-Command Install-PSResource -ErrorAction SilentlyContinue) {
-      Install-PSResource -Name $m -Scope CurrentUser -TrustRepository -Quiet -ErrorAction Stop
+      try {
+        Install-PSResource -Name $m -Scope CurrentUser -TrustRepository -Quiet -ErrorAction Stop
+      }
+      catch {
+        if (-not $localModules) { throw }
+        Write-Host "  CurrentUser install failed ($($_.Exception.Message)); saving $m to $localModules ..." -ForegroundColor Yellow
+        New-Item -ItemType Directory -Force -Path $localModules | Out-Null
+        Save-PSResource -Name $m -Path $localModules -TrustRepository -Quiet -ErrorAction Stop
+        if (($env:PSModulePath -split [IO.Path]::PathSeparator) -notcontains $localModules) {
+          $env:PSModulePath = "$localModules$([IO.Path]::PathSeparator)$env:PSModulePath"
+        }
+      }
     }
     else {
       Install-Module -Name $m -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
