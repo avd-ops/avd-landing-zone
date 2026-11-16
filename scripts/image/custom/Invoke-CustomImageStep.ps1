@@ -11,6 +11,7 @@
     Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force | Out-Null
     Install-Module -Name Evergreen, VcRedist -Scope AllUsers -Force -AllowClobber
     Import-Module Evergreen, VcRedist -ErrorAction Stop
+    Update-Evergreen | Out-Null
     # Example: $webrtc = Get-EvergreenApp -Name MicrosoftRdcwebrtcredirdor | Where-Object { $_.Architecture -eq 'x64' } | Select-Object -First 1
     # Example: Get-VcList -Release 2022 -Architecture x64 | Save-VcRedist -Path "$env:TEMP\vc" | Install-VcRedist -Silent
 #>
