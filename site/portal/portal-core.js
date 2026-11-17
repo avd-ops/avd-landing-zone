@@ -78,11 +78,20 @@
     return null;
   }
 
+  function validHostPlacement(v) {
+    if (v === null || v === undefined || v === '') return 'azure';
+    var s = String(v).trim().toLowerCase();
+    if (s === 'azure' || s === 'azure-local') return s;
+    return null;
+  }
+
   var DEFAULTS = {
     repoUrl: 'https://github.com/avd-ops/avd-landing-zone',
     parameterFile: 'parameters/dev.bicepparam',
     cloud: 'commercial',
     complianceProfile: 'standard',
+    hostPlacement: 'azure',
+    localSmbProfilePath: '',
     location: 'northcentralus',
     usersGroup: 'AVD Users',
     adminsGroup: 'AVD Admins',
@@ -1131,6 +1140,13 @@
     if (c !== 'usgov' && cp === 'standard') return '';
     return ps ? ' -ComplianceProfile ' + cp : ' --compliance-profile ' + cp;
   }
+  function hostPlacementArgs(cfg, ps) {
+    var hp = validHostPlacement(cfg && cfg.hostPlacement);
+    if (hp !== 'azure-local') return '';
+    var smb = String((cfg && cfg.localSmbProfilePath) || '').trim();
+    if (ps) return ' -HostPlacement azure-local' + (smb ? ' -LocalSmbProfilePath ' + psQuote(smb) : '');
+    return ' --host-placement azure-local';
+  }
   // Steps that use Microsoft Graph sign in first, once for the session; the scripts reuse the sign-in (decision 0016).
   function signIn(cfg) {
     var id = String(cfg.graphClientId || '').trim();
@@ -1153,7 +1169,7 @@
   var cmd = {
     predeploy: function (cfg, fix) {
       return block(cfg, [signIn(cfg), './scripts/ops/Test-AvdLandingZoneReadiness.ps1 -PreDeployment -ParameterFile ' + cfg.parameterFile +
-        ' -Location ' + cfg.location + cloudArgs(cfg, true) + ' -UsersGroup ' + psQuote(cfg.usersGroup) + ' -AdminsGroup ' + psQuote(cfg.adminsGroup) + sizeArgs.predeploy(cfg) + (fix ? ' -Fix' : '')]);
+        ' -Location ' + cfg.location + cloudArgs(cfg, true) + hostPlacementArgs(cfg, true) + ' -UsersGroup ' + psQuote(cfg.usersGroup) + ' -AdminsGroup ' + psQuote(cfg.adminsGroup) + sizeArgs.predeploy(cfg) + (fix ? ' -Fix' : '')]);
     },
     deploy: function (cfg) {
       return block(cfg, ['bash ./scripts/deploy/deploy.sh -p ' + cfg.parameterFile + ' -l ' + cfg.location +
