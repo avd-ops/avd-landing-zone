@@ -252,8 +252,13 @@ function Invoke-Bash([string] $Dir, [string] $Script, [double] $TimeoutMinutes =
   # killed with everything it started, and fails with 124 like timeout(1).
   $file = Join-Path ([IO.Path]::GetTempPath()) "batch-step-$([guid]::NewGuid().ToString('N')).sh"
   Set-Content -Path $file -Value $Script -Encoding utf8NoBOM
+  $bashExe = 'bash'
+  if ($IsWindows) {
+    $gitBash = @("$env:ProgramFiles\Git\bin\bash.exe", "$env:ProgramFiles\Git\usr\bin\bash.exe") | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+    if ($gitBash) { $bashExe = $gitBash }
+  }
   try {
-    $p = Start-Process -FilePath bash -ArgumentList '-e', $file -WorkingDirectory $Dir -NoNewWindow -PassThru
+    $p = Start-Process -FilePath $bashExe -ArgumentList '-e', $file -WorkingDirectory $Dir -NoNewWindow -PassThru
     $ms = if ($TimeoutMinutes -gt 0) { [int][math]::Min([int]::MaxValue, $TimeoutMinutes * 60000) } else { -1 }
     if (-not $p.WaitForExit($ms)) {
       Write-Host ("    Step passed its limit of {0:N0} minutes; stopping it." -f $TimeoutMinutes) -ForegroundColor Red
