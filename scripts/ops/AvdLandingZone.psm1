@@ -439,7 +439,12 @@ function Assert-AvdModule {
       throw ($Hint -f $m)
     }
     Write-Host "  Installing missing PowerShell module $m (CurrentUser) ..." -ForegroundColor DarkGray
-    Install-Module -Name $m -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
+    if (Get-Command Install-PSResource -ErrorAction SilentlyContinue) {
+      Install-PSResource -Name $m -Scope CurrentUser -TrustRepository -ErrorAction Stop
+    }
+    else {
+      Install-Module -Name $m -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
+    }
   }
 }
 
