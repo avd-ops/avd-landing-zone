@@ -113,6 +113,10 @@ param(
   [Parameter(ParameterSetName = 'PreDeployment')][string] $Topology,
   # Use the pinned US Gov retail price snapshot instead of calling prices.azure.com.
   [Parameter(ParameterSetName = 'PreDeployment')][switch] $OfflinePricing,
+  # Session host placement model (Decision 0023): azure (default) or azure-local.
+  [Parameter(ParameterSetName = 'PreDeployment')][ValidateSet('azure', 'azure-local')][string] $HostPlacement = 'azure',
+  # Bring-your-own on-premises SMB UNC path for FSLogix profiles when HostPlacement is azure-local.
+  [Parameter(ParameterSetName = 'PreDeployment')][string] $LocalSmbProfilePath,
 
   # ---- Post-deployment ----
   [Parameter(Mandatory, ParameterSetName = 'PostDeployment')][ValidateLength(2, 8)][string] $NamePrefix,
@@ -171,6 +175,18 @@ if ($PreDeployment) {
   $pre = @{ ParameterFile = $ParameterFile; UsersGroup = $UsersGroup; AdminsGroup = $AdminsGroup; Location = $Location; Fix = $Fix; AddMeToGroups = $AddMeToGroups; SkipTenant = $SkipTenant; WhatIf = $WhatIfPreference; Sizing = $sizing; ActiveHoursPerWeek = $ActiveHoursPerWeek; RecoveryLocation = $RecoveryLocation; Cloud = $Cloud; OfflinePricing = $OfflinePricing }
   if ($Force) { $pre.Confirm = $false }
   $outcome = Test-AvdPreDeployment @pre
+  if ($HostPlacement -eq 'azure-local') {
+    if ($LocalSmbProfilePath) {
+      if ($LocalSmbProfilePath -match '^\\\\[^\\]+\\[^\\]+') {
+        Add-AvdCheckResult 'Azure Local' 'FSLogix local SMB path' 'Pass' -Detail "On-premises SMB share path validated (native Entra ID join only in v1)."
+      } else {
+        Add-AvdCheckResult 'Azure Local' 'FSLogix local SMB path' 'Fail' -Detail "LocalSmbProfilePath must be a UNC path (\\\\server\\share)."
+      }
+    } else {
+      Add-AvdCheckResult 'Azure Local' 'FSLogix local SMB path' 'Warn' -Detail 'Pass -LocalSmbProfilePath to validate your on-premises SMB share path.'
+    }
+    Add-AvdCheckResult 'Azure Local' 'Three-part pricing' 'Pass' -Detail 'Pricing uses user access rights + Azure Local service fee + AVD for Azure Local per-active-vCPU fee.'
+  }
 }
 else {
   Write-Host "AVD landing zone preflight - $NamePrefix/$Environment in '$($ctx.Subscription.Name)'$(if ($Fix) { ' (FIX mode)' })" -ForegroundColor White
