@@ -48,7 +48,9 @@ param(
   [string] $RecorderRepo,
   [string] $RecorderSha,
   # Also open a batch issue in -Repo (the GitHub CLI, signed in).
-  [switch] $PostIssue
+  [switch] $PostIssue,
+  # Install missing PowerShell modules (CurrentUser scope).
+  [switch] $Fix
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'AvdLandingZone.psm1') -Force
@@ -127,7 +129,7 @@ if (@($usable | Where-Object { $_.record }).Count) {
 
 # ---- Records and month to date ----
 $subId = $SubscriptionId
-if (-not ($Local -and $MonthToDate -ge 0)) { $subId = (Initialize-AvdAzContext -SubscriptionId $SubscriptionId).Subscription.Id }
+if (-not ($Local -and $MonthToDate -ge 0)) { $subId = (Initialize-AvdAzContext -SubscriptionId $SubscriptionId -Fix:$Fix).Subscription.Id }
 $store = Open-AvdRunRecordStore -RecordsPath $RecordsPath -SubscriptionId $subId -Local:$Local
 if ($MonthToDate -lt 0) {
   Write-Host 'Reading month-to-date cost from Cost Management ...' -ForegroundColor DarkGray

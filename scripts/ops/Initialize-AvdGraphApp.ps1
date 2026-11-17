@@ -33,10 +33,12 @@ param(
   # Tenant to set up; defaults to the Azure context's tenant, else your home tenant.
   [string] $TenantId,
   [string] $AppName = 'avd-opsbot',
-  [switch] $SaveToProfile
+  [switch] $SaveToProfile,
+  [switch] $Fix
 )
 
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'AvdLandingZone.psm1') -Force
 
 # Must match Get-AvdGraphScope in AvdLandingZone.psm1 (build/tests/AvdLandingZone.Tests.ps1 compares them).
 $operatorScopes = @(
@@ -106,9 +108,7 @@ function Invoke-AfterReplication {
 # ---- Sign in (Microsoft's default app, for this setup only) ----
 Write-Host ''
 Write-Host "== $AppName app registration" -ForegroundColor White
-if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Authentication)) {
-  throw 'Module Microsoft.Graph.Authentication is required: Install-Module Microsoft.Graph.Authentication -Scope CurrentUser'
-}
+Assert-AvdModule -Names @('Microsoft.Graph.Authentication') -Fix:$Fix -Hint 'Module {0} is required: Install-Module {0} -Scope CurrentUser (or pass -Fix)'
 Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
 if (-not $TenantId -and (Get-Command Get-AzContext -ErrorAction SilentlyContinue)) {
   $azCtx = Get-AzContext

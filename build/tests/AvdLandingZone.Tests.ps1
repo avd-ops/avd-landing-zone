@@ -1160,3 +1160,20 @@ Describe 'Get-AvdStorageKerberosApp (build/lessons/0038)' {
     $only.Rejected | Should -Match 'eve@contoso\.com'
   }
 }
+
+Describe 'Assert-AvdModule (-Fix)' {
+  BeforeAll {
+    Import-Module PowerShellGet -ErrorAction SilentlyContinue
+  }
+  It 'throws when a module is missing without -Fix, and installs into CurrentUser with -Fix' {
+    Mock -ModuleName AvdLandingZone Get-Module { $null }
+    Mock -ModuleName AvdLandingZone Install-Module {}
+
+    { Assert-AvdModule -Names @('Az.Compute') } | Should -Throw '*Az.Compute*'
+    Should -Invoke -ModuleName AvdLandingZone Install-Module -Times 0
+
+    Assert-AvdModule -Names @('Az.Compute', 'Microsoft.Graph.Authentication') -Fix
+    Should -Invoke -ModuleName AvdLandingZone Install-Module -Times 1 -ParameterFilter { $Name -eq 'Az.Compute' -and $Scope -eq 'CurrentUser' }
+    Should -Invoke -ModuleName AvdLandingZone Install-Module -Times 1 -ParameterFilter { $Name -eq 'Microsoft.Graph.Authentication' -and $Scope -eq 'CurrentUser' }
+  }
+}

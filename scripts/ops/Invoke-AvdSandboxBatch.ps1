@@ -72,7 +72,9 @@ param(
   # Empty: the run stays in the run store only, and can be copied later.
   [string] $PrivateRepo = $env:AVD_PRIVATE_REPO,
   # Also publish the finished group's results to the private queue and initiating repo issues (Publish-AvdSandboxResult.ps1).
-  [switch] $PublishResult
+  [switch] $PublishResult,
+  # Install missing PowerShell modules (CurrentUser scope).
+  [switch] $Fix
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'AvdLandingZone.psm1') -Force
@@ -82,7 +84,7 @@ Import-Module (Join-Path $PSScriptRoot 'AvdSandboxBatch.psm1') -Force
 if (-not $RecordsPath) { $RecordsPath = Get-AvdRecordsDefaultPath }
 if ($Resume -and $TeardownOnly) { throw 'Use -Resume or -TeardownOnly, not both.' }
 
-$ctx = Initialize-AvdAzContext -SubscriptionId $SubscriptionId
+$ctx = Initialize-AvdAzContext -SubscriptionId $SubscriptionId -Fix:$Fix
 $subId = $ctx.Subscription.Id
 $store = Open-AvdRunRecordStore -RecordsPath $RecordsPath -SubscriptionId $subId -Local:$Local
 if ($PSCmdlet.ParameterSetName -eq 'Id') {
