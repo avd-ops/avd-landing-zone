@@ -427,19 +427,42 @@ function Test-AvdCloudShell {
 }
 
 function Assert-AvdModule {
-  <# Ensures each required PowerShell module is installed; with -Fix, installs missing modules into CurrentUser scope. #>
+  <# Ensures each required PowerShell module is installed; with -Fix, installs missing modules into CurrentUser scope (falling back to LocalAppData when Documents is on OneDrive). #>
   param(
     [Parameter(Mandatory)][string[]] $Names,
     [switch] $Fix,
     [string] $Hint = 'PowerShell module {0} is required: Install-Module {0} -Scope CurrentUser'
   )
+  $localModDir = if ($env:LOCALAPPDATA) { Join-Path $env:LOCALAPPDATA 'PowerShell\Modules' } else { Join-Path $HOME '.local/share/powershell/Modules' }
+  if ((Test-Path -LiteralPath $localModDir) -and (($env:PSModulePath -split [IO.Path]::PathSeparator) -notcontains $localModDir)) {
+    $env:PSModulePath = "$localModDir$([IO.Path]::PathSeparator)$env:PSModulePath"
+  }
   foreach ($m in $Names) {
     if (Get-Module -ListAvailable -Name $m) { continue }
     if (-not $Fix) {
       throw ($Hint -f $m)
     }
     Write-Host "  Installing missing PowerShell module $m (CurrentUser) ..." -ForegroundColor DarkGray
-    Install-Module -Name $m -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
+    try {
+      if (Get-Command Install-PSResource -ErrorAction SilentlyContinue) {
+        Install-PSResource -Name $m -Scope CurrentUser -TrustRepository -ErrorAction Stop
+      }
+      else {
+        Install-Module -Name $m -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
+      }
+    }
+    catch {
+      New-Item -ItemType Directory -Force -Path $localModDir | Out-Null
+      if (($env:PSModulePath -split [IO.Path]::PathSeparator) -notcontains $localModDir) {
+        $env:PSModulePath = "$localModDir$([IO.Path]::PathSeparator)$env:PSModulePath"
+      }
+      if (Get-Command Save-PSResource -ErrorAction SilentlyContinue) {
+        Save-PSResource -Name $m -Path $localModDir -TrustRepository -ErrorAction Stop
+      }
+      else {
+        Save-Module -Name $m -Path $localModDir -Force -ErrorAction Stop
+      }
+    }
   }
 }
 
