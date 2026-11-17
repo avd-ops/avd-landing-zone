@@ -20,7 +20,8 @@ param(
   [ValidatePattern('^b\d{8}-\d{4}$')][string] $BatchId,
   [string] $SubscriptionId,
   [string] $RecordsPath,
-  [switch] $Local
+  [switch] $Local,
+  [switch] $Fix
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'AvdLandingZone.psm1') -Force
@@ -30,7 +31,7 @@ Import-Module (Join-Path $PSScriptRoot 'AvdSandboxBatch.psm1') -Force
 if (-not $RecordsPath) { $RecordsPath = Get-AvdRecordsDefaultPath }
 
 if (-not $Local) {
-  $subId = (Initialize-AvdAzContext -SubscriptionId $SubscriptionId).Subscription.Id
+  $subId = (Initialize-AvdAzContext -SubscriptionId $SubscriptionId -Fix:$Fix).Subscription.Id
   $null = Open-AvdRunRecordStore -RecordsPath $RecordsPath -SubscriptionId $subId
 }
 $batches = @(Get-ChildItem -Path (Join-Path $RecordsPath 'queue') -Recurse -Filter 'batch.json' -ErrorAction SilentlyContinue |

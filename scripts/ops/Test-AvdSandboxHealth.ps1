@@ -36,7 +36,8 @@ param(
   [Nullable[double]] $Estimate,
   [switch] $NeedsRunStore,
   [string] $SubscriptionId,
-  [string] $JsonPath
+  [string] $JsonPath,
+  [switch] $Fix
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'AvdLandingZone.psm1') -Force
@@ -59,7 +60,7 @@ function Get-HealthList([string] $Url) {
 Write-Host 'Checking the sandbox before anything is spent ...' -ForegroundColor DarkGray
 $prefixes = @(Get-AvdHostDevicePrefix -NamePrefix $NamePrefix -Environment $Environment)
 $facts = @{ namePrefix = $NamePrefix; environment = $Environment; monthlyCap = $MonthlyCap; runCap = $RunCap; estimate = $Estimate; needsRunStore = [bool]$NeedsRunStore }
-try { $ctx = Initialize-AvdAzContext -SubscriptionId $SubscriptionId; $facts.signedIn = $true }
+try { $ctx = Initialize-AvdAzContext -SubscriptionId $SubscriptionId -Fix:$Fix; $facts.signedIn = $true }
 catch { $facts.signedIn = $false; $facts.signInError = $_.Exception.Message }
 if ($facts.signedIn) {
   $sub = $ctx.Subscription.Id

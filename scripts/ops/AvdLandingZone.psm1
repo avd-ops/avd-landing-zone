@@ -426,14 +426,30 @@ function Test-AvdCloudShell {
   [bool]$env:ACC_CLOUD -or ($env:AZUREPS_HOST_ENVIRONMENT -like 'cloud-shell*')
 }
 
+function Assert-AvdModule {
+  <# Ensures each required PowerShell module is installed; with -Fix, installs missing modules into CurrentUser scope. #>
+  param(
+    [Parameter(Mandatory)][string[]] $Names,
+    [switch] $Fix,
+    [string] $Hint = 'PowerShell module {0} is required: Install-Module {0} -Scope CurrentUser'
+  )
+  foreach ($m in $Names) {
+    if (Get-Module -ListAvailable -Name $m) { continue }
+    if (-not $Fix) {
+      throw ($Hint -f $m)
+    }
+    Write-Host "  Installing missing PowerShell module $m (CurrentUser) ..." -ForegroundColor DarkGray
+    Install-Module -Name $m -Scope CurrentUser -Force -AllowClobber -SkipPublisherCheck -ErrorAction Stop
+  }
+}
+
 function Initialize-AvdAzContext {
   param(
     [string] $SubscriptionId,
-    [ValidateSet('commercial', 'usgov')][string] $Cloud = $(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' })
+    [ValidateSet('commercial', 'usgov')][string] $Cloud = $(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' }),
+    [switch] $Fix
   )
-  foreach ($m in 'Az.Accounts', 'Az.Resources', 'Az.Compute', 'Az.Storage') {
-    if (-not (Get-Module -ListAvailable -Name $m)) { throw "PowerShell module $m is required (preinstalled in Azure Cloud Shell)." }
-  }
+  Assert-AvdModule -Names @('Az.Accounts', 'Az.Resources', 'Az.Compute', 'Az.Storage') -Fix:$Fix -Hint 'PowerShell module {0} is required (preinstalled in Azure Cloud Shell; pass -Fix or run Install-Module {0} -Scope CurrentUser).'
   $ctx = Get-AzContext
   if (-not $ctx) { throw 'Not signed in to Azure. Run Connect-AzAccount (Cloud Shell does this for you).' }
   if (($PSBoundParameters.ContainsKey('Cloud') -or $env:AVD_CLOUD) -and $ctx.Environment -and $ctx.Environment.Name) {
@@ -518,14 +534,13 @@ function Connect-AvdGraph {
     [ValidateSet('Read', 'Fix', 'PreDeployFix', 'Cleanup', 'SignIn')][string] $Purpose = 'Read',
     # Defaults to $env:AVD_GRAPH_CLIENT_ID; without one, Microsoft's default app.
     [string] $ClientId,
-    [ValidateSet('commercial', 'usgov')][string] $Cloud = $(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' })
+    [ValidateSet('commercial', 'usgov')][string] $Cloud = $(if ($env:AVD_CLOUD -in @('commercial', 'usgov')) { $env:AVD_CLOUD } else { 'commercial' }),
+    [switch] $Fix
   )
   $cloudCfg = Resolve-AvdCloudEnvironment -Cloud $Cloud
   $scopes = Get-AvdGraphScope -Purpose $Purpose
   $ClientId = Get-AvdGraphClientId -ClientId $ClientId
-  if (-not (Get-Module -ListAvailable -Name Microsoft.Graph.Authentication)) {
-    throw 'Module Microsoft.Graph.Authentication is required: Install-Module Microsoft.Graph.Authentication -Scope CurrentUser'
-  }
+  Assert-AvdModule -Names @('Microsoft.Graph.Authentication') -Fix:$Fix -Hint 'Module {0} is required: Install-Module {0} -Scope CurrentUser (or pass -Fix)'
   Import-Module Microsoft.Graph.Authentication -ErrorAction Stop
   $azContext = Get-AzContext
   if (Test-AvdAppIdentity -Context $azContext) {
@@ -2401,7 +2416,7 @@ function Invoke-AvdReadinessCheck {
   }
   else {
     Write-AvdSection 'Entra ID tenant'
-    Connect-AvdGraph -Purpose ($(if ($Fix) { 'Fix' } else { 'Read' })) -Cloud $Cloud
+    Connect-AvdGraph -Purpose ($(if ($Fix) { 'Fix' } else { 'Read' })) -Cloud $Cloud -Fix:$Fix
     Test-AvdGroupMembership -Lz $Lz
     Test-AvdIntuneLicense
     $storageApp = Get-AvdStorageKerberosApp -Lz $Lz
@@ -3031,7 +3046,7 @@ function Test-AvdPreDeployment {
   }
   else {
     Write-AvdSection 'Entra ID tenant'
-    Connect-AvdGraph -Purpose ($(if ($Fix -or $AddMeToGroups) { 'PreDeployFix' } else { 'Read' })) -Cloud $Cloud
+    Connect-AvdGraph -Purpose ($(if ($Fix -or $AddMeToGroups) { 'PreDeployFix' } else { 'Read' })) -Cloud $Cloud -Fix:$Fix
     Test-AvdSignInMatch
     $users = Resolve-AvdGroup -Label 'AVD Users' -NameOrId $UsersGroup -Fix:$Fix
     $admins = Resolve-AvdGroup -Label 'AVD Admins' -NameOrId $AdminsGroup -Fix:$Fix
