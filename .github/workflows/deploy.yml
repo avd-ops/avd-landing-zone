@@ -2,6 +2,12 @@ name: deploy
 
 # Manual, environment-gated deployment. Configure required reviewers on the
 # "prod" GitHub Environment so production changes need an approval.
+#
+# GITHUB FREE LIMIT: Environment required reviewers on a private repository
+# require GitHub Pro, Team, or Enterprise. On a GitHub Free private repo,
+# `environment:` will NOT pause for human approval — use interactive Cloud Shell
+# (`./scripts/deploy/deploy.sh`) instead, and keep tenant-specific `.bicepparam`
+# files under `config/` in your single private companion repo (`avd-private`).
 on:
   workflow_dispatch:
     inputs:
