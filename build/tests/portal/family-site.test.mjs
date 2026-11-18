@@ -29,7 +29,7 @@ test('every old page redirects to the same page on avd-ops.dev', () => {
 test('the site root (deploy.avd-ops.dev) opens the deployment portal', () => {
   const h = read('site/index.html');
   assert.ok(h.includes('<meta http-equiv="refresh" content="0; url=portal/">'), 'no refresh to portal/');
-  assert.ok(h.includes('<link rel="canonical" href="https://deploy.avd-ops.dev/portal/">'), 'no canonical portal URL');
+  assert.ok(h.includes('<link rel="canonical" href="https://avd-ops.app/deploy/">'), 'no canonical portal URL');
 });
 
 test('relative links resolve (the portal link on each redirect page)', () => {
