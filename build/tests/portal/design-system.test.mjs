@@ -55,7 +55,7 @@ test('the portal and the region latency page use it', () => {
   assert.match(bar, /<a class="brand" href="https:\/\/avd-ops\.dev\/"><img class="mark" src="\.\.\/assets\/brand\/mark\.svg" alt="" width="44" height="44"><span class="name"><span class="word">avd-ops<\/span><span class="tag">Deploy quietly<\/span><\/span><\/a>/, 'brand in the shell bar, as in the horizontal lockup');
   assert.match(bar, /<details class="notice"/, 'the research notice sits in the bar');
   assert.match(bar, /<a href="\.\/" aria-current="page">Deploy<\/a>/, 'Deploy is the current tool');
-  assert.match(bar, /<a href="https:\/\/avd-ops\.github\.io\/avd-current-state\/portal\/">Assess<\/a>/);
+  assert.match(bar, /<a href="https:\/\/avd-ops\.app\/assess\/">Assess<\/a><a href="https:\/\/avd-ops\.app\/migrate\/">Migrate<\/a><a href="https:\/\/avd-ops\.app\/status\/">Status<\/a>/);
   assert.match(bar, /class="iconbtn dev"/);
   assert.match(bar, /class="iconbtn theme"/);
   assert.match(portal, /Live Target Topology<span class="dev-id"> \(C14\)<\/span>/);
