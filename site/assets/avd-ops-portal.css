@@ -1,4 +1,4 @@
-/* avd-ops portal components v2.7.0 (https://avd-ops.dev/, avd-ops/avd-ops site/assets/avd-ops-portal.css). MIT.
+/* avd-ops portal components v3.0.0 (https://avd-ops.dev/, avd-ops/avd-ops site/assets/avd-ops-portal.css). MIT.
    Personal project, not for production, as is; not affiliated with the author's employer, Liquidware or Microsoft.
    The pieces a guided, step-by-step portal page shares: the progress rail, one stage panel in view, the
    "run in Cloud Shell, then paste the output" timeline, terminal blocks, the paste box, form fields, switches,
@@ -252,13 +252,13 @@ body.portal{font:16px/1.55 var(--body);-webkit-font-smoothing:antialiased}
 .portal textarea.paste:focus{border-style:solid}
 
 /* Result chip: a run's overall result, always with its word. */
-.portal .result{display:inline-block;font:600 .7rem/1.6 var(--mono);letter-spacing:.06em;text-transform:uppercase;border-radius:4px;padding:1px 8px;background:var(--accent-soft);color:var(--accent)}
+.portal .result{display:inline-block;font:600 var(--fs-xs)/1.6 var(--mono);letter-spacing:var(--track-label);border-radius:4px;padding:1px 8px;background:var(--accent-soft);color:var(--accent)}
 .portal .result.good{color:var(--good);background:var(--good-soft)}
 .portal .result.ok{color:var(--caution);background:var(--caution-soft)}
 .portal .result.poor{color:var(--bad);background:var(--bad-soft)}
 
 /* Check outcome pill: pass, warn, gap or unknown, always with its word, never color alone. */
-.portal .outcome{display:inline-block;font:600 .7rem/1.6 var(--mono);letter-spacing:.06em;text-transform:uppercase;border-radius:var(--pill);padding:1px 9px;border:1px solid transparent;white-space:nowrap}
+.portal .outcome{display:inline-block;font:600 var(--fs-xs)/1.6 var(--mono);letter-spacing:var(--track-label);border-radius:var(--pill);padding:1px 9px;border:1px solid transparent;white-space:nowrap}
 .portal .outcome.o-pass{color:var(--good);background:var(--good-soft)}
 .portal .outcome.o-warn{color:var(--caution);background:var(--caution-soft)}
 .portal .outcome.o-gap{color:var(--bad);background:var(--bad-soft)}

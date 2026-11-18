@@ -1,6 +1,6 @@
-/* avd-ops app shell v2.7.0 (https://avd-ops.dev/, avd-ops/avd-ops site/assets/avd-ops-shell.css). MIT.
+/* avd-ops app shell v3.0.0 (https://avd-ops.dev/, avd-ops/avd-ops site/assets/avd-ops-shell.css). MIT.
    Personal project, not for production, as is; not affiliated with the author's employer or Microsoft.
-   The frame every family page opens in: the brand bar (mark, word, the Docs, Deploy and Assess switcher, theme
+   The frame every family page opens in: the brand bar (mark, word, the Docs, Deploy, Assess, Migrate and Status switcher, theme
    and menu buttons), the one-line research notice that opens to the full text, a side list that becomes a drawer
    below 64rem, the page column, and the footer with the credit line. Load it after avd-ops.css and put
    class="shell" on <body>; every rule is scoped to .shell. theme.js wires the theme button and the drawer; on a portal, load it after avd-ops-portal.css so the bar's buttons keep their look; without
@@ -18,8 +18,8 @@
 .shell header.bar .brand .name{display:grid;line-height:1}
 .shell header.bar .brand .word{font:700 1.5rem/1 var(--wordmark);letter-spacing:.005em}
 .shell header.bar .brand .tag{font:600 .64rem/1 var(--tagline);letter-spacing:.26em;text-transform:uppercase;color:var(--brand);margin-top:6px}
-.shell .switcher{display:flex;gap:2px;padding:3px;border-radius:10px;background:var(--shell-hover);margin-left:var(--space-3);flex:none}
-.shell .switcher a{display:flex;align-items:center;min-height:36px;padding:0 .8rem;border-radius:7px;color:var(--shell-muted);text-decoration:none;font-weight:600;font-size:.86rem;transition:background var(--fast) var(--ease),color var(--fast) var(--ease)}
+.shell .switcher{display:flex;gap:2px;padding:3px;border-radius:10px;background:var(--shell-hover);border:1px solid var(--shell-line);margin-left:var(--space-3);flex:none}
+.shell .switcher a{display:flex;align-items:center;justify-content:center;min-height:38px;padding:0 .8rem;border-radius:7px;color:var(--shell-muted);text-decoration:none;font-weight:600;font-size:.84rem;letter-spacing:var(--track-label);transition:background var(--fast) var(--ease),color var(--fast) var(--ease)}
 .shell .switcher a:hover{color:var(--shell-fg)}
 .shell .switcher a[aria-current]{background:var(--shell-fg);color:var(--shell)}
 .shell .tools{margin-left:auto;display:flex;gap:var(--space-2);flex:none}
@@ -71,11 +71,25 @@ html:not(.js) .shell .theme,html:not(.js) .shell .dev{display:none}
 .shell .layout{max-width:var(--page);margin:0 auto;display:grid;grid-template-columns:var(--side) minmax(0,1fr);gap:var(--space-6);
   padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
 .shell .side{position:sticky;top:calc(var(--bar) + 1px + env(safe-area-inset-top,0px));align-self:start;max-height:calc(100vh - var(--bar) - 1px - env(safe-area-inset-top,0px));overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--line-strong) transparent;padding-block:var(--space-5) var(--space-6);display:grid;gap:var(--space-1);align-content:start}
-.shell .side .group{font:600 .84rem var(--body);color:var(--muted);margin:var(--space-4) 0 var(--space-1);padding-left:.6rem}
-.shell .side .group:first-child{margin-top:0}
-.shell .side a{display:flex;align-items:center;min-height:36px;padding:0 .6rem;border-radius:var(--radius-sm);color:var(--fg);text-decoration:none;font-size:.95rem}
+/* The side list in tiers (3.0.0): a tier is a heading in the display face over a hairline; a group inside a tier
+   (an ecosystem layer) is a quiet label, and its links hang from a hairline on the left, so the layer reads as one
+   block. The current page is the accent on its soft field, with an accent rule. */
+.shell .side .tier{font:700 var(--fs-sm)/1.2 var(--display);letter-spacing:var(--track-label);color:var(--fg);margin:var(--space-5) 0 var(--space-1);padding:var(--space-3) .6rem 0;border-top:1px solid var(--hairline)}
+.shell .side .tier:first-child{margin-top:0;padding-top:0;border-top:0}
+.shell .side .group{font:500 var(--fs-xs) var(--body);color:var(--muted);margin:var(--space-2) 0 0;padding-left:.6rem}
+.shell .side details.side-group{margin:0}
+.shell .side details.side-group>summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:var(--space-2);min-height:34px;padding:0 .6rem;border-radius:var(--radius-sm);user-select:none;transition:background var(--fast) var(--ease)}
+.shell .side details.side-group>summary::-webkit-details-marker{display:none}
+.shell .side details.side-group>summary:hover{background:var(--sunken);color:var(--fg)}
+.shell .side details.side-group>summary::after{content:"";width:5px;height:5px;border:solid var(--muted);border-width:0 1.5px 1.5px 0;transform:rotate(-45deg);transition:transform var(--fast) var(--ease);flex:none;margin-left:2px}
+.shell .side details.side-group[open]>summary::after{transform:translateY(-1px) rotate(45deg)}
+.shell .side details.side-group .side-count{margin-left:auto;font:500 var(--fs-xs) var(--mono);color:var(--muted);font-variant-numeric:tabular-nums}
+.shell .side details.side-group.tier-group{margin-top:var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--hairline)}
+.shell .side details.side-group.tier-group>summary.tier{margin:0;padding:0 .6rem;border-top:0}
+.shell .side details.side-group .side-links{display:grid;gap:2px;margin:2px 0 var(--space-2) .6rem;padding-left:var(--space-2);border-left:1px solid var(--hairline)}
+.shell .side a{display:flex;align-items:center;min-height:34px;padding:0 .6rem;border-radius:var(--radius-sm);color:var(--fg);text-decoration:none;font-size:.9rem;border-left:2px solid transparent}
 .shell .side a:hover{background:var(--sunken)}
-.shell .side a[aria-current]{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.shell .side a[aria-current]{background:var(--accent-soft);color:var(--accent-hover);font-weight:600;border-left-color:var(--accent);border-radius:0 var(--radius-sm) var(--radius-sm) 0}
 /* A page with no side list (a single page in a sibling repo, an artifact): .layout.solo, one column. */
 .shell .layout.solo{grid-template-columns:minmax(0,1fr)}
 .shell main{min-width:0;padding-block:var(--space-5) var(--space-6)}
@@ -87,14 +101,20 @@ html:not(.js) .shell .theme,html:not(.js) .shell .dev{display:none}
 
 /* Footer */
 .shell footer.foot{border-top:1px solid var(--line);background:var(--surface);font-size:.86rem;color:var(--muted)}
-.shell footer.foot .in{max-width:var(--page);margin:0 auto;padding-block:var(--space-5) calc(var(--space-6) + env(safe-area-inset-bottom,0px));display:grid;gap:var(--space-2);
+.shell footer.foot .in{max-width:var(--page);margin:0 auto;padding-block:var(--space-5) calc(var(--space-6) + env(safe-area-inset-bottom,0px));display:grid;gap:var(--space-4);
   padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
 .shell footer.foot p{margin:0;max-width:var(--measure)}
-.shell footer.foot .credit{font:600 .8rem var(--mono);letter-spacing:.04em;color:var(--fg);margin-top:var(--space-2)}
+.shell footer.foot .foot-open{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--space-4)}
+.shell footer.foot .foot-open strong{display:block;font:700 var(--fs-lg)/1.25 var(--display);color:var(--fg);margin-bottom:var(--space-1)}
+.shell footer.foot .foot-open .actions{display:flex;flex-wrap:wrap;gap:var(--space-2)}
+.shell footer.foot .foot-meta{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--space-2) var(--space-4);padding-top:var(--space-3);border-top:1px solid var(--hairline);font-size:var(--fs-xs)}
+.shell footer.foot .foot-meta>a{color:var(--muted);text-decoration:none}
+.shell footer.foot .foot-meta>a:hover{color:var(--fg);text-decoration:underline}
+.shell footer.foot .credit{font:600 .8rem var(--mono);letter-spacing:.04em;color:var(--fg);margin:0}
 .shell footer.foot .credit a{color:inherit}
 
 /* Touch screens get 44px rows in the side list and switcher. */
-@media (pointer:coarse){.shell .side a{min-height:var(--tap)} .shell .switcher a{min-height:40px}}
+@media (pointer:coarse){.shell .side a{min-height:var(--tap)} .shell .switcher a{min-height:var(--tap)}}
 
 /* Below 64rem (iPad portrait, phones) the side list is a drawer the menu button opens. */
 @media (max-width:64rem){
@@ -110,19 +130,45 @@ html:not(.js) .shell .theme,html:not(.js) .shell .dev{display:none}
 @media (max-width:86rem){.shell header.bar .notice summary .long{display:none} .shell header.bar .notice summary .short{display:inline}}
 @media (max-width:40rem){.shell>details.notice:not([open]) summary .long{display:none} .shell>details.notice:not([open]) summary .short{display:inline}}
 @media (max-width:64rem){.shell header.bar .brand .tag{display:none} .shell header.bar .brand .word{font-size:1.25rem}}
-/* Phones and narrow windows (44rem): a shorter bar, the mark without the word, and the notice as a round button with its dot. Below 24rem the
-   mark gives way too (the Docs tab goes home), so the switcher, the notice and both buttons fit a 360px screen. */
+/* Below 60rem the switcher takes its own row under the brand, its five tabs sharing the width at 44px each, so the
+   bar never crowds and every tab stays a full touch target down to a 360px phone (3.0.0). Below 44rem the notice
+   becomes a round button with its dot; below 20rem the word gives way and the mark stays. */
+@media (max-width:60rem){
+  .shell{--bar:116px} .shell .bar-in{flex-wrap:wrap;row-gap:0;padding-top:var(--space-2)}
+  .shell .switcher{order:3;flex:1 0 100%;margin:var(--space-1) 0 var(--space-2)} .shell .switcher a{flex:1 1 0;min-height:var(--tap);padding:0 .3rem}
+}
 @media (max-width:44rem){
-  .shell{--bar:60px} .shell .bar-in{gap:var(--space-2)} .shell .tools{gap:6px}
-  .shell header.bar .brand .name,.shell header.bar .brand>.word{display:none} .shell header.bar .brand .mark{width:36px;height:36px}
-  .shell .switcher{margin-left:0} .shell .switcher a{padding:0 .5rem;font-size:.8rem}
+  .shell .bar-in{gap:var(--space-2)} .shell .tools{gap:6px}
+  .shell header.bar .brand .mark{width:36px;height:36px}
+  .shell .switcher a{font-size:.8rem}
   .shell header.bar .notice summary{width:var(--tap);padding:0;justify-content:center;border-color:var(--shell-warn)}
   .shell header.bar .notice summary::after{display:none}
   .shell header.bar .notice summary .short{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
   .shell header.bar .notice summary::before{width:10px;height:10px}
 }
-@media (max-width:26rem){.shell .bar-in{gap:6px} .shell header.bar .brand .mark{width:32px;height:32px} .shell .switcher a{padding:0 .38rem}}
-@media (max-width:24rem){.shell header.bar .brand{display:none}}
-@media (max-width:23rem){.shell .switcher a{padding:0 .34rem;font-size:.76rem}}
+@media (max-width:26rem){.shell .bar-in{gap:6px} .shell header.bar .brand .mark{width:32px;height:32px} .shell header.bar .brand .word{font-size:1.1rem}}
+@media (max-width:20rem){.shell header.bar .brand .name{display:none}}
+@media (max-width:23rem){.shell .switcher a{font-size:.76rem}}
 .shell .skip{position:absolute;left:-999px;top:0;z-index:50;background:var(--surface);color:var(--fg);padding:var(--space-2) var(--space-3);border-radius:var(--radius-sm)}
 .shell .skip:focus{left:max(var(--gutter),env(safe-area-inset-left,0px));top:calc(var(--space-2) + env(safe-area-inset-top,0px))}
+.shell header.bar .tools .iconbtn.customize[aria-expanded="true"]{background:var(--shell-hover);border-color:var(--brand);color:var(--brand)}
+html:not(.js) .shell .customize{display:none}
+.shell .cust-pop{position:fixed;top:calc(var(--bar) + var(--space-2) + env(safe-area-inset-top,0px));right:max(var(--gutter),env(safe-area-inset-right,0px));z-index:45;width:min(24rem,calc(100vw - 2 * var(--gutter)));max-height:calc(100dvh - var(--bar) - var(--space-4) - env(safe-area-inset-top,0px));overflow-y:auto;background:var(--surface);color:var(--fg);border:1px solid var(--line-strong);border-radius:var(--radius-lg);box-shadow:var(--shadow-2);padding:var(--space-4);display:grid;gap:var(--space-3)}
+.shell .cust-pop[hidden]{display:none}
+.shell .cust-pop-head{display:flex;align-items:center;justify-content:space-between;gap:var(--space-2)}
+.shell .cust-pop-head strong{font:700 var(--fs-md) var(--display);color:var(--fg)}
+.shell .cust-pop-sub{margin:0;font-size:var(--fs-sm);color:var(--muted)}
+.shell .cust-pop-close{min-width:var(--tap);min-height:var(--tap);display:grid;place-items:center;border:1px solid var(--line);border-radius:var(--radius-sm);background:transparent;color:var(--muted);cursor:pointer;font:600 var(--fs-md) var(--mono)}
+.shell .cust-pop-close:hover{background:var(--sunken);color:var(--fg)}
+.shell .cust-pop-group{display:grid;gap:var(--space-1)}
+.shell .cust-pop-lbl{font:600 var(--fs-xs) var(--mono);color:var(--muted)}
+.shell .cust-pop-row{display:flex;flex-wrap:wrap;gap:var(--space-1)}
+.shell .cust-pop-opt{min-height:36px;padding:0 var(--space-2);border:1px solid var(--line-strong);border-radius:var(--pill);background:var(--bg);color:var(--fg);font:600 var(--fs-xs) var(--body);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.shell .cust-pop-opt:hover{border-color:var(--accent)}
+.shell .cust-pop-opt[aria-pressed="true"]{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.shell .cust-pop-foot{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2);padding-top:var(--space-2);border-top:1px solid var(--hairline)}
+.shell .cust-pop-save{min-height:var(--tap);padding:0 var(--space-3);border-radius:var(--radius-sm);border:1px solid var(--accent);background:var(--accent);color:var(--on-accent);font:600 var(--fs-sm) var(--body);cursor:pointer}
+.shell .cust-pop-save:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+.shell .cust-pop-link{margin-left:auto;font:600 var(--fs-xs) var(--mono);color:var(--accent);text-decoration:none;min-height:var(--tap);display:inline-flex;align-items:center}
+.shell .cust-pop-link:hover{color:var(--accent-hover);text-decoration:underline}
+@media (pointer:coarse){.shell .cust-pop-opt{min-height:var(--tap)}}
