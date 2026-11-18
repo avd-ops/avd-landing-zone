@@ -52,7 +52,8 @@ param(
   # Resource groups the run reuses (regex), counted as the run's even though they existed before.
   [string] $ResourceGroupPattern,
   [switch] $AllowUnpriced,
-  [switch] $EstimateOnly
+  [switch] $EstimateOnly,
+  [switch] $ReconcileEmptyLeftovers
 )
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'AvdLandingZone.psm1') -Force
@@ -99,6 +100,24 @@ $subId = $ctx.Subscription.Id
 $store = Open-AvdRunRecordStore -RecordsPath $RecordsPath -SubscriptionId $subId -Local:$Local
 $runs = @(Get-AvdSpendRun -RecordsPath $RecordsPath -Sandbox $Sandbox)
 $open = @($runs | Where-Object { $_.status -in 'open', 'leftovers' })
+if ($open.Count -and $ReconcileEmptyLeftovers -and (@($open | Where-Object { $_.status -ne 'leftovers' }).Count -eq 0)) {
+  Write-Host 'Checking whether earlier leftovers run(s) are already clean in Azure ...' -ForegroundColor DarkGray
+  $reconcileInv = @(Get-AvdSpendInventory -SubscriptionId $subId)
+  $reconcileNow = (Get-Date).ToUniversalTime()
+  foreach ($stale in $open) {
+    $stillLeft = @(Get-AvdSpendLeftover -Baseline $stale.baseline -Inventory $reconcileInv)
+    if ($stillLeft.Count -eq 0) {
+      $stale.status = 'closed'
+      $stale.closedAt = $reconcileNow.ToString('o')
+      $stale | Add-Member -NotePropertyName reconciledBy -NotePropertyValue 'Start-AvdSpendRun -ReconcileEmptyLeftovers' -Force
+      $null = Save-AvdSpendRun -RecordsPath $RecordsPath -Run $stale
+      Write-Host "  Reconciled empty leftovers run $($stale.runId) -> closed." -ForegroundColor DarkGray
+    }
+  }
+  Save-AvdRunRecordStore -Store $store
+  $runs = @(Get-AvdSpendRun -RecordsPath $RecordsPath -Sandbox $Sandbox)
+  $open = @($runs | Where-Object { $_.status -in 'open', 'leftovers' })
+}
 if ($open.Count) {
   Write-AvdSpendSummary ($md + '', "**Refused:** run $($open[0].runId) is still $($open[0].status). Close it first (Stop-AvdSpendRun.ps1), so each run's cost and teardown stay separate.")
   exit 1

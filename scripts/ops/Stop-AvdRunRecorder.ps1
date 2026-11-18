@@ -157,8 +157,21 @@ if ($CopyTo -eq 'github') {
     foreach ($f in $files) {
       $src = Join-Path $folder $f.path
       $gz = Join-Path $tmp (($f.path -replace '/', '__') + '.gz')
-      $in = [IO.File]::OpenRead($src); $out = [IO.File]::Create($gz)
-      try { $z = [IO.Compression.GZipStream]::new($out, [IO.Compression.CompressionLevel]::Optimal); $in.CopyTo($z); $z.Dispose() } finally { $in.Dispose(); $out.Dispose() }
+      if ($f.path -match '\.(jsonl|json|md|txt|log)$') {
+        $rawText = Get-Content -LiteralPath $src -Raw -Encoding utf8
+        $redactedText = [regex]::Replace($rawText, '(?i)\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b', {
+          param($m)
+          if ($m.Value -eq '00000000-0000-0000-0000-000000000000') { return $m.Value }
+          return '<redacted-guid>'
+        })
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($redactedText)
+        $out = [IO.File]::Create($gz)
+        try { $z = [IO.Compression.GZipStream]::new($out, [IO.Compression.CompressionLevel]::Optimal); $z.Write($bytes, 0, $bytes.Length); $z.Dispose() } finally { $out.Dispose() }
+      }
+      else {
+        $in = [IO.File]::OpenRead($src); $out = [IO.File]::Create($gz)
+        try { $z = [IO.Compression.GZipStream]::new($out, [IO.Compression.CompressionLevel]::Optimal); $in.CopyTo($z); $z.Dispose() } finally { $in.Dispose(); $out.Dispose() }
+      }
       $f | Add-Member -NotePropertyName gzPath -NotePropertyValue $gz -Force
       $f | Add-Member -NotePropertyName gzBytes -NotePropertyValue (Get-Item -LiteralPath $gz).Length -Force
       $f | Add-Member -NotePropertyName gzSha256 -NotePropertyValue (Get-FileHash -LiteralPath $gz -Algorithm SHA256).Hash.ToLowerInvariant() -Force
