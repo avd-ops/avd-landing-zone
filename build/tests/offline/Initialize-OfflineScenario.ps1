@@ -4,6 +4,8 @@
 $ErrorActionPreference = 'Stop'
 $env:PSModulePath = (Join-Path $PSScriptRoot 'modules') + [IO.Path]::PathSeparator + $env:PSModulePath
 $env:ACC_CLOUD = '1'   # the scripts then behave as they do in Azure Cloud Shell
+$env:AVDLZ_RETAIL_PRICE_CACHE = 'off'  # scenarios mutate mock pricing flags between steps in one process
+$env:AVDLZ_RETAIL_PRICE_FALLBACK = 'off'  # prices-down scenario tests error handling when API is down
 # Hermetic: the tooling check looks for az; don't depend on the machine having it.
 $env:PATH = (Join-Path $PSScriptRoot 'bin') + [IO.Path]::PathSeparator + $env:PATH
 Import-Module (Join-Path $PSScriptRoot 'AzMock.psm1') -Global -Force
