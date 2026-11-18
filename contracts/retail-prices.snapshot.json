@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "1.0.0",
+  "cloud": "public",
+  "snapshotDate": "2026-11-17",
+  "priceSource": "pinned-public-fallback-snapshot",
+  "currencyCode": "USD",
+  "description": "Pinned Azure public cloud retail price fallback snapshot for common lab regions/SKUs when prices.azure.com returns 429/503 after retries.",
+  "regions": [
+    "centralus",
+    "northcentralus"
+  ],
+  "Items": [
+    {
+      "armRegionName": "centralus",
+      "serviceName": "Virtual Machines",
+      "productName": "Virtual Machines Dasv5 Series",
+      "skuName": "D2as v5",
+      "armSkuName": "Standard_D2as_v5",
+      "meterName": "D2as v5",
+      "type": "Consumption",
+      "retailPrice": 0.096,
+      "unitOfMeasure": "1 Hour",
+      "currencyCode": "USD"
+    },
+    {
+      "armRegionName": "northcentralus",
+      "serviceName": "Virtual Machines",
+      "productName": "Virtual Machines Dasv5 Series",
+      "skuName": "D2as v5",
+      "armSkuName": "Standard_D2as_v5",
+      "meterName": "D2as v5",
+      "type": "Consumption",
+      "retailPrice": 0.096,
+      "unitOfMeasure": "1 Hour",
+      "currencyCode": "USD"
+    }
+  ]
+}
