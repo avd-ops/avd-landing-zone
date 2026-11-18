@@ -60,7 +60,7 @@ jobs:
         with:
           ref: ${{ steps.release.outputs.tag || github.sha }}
           persist-credentials: false
-      - uses: actions/configure-pages@983d7736d9b0ae728b81ab479565c72886d7745b # v5.0.0
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
       # The commit this portal is built from (decision 0017): the page compares it with the commit in
       # every pasted state line and says when the scripts are newer than the portal. With a release,
       # its tag is also the ref every command checks out.
