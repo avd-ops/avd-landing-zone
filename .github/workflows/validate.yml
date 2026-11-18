@@ -62,7 +62,7 @@ jobs:
     name: Bicep lint + build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Bicep
         run: az bicep install --version "$BICEP_VERSION" && az bicep version
@@ -98,7 +98,7 @@ jobs:
     name: Script analysis + tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: PSScriptAnalyzer
         shell: pwsh
@@ -149,7 +149,7 @@ jobs:
           - { name: macOS, os: macos-latest, bicep: bicep-osx-arm64 }
           - { name: Windows, os: windows-latest, bicep: bicep-win-x64.exe }
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Stock macOS bash stops with a clear message
         if: runner.os == 'macOS'
@@ -194,7 +194,7 @@ jobs:
     name: Deployment portal tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -208,7 +208,7 @@ jobs:
     name: Deployment portal in a browser
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
@@ -227,7 +227,7 @@ jobs:
     # A gate: every finding is either fixed or suppressed with a written
     # justification in .ps-rule/Suppressions.Rule.yaml.
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Install the standalone Bicep CLI at a fixed path and point PSRule at it.
       # Relying on az/PATH discovery was intermittent and silently skipped a
@@ -265,7 +265,7 @@ jobs:
     # The resources each parameter file would deploy, compared with the base branch, in the
     # job summary. No Azure sign-in. Advisory: a difference is information, not a failure.
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
 
@@ -301,7 +301,7 @@ jobs:
       AVD_LOCAL_ADMIN_PASSWORD: ${{ secrets.AVD_LOCAL_ADMIN_PASSWORD || 'WhatIf-placeholder-only-1!' }}
       AVD_LOCATION: ${{ vars.AZURE_LOCATION }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Azure login (OIDC)
         uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
