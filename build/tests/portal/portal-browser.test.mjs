@@ -269,15 +269,15 @@ test('portal UI: pasting <<<AVDLZ-STATE ... AVDLZ-STATE>>> from Invoke-AvdContro
 
 test('portal UI: Region and Verify steps link to AVD Line Check with the active deployment region', () => {
   const { html, getEl } = createPortalDomHarness();
-  assert.match(html, /id="region-linecheck"[^>]*href="https:\/\/linecheck\.avd-ops\.dev\/\?pack=avd&amp;region=northcentralus"/);
-  assert.match(html, /id="verify-linecheck"[^>]*href="https:\/\/linecheck\.avd-ops\.dev\/\?pack=avd&amp;region=northcentralus"/);
-  assert.equal(getEl('region-linecheck').href, 'https://linecheck.avd-ops.dev/?pack=avd&region=northcentralus');
-  assert.equal(getEl('verify-linecheck').href, 'https://linecheck.avd-ops.dev/?pack=avd&region=northcentralus');
+  assert.match(html, /id="region-linecheck"[^>]*href="https:\/\/avd-ops\.app\/linecheck\/\?pack=avd&amp;region=northcentralus"/);
+  assert.match(html, /id="verify-linecheck"[^>]*href="https:\/\/avd-ops\.app\/linecheck\/\?pack=avd&amp;region=northcentralus"/);
+  assert.equal(getEl('region-linecheck').href, 'https://avd-ops.app/linecheck/?pack=avd&region=northcentralus');
+  assert.equal(getEl('verify-linecheck').href, 'https://avd-ops.app/linecheck/?pack=avd&region=northcentralus');
 
   getEl('location').value = 'westeurope';
   getEl('location').dispatchEvent({ type: 'change', target: getEl('location'), preventDefault() {} });
-  assert.equal(getEl('region-linecheck').href, 'https://linecheck.avd-ops.dev/?pack=avd&region=westeurope');
-  assert.equal(getEl('verify-linecheck').href, 'https://linecheck.avd-ops.dev/?pack=avd&region=westeurope');
+  assert.equal(getEl('region-linecheck').href, 'https://avd-ops.app/linecheck/?pack=avd&region=westeurope');
+  assert.equal(getEl('verify-linecheck').href, 'https://avd-ops.app/linecheck/?pack=avd&region=westeurope');
 });
 
 test('portal UI: Target-state architecture & network diagram updates with control-plane presets and exports SVG, Mermaid, and Draw.io', () => {
