@@ -2654,29 +2654,54 @@ function Add-AvdCallerToGroup {
 # =====================================================================
 $script:RetailPriceApi = 'https://prices.azure.com/api/retail/prices'
 $script:RetailPriceCache = @{}
+$script:RetailPriceDiskCacheTtlHours = 24
 $script:HoursPerMonth = 730
 
 function Get-AvdRetailPrice {
   <#
     Azure retail (pay-as-you-go list) prices matching an OData filter, from the public Retail
-    Prices API (no sign-in). Paged; caches per URI in-session, retries transient 429/503 with
-    exponential backoff, and stops on other errors, an empty page or MaxPages (lesson 0008).
+    Prices API (no sign-in). Paged; checks an in-session cache and a 24-hour disk cache, retries
+    transient 429/503 with exponential backoff, and falls back to a pinned snapshot on repeated
+    429/503 if present. Stops on other errors, an empty page or MaxPages (lesson 0008).
   #>
   param(
     [Parameter(Mandatory)][string] $Filter,
     [string] $Currency = 'USD',
     [int] $MaxPages = 5,
     [int] $MaxRetries = 3,
+    [string] $DiskCachePath = (Join-Path $HOME '.avd-landing-zone/retail-price-cache.json'),
+    [string] $FallbackSnapshotPath = (Join-Path $PSScriptRoot '../../contracts/retail-prices.snapshot.json'),
+    [datetime] $Now = (Get-Date).ToUniversalTime(),
     [scriptblock] $Invoker = { param($u) Invoke-RestMethod -Uri $u -Method Get -ErrorAction Stop },
     [scriptblock] $Sleep = { param($seconds) Start-Sleep -Seconds $seconds }
   )
+  $diskCache = @{}
+  if ($DiskCachePath -and (Test-Path -LiteralPath $DiskCachePath)) {
+    try {
+      $loaded = Get-Content -LiteralPath $DiskCachePath -Raw | ConvertFrom-Json -Depth 15 -AsHashtable
+      if ($loaded -is [hashtable]) { $diskCache = $loaded }
+    } catch { $diskCache = @{} }
+  }
+  $diskDirty = $false
+
   $uri = "$($script:RetailPriceApi)?currencyCode='$Currency'&`$filter=$([uri]::EscapeDataString($Filter))"
   $page = 0
   while ($uri -and $page -lt $MaxPages) {
     $page++
+    $r = $null
     if ($script:RetailPriceCache.ContainsKey($uri)) {
       $r = $script:RetailPriceCache[$uri]
-    } else {
+    } elseif ($diskCache.ContainsKey($uri)) {
+      $entry = $diskCache[$uri]
+      $nowEpoch = ([DateTimeOffset]$Now.ToUniversalTime()).ToUnixTimeSeconds()
+      $fetchedEpoch = if ($entry.fetchedAtEpoch) { [long]$entry.fetchedAtEpoch } else { 0L }
+      if (($nowEpoch - $fetchedEpoch) -lt ($script:RetailPriceDiskCacheTtlHours * 3600)) {
+        $r = [pscustomobject]@{ Items = @($entry.Items); NextPageLink = $entry.NextPageLink }
+        $script:RetailPriceCache[$uri] = $r
+      }
+    }
+
+    if (-not $r) {
       $attempt = 0
       while ($true) {
         try {
@@ -2686,7 +2711,14 @@ function Get-AvdRetailPrice {
           $resp = $_.Exception.PSObject.Properties['Response'] ? $_.Exception.Response : $null
           $statusCode = if ($resp -and $resp.StatusCode) { [int]$resp.StatusCode } else { 0 }
           $isTransient = ($statusCode -in @(429, 503)) -or ($_.Exception.Message -match '429|Too many requests|503|Service Unavailable')
-          if (-not $isTransient -or $attempt -ge $MaxRetries) { throw }
+          if (-not $isTransient) { throw }
+          if ($attempt -ge $MaxRetries) {
+            if ($page -eq 1 -and $FallbackSnapshotPath -and (Test-Path -LiteralPath $FallbackSnapshotPath)) {
+              Write-Warning "Retail Prices API unavailable (transient 429/503); using pinned snapshot '$FallbackSnapshotPath'."
+              return @(Get-AvdPinnedUsGovPrice -Filter $Filter -SnapshotPath $FallbackSnapshotPath)
+            }
+            throw
+          }
           $delay = [int][math]::Pow(2, $attempt + 1)
           if ($resp -and $resp.Headers -and $resp.Headers.RetryAfter -and $resp.Headers.RetryAfter.Delta) {
             $delay = [math]::Max(1, [int][math]::Ceiling($resp.Headers.RetryAfter.Delta.TotalSeconds))
@@ -2696,10 +2728,25 @@ function Get-AvdRetailPrice {
         }
       }
       $script:RetailPriceCache[$uri] = $r
+      if ($DiskCachePath) {
+        $diskCache[$uri] = @{
+          fetchedAtEpoch = ([DateTimeOffset]$Now.ToUniversalTime()).ToUnixTimeSeconds()
+          Items          = @($r.Items)
+          NextPageLink   = $r.NextPageLink
+        }
+        $diskDirty = $true
+      }
     }
+
     if (-not $r -or -not $r.Items) { break }
     $r.Items
     $uri = $r.NextPageLink
+  }
+
+  if ($diskDirty -and $DiskCachePath) {
+    $parent = Split-Path -Parent $DiskCachePath
+    if ($parent -and -not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+    $diskCache | ConvertTo-Json -Depth 15 | Set-Content -LiteralPath $DiskCachePath -Encoding utf8NoBOM
   }
 }
 
