@@ -1,4 +1,4 @@
-/* avd-ops design system v2.7.0 (https://avd-ops.dev/, avd-ops/avd-ops site/assets/avd-ops.css). MIT.
+/* avd-ops design system v3.0.0 (https://avd-ops.dev/, avd-ops/avd-ops site/assets/avd-ops.css). MIT.
    Personal project, not for production, as is; not affiliated with the author's employer, Liquidware or Microsoft.
    One file for every public AVD page: tokens (light, dark, and a data-theme override), base type, and the shared
    pieces (top bar with the logo slot, notice, buttons, chips, status pills, tables, code, footer). Pages add only
@@ -17,73 +17,82 @@
 @font-face{font-family:"Source Serif 4";font-weight:400;font-style:italic;font-display:swap;src:url("fonts/source-serif-4-latin-400-italic.woff2") format("woff2")}
 @font-face{font-family:"Source Serif 4";font-weight:600 700;font-display:swap;src:url("fonts/source-serif-4-latin-600-normal.woff2") format("woff2")}
 
-/* Tokens. Neutrals are a cool slate; the accent is the logo's teal, darkened on light backgrounds for contrast
-   (--brand and --brand-ink are the logo's own colors, for brand surfaces only); amber marks the optional
-   Liquidware tier; good, caution and bad are for results only, never decoration, and info marks work in progress.
-   The shell pair is the brand bar's ink, the same in both themes so every family page opens on the same frame. */
+/* Tokens (3.0.0). A quiet, cool neutral hierarchy tinted toward the logo's teal: --bg is the page, --surface the
+   working plane, --raised a plane lifted one step (menus, the hero's system figure), --sunken a well. Structure is
+   drawn with 1px hairlines (--hairline inside a surface, --line around it, --line-strong for controls), not with
+   shadows; --shadow-2 is kept for things that float (the drawer, the open notice). The accent is the logo's teal,
+   darkened on light backgrounds for contrast (--brand and --brand-ink are the logo's own colors, for brand surfaces
+   only); --accent-line is the accent as a hairline. Amber marks the optional tier; good, caution and bad are for
+   results only, never decoration, and info marks work in progress. The shell pair is the brand bar's ink, the same
+   in both themes so every family page opens on the same frame. Type runs on one scale (--fs-*, a major third from
+   the 15.5px body), headings tracked tight (--track-display), figures tabular wherever they line up. */
 :root{
-  --bg:#f4f6f9; --surface:#ffffff; --sunken:#eef2f6; --fg:#152232; --muted:#566578; --line:#d7dee8; --line-strong:#bfc9d6;
-  --accent:#0b7a6e; --accent-hover:#09635a; --on-accent:#ffffff; --accent-soft:#e0f2ef; --focus:#0b7a6e;
+  --bg:#f5f7f7; --surface:#ffffff; --sunken:#edf1f1; --raised:#fbfcfc; --fg:#0f1c1e; --muted:#4e5e62; --line:#dae1e2; --line-strong:#b8c3c5; --hairline:#e7ecec; --grid:#e3eaea;
+  --accent:#0b7a6e; --accent-hover:#075f56; --on-accent:#ffffff; --accent-soft:#e1f2ef; --accent-line:#a9dbd3; --focus:#0b7a6e;
   --brand:#1ca998; --brand-ink:#0d1015;
   --tier:#9a5b12; --tier-soft:#f7ecdc;
   --good:#18794e; --good-soft:#e1f3e9; --caution:#8a5a00; --caution-soft:#fbf0d9; --bad:#b42323; --bad-soft:#fbe7e7;
   --warn-bg:#fff6e0; --warn-line:#e2b74a; --warn-fg:#4d3a07;
   --term-bg:#0f1822; --term-head:#18232f; --term-text:#dbe5ef; --term-muted:#8796a8; --term-border:#263342; --prompt:#5fcf86;
   --s-built-bg:#d9f2e3; --s-built-fg:#14532d; --s-design-bg:#e4edfb; --s-design-fg:#1d4785; --s-slice-bg:#fdecc8; --s-slice-fg:#713f12;
-  --shell:#0d1015; --shell-fg:#e8f1f0; --shell-muted:#a3b3b8; --shell-line:#262f36; --shell-hover:#1b242a; --shell-warn:#e2b74a; --info:#2456a6; --info-soft:#e4edfb;
-  --shadow-2:0 2px 6px rgba(21,34,50,.08),0 12px 32px rgba(21,34,50,.10);
-  --shadow:0 1px 2px rgba(21,34,50,.05),0 4px 16px rgba(21,34,50,.05);
+  --shell:#0d1015; --shell-fg:#e8f1f0; --shell-muted:#a3b3b8; --shell-line:#222b31; --shell-hover:#1a2329; --shell-warn:#e2b74a; --info:#2456a6; --info-soft:#e4edfb;
+  --shadow-2:0 1px 2px rgba(15,28,30,.06),0 18px 40px -14px rgba(15,28,30,.22);
+  --shadow:0 1px 0 rgba(15,28,30,.04);
   --display:"Schibsted Grotesk","Segoe UI",system-ui,sans-serif;
   --body:"IBM Plex Mono",ui-monospace,"Cascadia Mono",SFMono-Regular,Menlo,Consolas,monospace;
   --mono:"IBM Plex Mono",ui-monospace,"Cascadia Mono",SFMono-Regular,Menlo,Consolas,monospace;
   --wordmark:"Schibsted Grotesk","Segoe UI",system-ui,sans-serif;
   --tagline:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
   --prose:"Source Serif 4",Georgia,"Times New Roman",serif;
-  --radius:8px; --radius-sm:6px; --pill:999px;
-  --space-1:.25rem; --space-2:.5rem; --space-3:.75rem; --space-4:1rem; --space-5:1.5rem; --space-6:2.5rem;
+  --radius:8px; --radius-sm:6px; --radius-xs:4px; --pill:999px;
+  --space-1:.25rem; --space-2:.5rem; --space-3:.75rem; --space-4:1rem; --space-5:1.5rem; --space-6:2.5rem; --space-7:4rem;
   --measure:76rem; --gutter:16px; --page:76rem; --side:15rem; --tap:44px; --radius-lg:14px; --bar:72px;
+  --fs-xs:.75rem; --fs-sm:.8125rem; --fs-md:1.0625rem; --fs-lg:1.25rem; --fs-xl:1.5625rem; --fs-2xl:1.953rem; --fs-3xl:clamp(2.25rem,1.55rem + 2.6vw,3.4rem);
+  --lh-tight:1.08; --lh-snug:1.3; --track-display:-.024em; --track-label:.01em;
   --ease:cubic-bezier(.2,.7,.2,1); --fast:120ms; --slow:220ms;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
-  --bg:#0f1620; --surface:#16202c; --sunken:#121b25; --fg:#e4ebf3; --muted:#9aa9ba; --line:#2a3646; --line-strong:#3a4859;
-  --accent:#3cc8b4; --accent-hover:#7fe0d2; --on-accent:#0b1520; --accent-soft:#123331; --focus:#7fe0d2;
+  --bg:#0a0f11; --surface:#10171a; --sunken:#0c1315; --raised:#151e22; --fg:#e6eeee; --muted:#96a8ac; --line:#1f2a2e; --line-strong:#33434a; --hairline:#172024; --grid:#141d21;
+  --accent:#3cc8b4; --accent-hover:#7fe0d2; --on-accent:#06110f; --accent-soft:#0f2e2b; --accent-line:#1f5a52; --focus:#7fe0d2;
   --brand:#1ca998; --brand-ink:#0d1015;
   --tier:#e5a95a; --tier-soft:#3a2a14;
   --good:#4cc286; --good-soft:#10291c; --caution:#e0b04a; --caution-soft:#2c2311; --bad:#ff8a80; --bad-soft:#301818;
   --warn-bg:#2e2610; --warn-line:#8a6d1e; --warn-fg:#f3e3b0;
   --term-bg:#0a1018; --term-head:#121a24; --term-text:#dbe5ef; --term-muted:#7d8c9e; --term-border:#222e3c; --prompt:#5fcf86;
   --s-built-bg:#123824; --s-built-fg:#a7e8c0; --s-design-bg:#14223a; --s-design-fg:#bcd2fa; --s-slice-bg:#3d2e0e; --s-slice-fg:#f5d58a;
-  --shell:#070a0d; --shell-fg:#e8f1f0; --shell-muted:#93a6ad; --shell-line:#1d262d; --shell-hover:#141c22; --shell-warn:#e0b04a; --info:#86b0f5; --info-soft:#14223a;
-  --shadow-2:0 2px 6px rgba(0,0,0,.4),0 12px 32px rgba(0,0,0,.45);
-  --shadow:0 1px 2px rgba(0,0,0,.35); color-scheme:dark}}
+  --shell:#070a0c; --shell-fg:#e8f1f0; --shell-muted:#93a6ad; --shell-line:#1a2328; --shell-hover:#12191d; --shell-warn:#e0b04a; --info:#86b0f5; --info-soft:#14223a;
+  --shadow-2:0 1px 2px rgba(0,0,0,.5),0 18px 40px -14px rgba(0,0,0,.7);
+  --shadow:0 1px 0 rgba(0,0,0,.4); color-scheme:dark}}
 :root[data-theme="dark"]{
-  --bg:#0f1620; --surface:#16202c; --sunken:#121b25; --fg:#e4ebf3; --muted:#9aa9ba; --line:#2a3646; --line-strong:#3a4859;
-  --accent:#3cc8b4; --accent-hover:#7fe0d2; --on-accent:#0b1520; --accent-soft:#123331; --focus:#7fe0d2;
+  --bg:#0a0f11; --surface:#10171a; --sunken:#0c1315; --raised:#151e22; --fg:#e6eeee; --muted:#96a8ac; --line:#1f2a2e; --line-strong:#33434a; --hairline:#172024; --grid:#141d21;
+  --accent:#3cc8b4; --accent-hover:#7fe0d2; --on-accent:#06110f; --accent-soft:#0f2e2b; --accent-line:#1f5a52; --focus:#7fe0d2;
   --brand:#1ca998; --brand-ink:#0d1015;
   --tier:#e5a95a; --tier-soft:#3a2a14;
   --good:#4cc286; --good-soft:#10291c; --caution:#e0b04a; --caution-soft:#2c2311; --bad:#ff8a80; --bad-soft:#301818;
   --warn-bg:#2e2610; --warn-line:#8a6d1e; --warn-fg:#f3e3b0;
   --term-bg:#0a1018; --term-head:#121a24; --term-text:#dbe5ef; --term-muted:#7d8c9e; --term-border:#222e3c; --prompt:#5fcf86;
   --s-built-bg:#123824; --s-built-fg:#a7e8c0; --s-design-bg:#14223a; --s-design-fg:#bcd2fa; --s-slice-bg:#3d2e0e; --s-slice-fg:#f5d58a;
-  --shell:#070a0d; --shell-fg:#e8f1f0; --shell-muted:#93a6ad; --shell-line:#1d262d; --shell-hover:#141c22; --shell-warn:#e0b04a; --info:#86b0f5; --info-soft:#14223a;
-  --shadow-2:0 2px 6px rgba(0,0,0,.4),0 12px 32px rgba(0,0,0,.45);
-  --shadow:0 1px 2px rgba(0,0,0,.35); color-scheme:dark}
+  --shell:#070a0c; --shell-fg:#e8f1f0; --shell-muted:#93a6ad; --shell-line:#1a2328; --shell-hover:#12191d; --shell-warn:#e0b04a; --info:#86b0f5; --info-soft:#14223a;
+  --shadow-2:0 1px 2px rgba(0,0,0,.5),0 18px 40px -14px rgba(0,0,0,.7);
+  --shadow:0 1px 0 rgba(0,0,0,.4); color-scheme:dark}
 
 /* Base */
 *{box-sizing:border-box}
-body{background:var(--bg);color:var(--fg);font:15.5px/1.7 var(--body);margin:0;-webkit-text-size-adjust:100%}
-a{color:var(--accent)} a:hover{color:var(--accent-hover)}
+body{background:var(--bg);color:var(--fg);font:15.5px/1.7 var(--body);margin:0;-webkit-text-size-adjust:100%;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-underline-offset:.18em;text-decoration-thickness:1px} a:hover{color:var(--accent-hover)}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
-h1,h2,h3{font-family:var(--display);line-height:1.2;text-wrap:balance}
-h1{font-size:clamp(2rem,5vw,2.9rem);margin:var(--space-6) 0 var(--space-3);letter-spacing:-.015em}
-h2{font-size:1.45rem;margin:2.75rem 0 var(--space-3);letter-spacing:-.005em} h3{font-size:1.1rem;margin:0 0 .35rem}
+h1,h2,h3{font-family:var(--display);line-height:var(--lh-snug);text-wrap:balance}
+h1{font-size:var(--fs-3xl);line-height:var(--lh-tight);margin:var(--space-6) 0 var(--space-3);letter-spacing:var(--track-display)}
+h2{font-size:var(--fs-xl);margin:2.75rem 0 var(--space-3);letter-spacing:-.012em} h3{font-size:var(--fs-md);margin:0 0 .35rem;letter-spacing:-.004em}
+/* Figures line up wherever they are compared: tables, pills, counts. */
+td,.num,.status,.mark-badge,.untested,meter{font-variant-numeric:tabular-nums}
 code,.mono{font-family:var(--mono);font-size:.9em}
 .prose{font-family:var(--prose);font-size:1.06rem;line-height:1.65}
 :not(pre)>code{background:var(--sunken);border:1px solid var(--line);border-radius:4px;padding:0 .3em}
 pre{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);padding:.9rem 1rem;overflow-x:auto;font:.82rem/1.55 var(--mono)}
 /* Commands show every character as typed: no ligature turns << or != into one glyph. */
 pre,code,.mono{font-variant-ligatures:none}
-.lede{font-size:1.2rem;color:var(--muted)}
+.lede{font-size:var(--fs-lg);line-height:1.55;color:var(--muted)}
 .wrap{max-width:var(--measure);margin:0 auto;padding-block:0 4rem;
   padding-left:max(var(--gutter),env(safe-area-inset-left,0px));padding-right:max(var(--gutter),env(safe-area-inset-right,0px))}
 
@@ -104,23 +113,38 @@ header.top nav a{text-decoration:none;color:var(--muted)} header.top nav a:hover
 
 /* Labels, chips, status pills. Chips sit in a .chips row and pills carry an s-* class, so pages that use
    .chip or .status for their own thing (the portal) keep theirs. */
-.eyebrow{font:600 .88rem var(--body);color:var(--muted)}
+.eyebrow{font:600 var(--fs-sm) var(--body);letter-spacing:var(--track-label);color:var(--muted)}
 .chips{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:var(--space-1)}
 .chips .chip{font:500 .72rem var(--mono);border:1px solid var(--line);border-radius:var(--pill);padding:.1rem var(--space-2);color:var(--muted);background:var(--bg)}
-.status:is(.s-built,.s-design,.s-slice){font:600 .72rem var(--mono);text-transform:uppercase;letter-spacing:.06em;padding:.15rem var(--space-2);border-radius:4px;align-self:flex-start}
+.status:is(.s-built,.s-design,.s-slice,.s-exploring,.s-planned,.s-in-progress,.s-done,.s-parked){font:600 var(--fs-xs) var(--mono);letter-spacing:var(--track-label);padding:.15rem var(--space-2);border-radius:var(--radius-xs);align-self:flex-start;display:inline-flex;align-items:center;gap:.3em;white-space:nowrap}
 .s-built{background:var(--s-built-bg);color:var(--s-built-fg)} .s-design{background:var(--s-design-bg);color:var(--s-design-fg)} .s-slice{background:var(--s-slice-bg);color:var(--s-slice-fg)}
+.s-exploring{background:var(--sunken);color:var(--muted);border:1px dashed var(--line-strong)} .s-exploring::before{content:"\25CB"}
+.s-planned{background:var(--info-soft);color:var(--info)} .s-planned::before{content:"\25D4"}
+.s-in-progress{background:var(--accent-soft);color:var(--accent)} .s-in-progress::before{content:"\25D1"}
+.s-done{background:var(--good-soft);color:var(--good)} .s-done::before{content:"\2713"}
+.s-parked{background:var(--sunken);color:var(--muted);border:1px solid var(--line)} .s-parked::before{content:"\2016"}
+/* Maturity: a ring that fills as a repo matures (empty for design, half for pre-beta, full for proven), so the
+   state reads in shape and word, never color alone. */
+.mark-badge:is(.m-proven,.m-pre-beta,.m-design){display:inline-flex;align-items:center;gap:.4em;font:600 var(--fs-xs) var(--mono);letter-spacing:var(--track-label);padding:.12rem .55rem .12rem .45rem;border-radius:var(--pill);background:transparent;border:1px solid currentColor;white-space:nowrap}
+.mark-badge:is(.m-proven,.m-pre-beta,.m-design)::before{content:"";width:.62em;height:.62em;border-radius:50%;border:1.5px solid currentColor;flex:none}
+.m-proven{color:var(--good)} .m-pre-beta{color:var(--caution)} .m-design{color:var(--info)}
+.mark-badge.m-proven::before,.dot.m-proven{background:currentColor} .mark-badge.m-pre-beta::before,.dot.m-pre-beta{background:linear-gradient(90deg,currentColor 50%,transparent 50%)}
+/* The same ring on its own, for a dense list or a figure with a legend: .dot.m-proven, .m-pre-beta, .m-design. */
+.dot:is(.m-proven,.m-pre-beta,.m-design){display:inline-block;width:.62em;height:.62em;border-radius:50%;border:1.5px solid currentColor;flex:none;vertical-align:baseline}
 
 /* Cards */
-.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:var(--space-4);min-width:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:var(--space-4);min-width:0;box-shadow:var(--shadow)}
 
 /* Buttons. .cta is a link styled as the primary action; .ghost is the secondary one. */
-.cta{display:inline-block;margin:var(--space-2) var(--space-2) 0 0;padding:var(--space-2) .95rem;border-radius:var(--radius-sm);background:var(--accent);color:var(--on-accent);border:1px solid var(--accent);text-decoration:none;font-weight:600;transition:background var(--fast) var(--ease)}
+.cta{display:inline-flex;align-items:center;min-height:40px;margin:var(--space-2) var(--space-2) 0 0;padding:var(--space-2) 1rem;border-radius:var(--radius-sm);background:var(--accent);color:var(--on-accent);border:1px solid var(--accent);text-decoration:none;font-weight:600;font-size:.94rem;transition:background var(--fast) var(--ease),border-color var(--fast) var(--ease)}
+@media (pointer:coarse){.cta{min-height:var(--tap)}}
 .cta:hover{background:var(--accent-hover);border-color:var(--accent-hover);color:var(--on-accent)}
-.cta.ghost{background:transparent;color:var(--accent)} .cta.ghost:hover{background:var(--accent-soft);color:var(--accent)}
+.cta.ghost{background:transparent;color:var(--fg);border-color:var(--line-strong)} .cta.ghost:hover{background:var(--surface);border-color:var(--accent);color:var(--accent-hover)}
 
 /* Tables */
 .tbl{overflow-x:auto;margin:var(--space-4) 0} table{border-collapse:collapse;width:100%;font-size:.95rem}
-th,td{text-align:left;vertical-align:top;padding:.55rem .7rem;border-bottom:1px solid var(--line)} th{font-family:var(--display);font-size:.85rem;color:var(--muted)}
+th,td{text-align:left;vertical-align:top;padding:.6rem .75rem;border-bottom:1px solid var(--hairline)} th{font-family:var(--display);font-size:var(--fs-sm);font-weight:600;color:var(--muted);border-bottom-color:var(--line-strong)}
+tbody tr:last-child>*{border-bottom-color:var(--line)}
 
 /* Segmented choice: a radio group drawn as joined buttons. Markup: div.segmented with role="radiogroup" and an
    aria-label, holding label>input[type=radio]+span; arrow keys move, as radios do. 44px on touch screens. */
@@ -140,7 +164,7 @@ th,td{text-align:left;vertical-align:top;padding:.55rem .7rem;border-bottom:1px 
 .runin-title{font:600 .88rem var(--body);color:var(--muted)}
 @media (max-width:40rem){.runin .segmented{display:flex;width:100%}}
 /* Not tested yet: a variant no real run has proved; the word always shows, never the color alone. */
-.untested{display:inline-block;font:600 .7rem/1.6 var(--mono);letter-spacing:.06em;text-transform:uppercase;border-radius:var(--pill);padding:1px 9px;color:var(--caution);background:var(--caution-soft);white-space:nowrap}
+.untested{display:inline-block;font:600 var(--fs-xs)/1.6 var(--mono);letter-spacing:var(--track-label);border-radius:var(--pill);padding:1px 9px;color:var(--caution);background:var(--caution-soft);white-space:nowrap}
 /* What a variant needs on the machine it runs on (PowerShell 7.2, the Az modules, the az CLI). */
 .requires{font-size:.85rem;color:var(--muted)} .requires::before{content:"Needs: ";font-weight:600;color:var(--fg)}
 
