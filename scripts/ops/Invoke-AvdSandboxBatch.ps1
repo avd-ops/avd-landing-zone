@@ -393,7 +393,7 @@ try {
     $code = Invoke-Step 'start' 0 {
       $null = Get-Checkout $lead
       Invoke-Spend 'Start-AvdSpendRun.ps1' (@{ Kind = $g.kind; Purpose = "batch $($batch.batchId) $Group"; Hours = [math]::Max(0.5, $g.hours)
-        ManualAmount = $g.estimate; ManualNote = "Approved batch estimate ($($g.rate)/h x $($g.hours) h + fixed), items $(($g.items | ForEach-Object { "#$_" }) -join ' ')" } + $caps)
+        ManualAmount = $g.estimate; ManualNote = "Approved batch estimate ($($g.rate)/h x $($g.hours) h + fixed), items $(($g.items | ForEach-Object { "#$_" }) -join ' ')"; ReconcileEmptyLeftovers = $true } + $caps)
     }
     $next = Get-AvdBatchNextStep -Step start -ExitCode $code
   }

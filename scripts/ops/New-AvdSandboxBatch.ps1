@@ -131,6 +131,7 @@ if (@($usable | Where-Object { $_.record }).Count) {
 $subId = $SubscriptionId
 if (-not ($Local -and $MonthToDate -ge 0)) { $subId = (Initialize-AvdAzContext -SubscriptionId $SubscriptionId -Fix:$Fix).Subscription.Id }
 $store = Open-AvdRunRecordStore -RecordsPath $RecordsPath -SubscriptionId $subId -Local:$Local
+$openSpendRuns = @(Get-AvdSpendRun -RecordsPath $RecordsPath | Where-Object { $_.status -in 'open', 'leftovers' })
 if ($MonthToDate -lt 0) {
   Write-Host 'Reading month-to-date cost from Cost Management ...' -ForegroundColor DarkGray
   $MonthToDate = Get-AvdSpendMonthToDate -SubscriptionId $subId -Now $Now
@@ -157,7 +158,12 @@ else {
   foreach ($g in @($batch.groups | Where-Object { $_.record })) {
     $md += "- $($g.id) is recorded by the run recorder, $($g.record.repo)@$($g.record.sha.Substring(0, 12)), from $($g.record.parameterFile): it refuses to start if its own estimate is more than 10% over $(Format-AvdBatchMoney $g.estimate)"
   }
-  $md += '', '### Approve', '', 'A person approves this batch at this total by running this in Cloud Shell (PowerShell or Bash) and typing the phrase:', ''
+  $md += '', '### Approve', ''
+if ($openSpendRuns.Count) {
+  $openDesc = ($openSpendRuns | ForEach-Object { "$($_.runId) ($($_.status))" }) -join ', '
+  $md += '> [!WARNING]', "> **Open/leftovers spend run(s) in run store:** $openDesc. \`Start-AvdSpendRun.ps1\` will refuse unless empty leftovers are reconciled or closed with \`./scripts/ops/Stop-AvdSpendRun.ps1 -RunId <id>\`.", ''
+}
+$md += 'A person approves this batch at this total by running this in Cloud Shell (PowerShell or Bash) and typing the phrase:', ''
   $lz = if ($recorder) { $recorder } else { $null }
   $clone = if ($lz) { "https://github.com/$($lz.repo).git" } else { 'https://github.com/avd-ops/avd-landing-zone.git' }
   $checkout = if ($lz) { "git checkout -q $($lz.sha)" } else { 'git checkout -q master; git pull -q --ff-only' }
