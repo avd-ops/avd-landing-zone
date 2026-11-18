@@ -134,6 +134,13 @@ Describe 'Baseline, leftovers and run records' {
     '{"schema":"spend-statement/v1"}' | Set-Content (Join-Path $dir 'lab/2026-10/statement.json')
     '{"note":"not a run"}' | Set-Content (Join-Path $dir 'lab/2026-10/other.json')
     @(Get-AvdSpendRun -RecordsPath $dir -Sandbox lab | ForEach-Object { $_.runId }) | Should -Be @('20261021-0100-liquidware', '20261021-0100b-liquidware')
+    @(Get-AvdSpendRun -RecordsPath $dir | ForEach-Object { $_.runId }) | Should -Be @('20261021-0100-liquidware', '20261021-0100b-liquidware')
+  }
+  It 'scans all sandbox folders when -Sandbox is omitted' {
+    $dir = Join-Path $TestDrive 'records-multi'
+    $null = Save-AvdSpendRun -RecordsPath $dir -Run ([ordered]@{ schema = 'spend-run/v1'; runId = '20261021-0200-avd'; sandbox = 'azure-personal'; startedAt = '2026-10-21T02:00:00Z'; status = 'open' })
+    $null = Save-AvdSpendRun -RecordsPath $dir -Run ([ordered]@{ schema = 'spend-run/v1'; runId = '20261021-0100-avd'; sandbox = 'lab'; startedAt = '2026-10-21T01:00:00Z'; status = 'leftovers' })
+    @(Get-AvdSpendRun -RecordsPath $dir | ForEach-Object { $_.runId }) | Should -Be @('20261021-0100-avd', '20261021-0200-avd')
   }
 }
 
@@ -720,5 +727,41 @@ Describe 'Per-batch-group NamePrefix isolation' {
     $healthScript | Should -Match 'otherEnvGroups'
     $healthScript | Should -Match 'param\([\s\S]*\$BatchId'
     $deadlineScript | Should -Match 'b\[0-9\]\{8\}-\[0-9\]\{4\}'
+  }
+}
+
+Describe 'New-AvdSandboxBatch.ps1' {
+  It 'warns on open and leftovers spend runs across sandboxes when building a batch' {
+    $root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
+    $work = Join-Path $TestDrive 'batch-open-runs'
+    $itemsDir = Join-Path $work 'items'
+    $recordsDir = Join-Path $work 'records'
+    New-Item -ItemType Directory -Force -Path $itemsDir, $recordsDir | Out-Null
+
+    [ordered]@{
+      schema = 'sandbox-run/v1'; number = 1; purpose = 'Check open run warning'
+      source = "contoso/lab-tests@$($('a' * 40))"; tests = 'Check 1 passes'
+      kind = 'avd'; sandbox = 'azure-personal'; region = 'northcentralus'
+      shape = 'dev LZ, 1 x D2as_v5'; deploymentKey = 'lz-a'
+      ratePerHour = 0.5; hours = 2; hoursWhenSharing = 1
+      estimateNote = 'Retail prices'; unattended = $true
+      deploy = 'echo deploy'; test = 'echo test'; teardown = 'echo teardown'; evidence = 'Spend record'
+    } | ConvertTo-Json | Set-Content (Join-Path $itemsDir 'item-1.json')
+
+    $null = Save-AvdSpendRun -RecordsPath $recordsDir -Run ([ordered]@{ schema = 'spend-run/v1'; runId = '20261021-0100-avd'; sandbox = 'azure-personal'; startedAt = '2026-10-21T01:00:00Z'; status = 'open' })
+    $null = Save-AvdSpendRun -RecordsPath $recordsDir -Run ([ordered]@{ schema = 'spend-run/v1'; runId = '20261021-0130-avd'; sandbox = 'lab'; startedAt = '2026-10-21T01:30:00Z'; status = 'leftovers' })
+    $null = Save-AvdSpendRun -RecordsPath $recordsDir -Run ([ordered]@{ schema = 'spend-run/v1'; runId = '20261021-0030-avd'; sandbox = 'lab'; startedAt = '2026-10-21T00:30:00Z'; status = 'closed' })
+
+    $now = [datetime]::new(2026, 10, 21, 2, 0, 0, [DateTimeKind]::Utc)
+    $scriptPath = Join-Path $root 'scripts/ops/New-AvdSandboxBatch.ps1'
+    & $scriptPath -ItemsPath $itemsDir -RecordsPath $recordsDir -Local -MonthToDate 0 -Now $now -BatchCap 10 -MonthlyCap 150 -RunCap 25 | Out-Null
+
+    $mdPath = Join-Path $recordsDir 'queue/2026-10/b20261021-0200/batch.md'
+    Test-Path $mdPath | Should -BeTrue
+    $md = Get-Content $mdPath -Raw
+    $md | Should -Match 'Open/leftovers spend run\(s\) in run store:'
+    $md | Should -Match '20261021-0100-avd \(open\)'
+    $md | Should -Match '20261021-0130-avd \(leftovers\)'
+    $md | Should -Not -Match '20261021-0030-avd'
   }
 }

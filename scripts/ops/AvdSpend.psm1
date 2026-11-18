@@ -358,9 +358,9 @@ function Get-AvdSpendRunPath {
 }
 
 function Get-AvdSpendRun {
-  <# Run records for a sandbox, oldest first (by start time). Statements and other files that aren't runs are skipped. #>
-  param([Parameter(Mandatory)][string] $RecordsPath, [Parameter(Mandatory)][string] $Sandbox)
-  $dir = Join-Path $RecordsPath $Sandbox
+  <# Run records for a sandbox (or all sandboxes when -Sandbox is omitted), oldest first (by start time). Statements and other files that aren't runs are skipped. #>
+  param([Parameter(Mandatory)][string] $RecordsPath, [string] $Sandbox)
+  $dir = if ($Sandbox) { Join-Path $RecordsPath $Sandbox } else { $RecordsPath }
   if (-not (Test-Path $dir)) { return }
   @(Get-ChildItem -Path $dir -Recurse -Filter '*.json' | Where-Object { $_.Name -notlike 'statement*' } | ForEach-Object {
       $o = Get-Content $_.FullName -Raw | ConvertFrom-Json -Depth 30 -AsHashtable
