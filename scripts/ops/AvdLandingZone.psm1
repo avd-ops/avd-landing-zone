@@ -2675,8 +2675,9 @@ function Get-AvdRetailPrice {
     [scriptblock] $Invoker = { param($u) Invoke-RestMethod -Uri $u -Method Get -ErrorAction Stop },
     [scriptblock] $Sleep = { param($seconds) Start-Sleep -Seconds $seconds }
   )
+  $useCache = ($env:AVDLZ_RETAIL_PRICE_CACHE -ne 'off')
   $diskCache = @{}
-  if ($DiskCachePath -and (Test-Path -LiteralPath $DiskCachePath)) {
+  if ($useCache -and $DiskCachePath -and (Test-Path -LiteralPath $DiskCachePath)) {
     try {
       $loaded = Get-Content -LiteralPath $DiskCachePath -Raw | ConvertFrom-Json -Depth 15 -AsHashtable
       if ($loaded -is [hashtable]) { $diskCache = $loaded }
@@ -2689,9 +2690,9 @@ function Get-AvdRetailPrice {
   while ($uri -and $page -lt $MaxPages) {
     $page++
     $r = $null
-    if ($script:RetailPriceCache.ContainsKey($uri)) {
+    if ($useCache -and $script:RetailPriceCache.ContainsKey($uri)) {
       $r = $script:RetailPriceCache[$uri]
-    } elseif ($diskCache.ContainsKey($uri)) {
+    } elseif ($useCache -and $diskCache.ContainsKey($uri)) {
       $entry = $diskCache[$uri]
       $nowEpoch = ([DateTimeOffset]$Now.ToUniversalTime()).ToUnixTimeSeconds()
       $fetchedEpoch = if ($entry.fetchedAtEpoch) { [long]$entry.fetchedAtEpoch } else { 0L }
@@ -2713,7 +2714,7 @@ function Get-AvdRetailPrice {
           $isTransient = ($statusCode -in @(429, 503)) -or ($_.Exception.Message -match '429|Too many requests|503|Service Unavailable')
           if (-not $isTransient) { throw }
           if ($attempt -ge $MaxRetries) {
-            if ($page -eq 1 -and $FallbackSnapshotPath -and (Test-Path -LiteralPath $FallbackSnapshotPath)) {
+            if ($page -eq 1 -and ($env:AVDLZ_RETAIL_PRICE_FALLBACK -ne 'off') -and $FallbackSnapshotPath -and (Test-Path -LiteralPath $FallbackSnapshotPath)) {
               Write-Warning "Retail Prices API unavailable (transient 429/503); using pinned snapshot '$FallbackSnapshotPath'."
               return @(Get-AvdPinnedUsGovPrice -Filter $Filter -SnapshotPath $FallbackSnapshotPath)
             }
@@ -2727,14 +2728,16 @@ function Get-AvdRetailPrice {
           & $Sleep $delay
         }
       }
-      $script:RetailPriceCache[$uri] = $r
-      if ($DiskCachePath) {
-        $diskCache[$uri] = @{
-          fetchedAtEpoch = ([DateTimeOffset]$Now.ToUniversalTime()).ToUnixTimeSeconds()
-          Items          = @($r.Items)
-          NextPageLink   = $r.NextPageLink
+      if ($useCache -and $r -and $r.Items -and @($r.Items).Count -gt 0) {
+        $script:RetailPriceCache[$uri] = $r
+        if ($DiskCachePath) {
+          $diskCache[$uri] = @{
+            fetchedAtEpoch = ([DateTimeOffset]$Now.ToUniversalTime()).ToUnixTimeSeconds()
+            Items          = @($r.Items)
+            NextPageLink   = $r.NextPageLink
+          }
+          $diskDirty = $true
         }
-        $diskDirty = $true
       }
     }
 

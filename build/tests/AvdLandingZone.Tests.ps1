@@ -428,6 +428,8 @@ Describe 'Well-Architected findings' {
 }
 
 Describe 'Get-AvdRetailPrice' {
+  BeforeEach { $env:AVDLZ_RETAIL_PRICE_CACHE = 'off' }
+  AfterEach { Remove-Item Env:AVDLZ_RETAIL_PRICE_CACHE -ErrorAction SilentlyContinue }
   It 'follows NextPageLink and stops at MaxPages' {
     Mock -ModuleName AvdLandingZone Invoke-RestMethod { [pscustomobject]@{ Items = @([pscustomobject]@{ meterName = 'm' }); NextPageLink = 'https://prices.azure.com/api/retail/prices?next' } }
     @(Get-AvdRetailPrice -Filter "serviceName eq 'X'" -MaxPages 3).Count | Should -Be 3
@@ -437,7 +439,7 @@ Describe 'Get-AvdRetailPrice' {
     Mock -ModuleName AvdLandingZone Invoke-RestMethod { [pscustomobject]@{ Items = @(); NextPageLink = 'x' } }
     @(Get-AvdRetailPrice -Filter "serviceName eq 'X'").Count | Should -Be 0
     Mock -ModuleName AvdLandingZone Invoke-RestMethod { throw '503' }
-    { Get-AvdRetailPrice -Filter "serviceName eq 'X'" } | Should -Throw '*503*'
+    { Get-AvdRetailPrice -Filter "serviceName eq 'X'" -MaxRetries 0 -FallbackSnapshotPath '' } | Should -Throw '*503*'
   }
   It 'asks for the currency and escapes the filter' {
     Mock -ModuleName AvdLandingZone Invoke-RestMethod { [pscustomobject]@{ Items = @() } }
