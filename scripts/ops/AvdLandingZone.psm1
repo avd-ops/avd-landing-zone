@@ -2653,19 +2653,50 @@ function Add-AvdCallerToGroup {
 # Sizing and cost (pre-deployment; decision 0010)
 # =====================================================================
 $script:RetailPriceApi = 'https://prices.azure.com/api/retail/prices'
+$script:RetailPriceCache = @{}
 $script:HoursPerMonth = 730
 
 function Get-AvdRetailPrice {
   <#
     Azure retail (pay-as-you-go list) prices matching an OData filter, from the public Retail
-    Prices API (no sign-in). Paged; stops on an error, an empty page or MaxPages (lesson 0008).
+    Prices API (no sign-in). Paged; caches per URI in-session, retries transient 429/503 with
+    exponential backoff, and stops on other errors, an empty page or MaxPages (lesson 0008).
   #>
-  param([Parameter(Mandatory)][string] $Filter, [string] $Currency = 'USD', [int] $MaxPages = 5)
+  param(
+    [Parameter(Mandatory)][string] $Filter,
+    [string] $Currency = 'USD',
+    [int] $MaxPages = 5,
+    [int] $MaxRetries = 3,
+    [scriptblock] $Invoker = { param($u) Invoke-RestMethod -Uri $u -Method Get -ErrorAction Stop },
+    [scriptblock] $Sleep = { param($seconds) Start-Sleep -Seconds $seconds }
+  )
   $uri = "$($script:RetailPriceApi)?currencyCode='$Currency'&`$filter=$([uri]::EscapeDataString($Filter))"
   $page = 0
   while ($uri -and $page -lt $MaxPages) {
     $page++
-    $r = Invoke-RestMethod -Uri $uri -Method Get -ErrorAction Stop
+    if ($script:RetailPriceCache.ContainsKey($uri)) {
+      $r = $script:RetailPriceCache[$uri]
+    } else {
+      $attempt = 0
+      while ($true) {
+        try {
+          $r = & $Invoker $uri
+          break
+        } catch {
+          $resp = $_.Exception.PSObject.Properties['Response'] ? $_.Exception.Response : $null
+          $statusCode = if ($resp -and $resp.StatusCode) { [int]$resp.StatusCode } else { 0 }
+          $isTransient = ($statusCode -in @(429, 503)) -or ($_.Exception.Message -match '429|Too many requests|503|Service Unavailable')
+          if (-not $isTransient -or $attempt -ge $MaxRetries) { throw }
+          $delay = [int][math]::Pow(2, $attempt + 1)
+          if ($resp -and $resp.Headers -and $resp.Headers.RetryAfter -and $resp.Headers.RetryAfter.Delta) {
+            $delay = [math]::Max(1, [int][math]::Ceiling($resp.Headers.RetryAfter.Delta.TotalSeconds))
+          }
+          $attempt++
+          & $Sleep $delay
+        }
+      }
+      $script:RetailPriceCache[$uri] = $r
+    }
     if (-not $r -or -not $r.Items) { break }
     $r.Items
     $uri = $r.NextPageLink
