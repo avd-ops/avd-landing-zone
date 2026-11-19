@@ -308,8 +308,14 @@ param enablePolicyGuardrails bool = true
 @description('Recovery region (build/specs/recovery-spec.md): a second region the guardrails also allow, for restores and recovery tests. Empty: none, and the guardrails allow only location.')
 param recoveryLocation string = ''
 
-@description('Allowed regions for resources and resource groups when policy guardrails are on. The default is location plus recoveryLocation when set.')
-param allowedLocations string[] = union([location], empty(recoveryLocation) ? [] : [recoveryLocation])
+@description('Allowed regions for resources and resource groups when policy guardrails are on. Defaults to centralus, northcentralus, southcentralus, and eastus2 (plus location and recoveryLocation) for non-prod commercial deployments, or location plus recoveryLocation for prod and US Gov.')
+param allowedLocations string[] = union(
+  [location],
+  empty(recoveryLocation) ? [] : [recoveryLocation],
+  environmentName != 'prod' && cloud == 'commercial'
+    ? ['centralus', 'northcentralus', 'southcentralus', 'eastus2']
+    : []
+)
 
 @description('Optional multi-pool, multi-workspace, multi-app-group, Private Link and Private DNS topology manifest (JSON object). Empty = single host pool, app group and workspace using the top-level parameters.')
 param topology object = {}

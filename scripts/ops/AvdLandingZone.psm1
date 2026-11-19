@@ -3241,7 +3241,8 @@ function Test-AvdPreDeployment {
   Write-AvdSection 'Recovery'
   $recovery = if ($RecoveryLocation) { $RecoveryLocation } else { $plan.recoveryLocation }
   # allowedLocations' default is an expression, so the plan has it only when the file sets it.
-  $planned = if ($plan.ContainsKey('allowedLocations')) { @($plan.allowedLocations) } else { @($plan.location, $recovery) | Where-Object { $_ } }
+  $defaultNonProd = if ($plan.environmentName -ne 'prod' -and $plan.cloud -eq 'commercial') { @('centralus', 'northcentralus', 'southcentralus', 'eastus2') } else { @() }
+  $planned = if ($plan.ContainsKey('allowedLocations')) { @($plan.allowedLocations) } else { @($plan.location, $recovery) + $defaultNonProd | Where-Object { $_ } | Select-Object -Unique }
   if ($plan.enablePolicyGuardrails -eq $false -or $plan.deploySubscriptionSettings -eq $false) { $planned = @() }
   Test-AvdRecoveryRegion -Location $plan.location -RecoveryLocation $recovery -PlannedAllowedLocations $planned -VmSize $plan.sessionHostVmSize -SubscriptionId $lz.SubscriptionId
 
