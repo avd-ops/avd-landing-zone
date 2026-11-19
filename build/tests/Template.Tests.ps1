@@ -263,10 +263,10 @@ Describe 'Demo hosts stop on their own (avd-second-brain decision 0017)' {
 }
 
 Describe 'Recovery region and profile backup tier (build/specs/recovery-spec.md)' {
-  It 'allows only location by default, and adds AVD_RECOVERY_LOCATION when set (set-but-empty = none, lesson 0004)' {
+  It 'allows non-prod commercial regions by default (prod/usgov: location only), and adds AVD_RECOVERY_LOCATION when set (set-but-empty = none, lesson 0004)' {
     $t = Get-CompiledTemplate 'parameters/dev.bicepparam'
     $t.parameters.recoveryLocation.defaultValue | Should -Be ''
-    $t.parameters.allowedLocations.defaultValue | Should -Be "[union(createArray(parameters('location')), if(empty(parameters('recoveryLocation')), createArray(), createArray(parameters('recoveryLocation'))))]"
+    $t.parameters.allowedLocations.defaultValue | Should -Be "[union(createArray(parameters('location')), if(empty(parameters('recoveryLocation')), createArray(), createArray(parameters('recoveryLocation'))), if(and(not(equals(parameters('environmentName'), 'prod')), equals(parameters('cloud'), 'commercial')), createArray('centralus', 'northcentralus', 'southcentralus', 'eastus2'), createArray()))]"
     foreach ($file in 'parameters/dev.bicepparam', 'parameters/test.bicepparam', 'parameters/prod.bicepparam') {
       $read = { param($v) $env:AVD_RECOVERY_LOCATION = $v; try { ((& $script:bicep build-params $file --stdout | ConvertFrom-Json).parametersJson | ConvertFrom-Json).parameters.recoveryLocation.value } finally { $env:AVD_RECOVERY_LOCATION = '' } }
       & $read '' | Should -Be '' -Because $file
@@ -744,7 +744,10 @@ Describe 'Security review baseline guards (avd-assess security-review.yaml)' {
   It 'deploys subscription-scoped policy and role assignments in governance.bicep (lz-deploy-owner)' {
     $script:gov['$schema'] | Should -Match 'subscriptionDeploymentTemplate\.json'
     $res = Get-Resource $script:gov
-    @($res | Where-Object { $_['type'] -eq 'Microsoft.Authorization/policyAssignments' }).Count | Should -BeGreaterOrEqual 3
+    $policies = @($res | Where-Object { $_['type'] -eq 'Microsoft.Authorization/policyAssignments' })
+    $policies.Count | Should -BeGreaterOrEqual 3
+    ($policies | Where-Object { $_['name'] -eq 'avdlz-allowed-locations' })['properties']['parameters']['listOfAllowedLocations']['value'] | Should -Be "[parameters('allowedLocations')]"
+    ($policies | Where-Object { $_['name'] -eq 'avdlz-allowed-rg-locations' })['properties']['parameters']['listOfAllowedLocations']['value'] | Should -Be "[parameters('allowedLocations')]"
     @($res | Where-Object { $_['type'] -eq 'Microsoft.Resources/deployments' -and $_['name'] -match 'inherit-rg-tag-rbac' }).Count | Should -BeGreaterOrEqual 1
     $rbacRes = Get-Resource $script:govRbac
     $ra = @($rbacRes | Where-Object { $_['type'] -eq 'Microsoft.Authorization/roleAssignments' })
