@@ -183,27 +183,32 @@ if ($CopyTo -eq 'github') {
     $commitFiles = @($files | Where-Object { ($routes | Where-Object Path -eq $_.path).Route -eq 'github' })
     if ($commitFiles.Count) {
       Write-Host "  Committing $($commitFiles.Count) file(s) to the runs branch..." -ForegroundColor DarkGray
-      $parent = $null; $baseTree = $null
-      $ref = gh api "repos/$PrivateRepo/git/ref/heads/runs" --jq '.object.sha' 2>$null
-      if (-not $LASTEXITCODE -and $ref) { $parent = "$ref".Trim(); $baseTree = (gh api "repos/$PrivateRepo/git/commits/$parent" --jq '.tree.sha').Trim() }
-      $entries = foreach ($f in $commitFiles) {
+      $entries = @(foreach ($f in $commitFiles) {
         $req = Join-Path $tmp 'blob.json'
         @{ content = [Convert]::ToBase64String([IO.File]::ReadAllBytes($f.gzPath)); encoding = 'base64' } | ConvertTo-Json -Compress | Set-Content -LiteralPath $req -Encoding utf8
         $sha = (gh api "repos/$PrivateRepo/git/blobs" --method POST --input $req --jq '.sha').Trim()
         if ($LASTEXITCODE) { throw "Uploading $($f.path) failed: $sha" }
         @{ path = "runs/$RunId/$($f.path).gz"; mode = '100644'; type = 'blob'; sha = $sha }
+      })
+      $commit = $null
+      for ($attempt = 1; $attempt -le 5; $attempt++) {
+        $parent = $null; $baseTree = $null
+        $ref = gh api "repos/$PrivateRepo/git/ref/heads/runs" --jq '.object.sha' 2>$null
+        if (-not $LASTEXITCODE -and $ref) { $parent = "$ref".Trim(); $baseTree = (gh api "repos/$PrivateRepo/git/commits/$parent" --jq '.tree.sha').Trim() }
+        $treeReq = Join-Path $tmp 'tree.json'
+        $t = @{ tree = @($entries) }; if ($baseTree) { $t.base_tree = $baseTree }
+        $t | ConvertTo-Json -Depth 5 -Compress | Set-Content -LiteralPath $treeReq -Encoding utf8
+        $tree = (gh api "repos/$PrivateRepo/git/trees" --method POST --input $treeReq --jq '.sha').Trim()
+        $commitReq = Join-Path $tmp 'commit.json'
+        $c = @{ message = "Run $RunId"; tree = $tree; parents = @($(if ($parent) { $parent })) }
+        $c | ConvertTo-Json -Compress | Set-Content -LiteralPath $commitReq -Encoding utf8
+        $commit = (gh api "repos/$PrivateRepo/git/commits" --method POST --input $commitReq --jq '.sha').Trim()
+        if ($parent) { $null = gh api "repos/$PrivateRepo/git/refs/heads/runs" --method PATCH -f sha=$commit 2>$null }
+        else { $null = gh api "repos/$PrivateRepo/git/refs" --method POST -f ref='refs/heads/runs' -f sha=$commit 2>$null }
+        if (-not $LASTEXITCODE) { break }
+        if ($attempt -eq 5) { throw "Moving the runs branch to $commit failed after 5 attempts." }
+        Start-Sleep -Milliseconds (Get-Random -Minimum 800 -Maximum 2500)
       }
-      $treeReq = Join-Path $tmp 'tree.json'
-      $t = @{ tree = @($entries) }; if ($baseTree) { $t.base_tree = $baseTree }
-      $t | ConvertTo-Json -Depth 5 -Compress | Set-Content -LiteralPath $treeReq -Encoding utf8
-      $tree = (gh api "repos/$PrivateRepo/git/trees" --method POST --input $treeReq --jq '.sha').Trim()
-      $commitReq = Join-Path $tmp 'commit.json'
-      $c = @{ message = "Run $RunId"; tree = $tree; parents = @($(if ($parent) { $parent })) }
-      $c | ConvertTo-Json -Compress | Set-Content -LiteralPath $commitReq -Encoding utf8
-      $commit = (gh api "repos/$PrivateRepo/git/commits" --method POST --input $commitReq --jq '.sha').Trim()
-      if ($parent) { $null = gh api "repos/$PrivateRepo/git/refs/heads/runs" --method PATCH -f sha=$commit }
-      else { $null = gh api "repos/$PrivateRepo/git/refs" --method POST -f ref='refs/heads/runs' -f sha=$commit }
-      if ($LASTEXITCODE) { throw "Moving the runs branch to $commit failed." }
       # Read back: the tree GitHub now holds, against each file's own Git hash.
       $held = gh api "repos/$PrivateRepo/git/trees/$($commit)?recursive=1" --jq '.tree[] | select(.type == "blob") | .path + " " + .sha'
       $map = @{}; foreach ($l in @($held)) { $p, $s = "$l".Split(' ', 2); $map[$p] = $s }

@@ -299,7 +299,9 @@ function Get-AvdBatch {
     # recorded group's lead isn't avd-landing-zone itself.
     [System.Collections.IDictionary] $Recorder,
     # The landing zone's owner/repo, so a lead item from it records with its own commit.
-    [string] $RecorderRepo = 'avd-ops/avd-landing-zone'
+    [string] $RecorderRepo = 'avd-ops/avd-landing-zone',
+    # Optional target sandbox name; when set, bound into the batch hash for multi-subscription isolation.
+    [string] $TargetSandbox
   )
   $byNumber = @{}; foreach ($i in $Items) { $byNumber[[int]$i.number] = $i }
   $groups = foreach ($g in $Plan.groups) {
@@ -334,6 +336,7 @@ function Get-AvdBatch {
     groups    = @($groups)
     hash      = $null
   }
+  if ($TargetSandbox) { $batch.targetSandbox = $TargetSandbox }
   $batch.hash = Get-AvdBatchHash -Batch $batch
   $batch
 }
