@@ -52,6 +52,8 @@ param(
   [double] $MonthlyCap = $(if ($env:SPEND_MONTHLY_CAP) { [double]$env:SPEND_MONTHLY_CAP } else { 0 }),
   [double] $RunCap = $(if ($env:SPEND_RUN_CAP) { [double]$env:SPEND_RUN_CAP } else { 0 }),
   [string] $SubscriptionId,
+  # Optional expected target sandbox name; refuses to run if batch.json or the group targets a different sandbox.
+  [string] $TargetSandbox,
   [string] $RecordsPath,
   [switch] $Local,
   # Where sources are checked out. Default: ~/avd-batch-src.
@@ -99,6 +101,16 @@ $check = Test-AvdBatchApproval -Batch $batch -Approval $approval
 if (-not $check.valid) { Write-Host "Not starting: $($check.reasons -join ' ')" -ForegroundColor Red; exit 2 }
 $g = @($batch.groups | Where-Object { $_.id -eq $Group }) | Select-Object -First 1
 if (-not $g) { throw "Batch $($batch.batchId) has no group $Group." }
+$batchSandbox = if ($batch.ContainsKey('targetSandbox')) { "$($batch['targetSandbox'])".Trim() } else { '' }
+if ($TargetSandbox -and $batchSandbox -and $batchSandbox -ne $TargetSandbox) {
+  Write-Host "Not starting: batch $($batch.batchId) is bound to sandbox '$batchSandbox', not '$TargetSandbox'." -ForegroundColor Red; exit 2
+}
+if ($TargetSandbox -and "$($g.sandbox)".Trim() -ne $TargetSandbox) {
+  Write-Host "Not starting: group $Group targets sandbox '$($g.sandbox)', not '$TargetSandbox'." -ForegroundColor Red; exit 2
+}
+if ($batchSandbox -and "$($g.sandbox)".Trim() -ne $batchSandbox) {
+  Write-Host "Not starting: group $Group targets sandbox '$($g.sandbox)', but batch $($batch.batchId) is bound to '$batchSandbox'." -ForegroundColor Red; exit 2
+}
 $groupNamePrefix = Get-AvdBatchNamePrefix -BatchId $batch.batchId -GroupId $Group -Group $g
 $groupEnv = if ($g.record -and $g.record.environment) { $g.record.environment } else { 'dev' }
 Write-Host "Group $Group landing zone prefix: $groupNamePrefix ($groupEnv, batch $($batch.batchId))" -ForegroundColor DarkGray

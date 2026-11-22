@@ -41,6 +41,8 @@ param(
   # Month-to-date cost; read from Cost Management when not given.
   [double] $MonthToDate = -1,
   [string] $SubscriptionId,
+  # Optional sandbox name to filter items, scope open-run warnings, and bind targetSandbox into batch.json.
+  [string] $Sandbox,
   [string] $RecordsPath,
   [switch] $Local,
   [datetime] $Now = (Get-Date),
@@ -79,6 +81,7 @@ $numbers = @($issues | ForEach-Object { [int]$_.number })
 if (@($numbers | Sort-Object -Unique).Count -ne $numbers.Count) { throw 'Two queue items share a number. Each item needs its own.' }
 $ready = @($issues | Where-Object { @($_.labels | ForEach-Object { $_.name }) -contains 'queue:ready' })
 $items = @($ready | ForEach-Object { Get-AvdBatchItem -Issue $_ -DefaultRegion $DefaultRegion })
+if ($Sandbox) { $items = @($items | Where-Object { $_.sandbox -eq $Sandbox }) }
 
 # ---- Pins and dependencies ----
 $offline = if ($PinsPath) { Get-Content -LiteralPath $PinsPath -Raw | ConvertFrom-Json -Depth 10 -AsHashtable } else { $null }
@@ -131,7 +134,7 @@ if (@($usable | Where-Object { $_.record }).Count) {
 $subId = $SubscriptionId
 if (-not ($Local -and $MonthToDate -ge 0)) { $subId = (Initialize-AvdAzContext -SubscriptionId $SubscriptionId -Fix:$Fix).Subscription.Id }
 $store = Open-AvdRunRecordStore -RecordsPath $RecordsPath -SubscriptionId $subId -Local:$Local
-$openSpendRuns = @(Get-AvdSpendRun -RecordsPath $RecordsPath | Where-Object { $_.status -in 'open', 'leftovers' })
+$openSpendRuns = @(Get-AvdSpendRun -RecordsPath $RecordsPath -Sandbox $Sandbox | Where-Object { $_.status -in 'open', 'leftovers' })
 if ($MonthToDate -lt 0) {
   Write-Host 'Reading month-to-date cost from Cost Management ...' -ForegroundColor DarkGray
   $MonthToDate = Get-AvdSpendMonthToDate -SubscriptionId $subId -Now $Now
@@ -141,11 +144,13 @@ if ($MonthToDate -lt 0) {
 $plan = Get-AvdBatchPlan -Groups @(Get-AvdBatchGroup -Items $usable) -BatchCap $BatchCap -RunCap $RunCap -MonthlyCap $MonthlyCap -MonthToDate $MonthToDate
 $batchArgs = @{ Plan = $plan; Items = $usable; Pins = $pins; Now = $Now; Recorder = $recorder }
 if ($recorder) { $batchArgs.RecorderRepo = $recorder.repo }
+if ($Sandbox) { $batchArgs.TargetSandbox = $Sandbox }
 $batch = Get-AvdBatch @batchArgs
 
 $md = @("## Sandbox batch $($batch.batchId)", '')
 if (-not $batch.groups.Count) { $md += 'Nothing to run: no ready item fits.', '' }
 else {
+  if ($Sandbox) { $md += "**Target sandbox:** ``$Sandbox``", '' }
   $md += "**Total $(Format-AvdBatchMoney $batch.total)** (batch cap $(Format-AvdBatchMoney $BatchCap); month to date $(Format-AvdBatchMoney $MonthToDate)$(if ($MonthlyCap -gt 0) { " of $(Format-AvdBatchMoney $MonthlyCap)" }))", ''
   $md += '| Group | Items | Region | Hours (deadline) | Estimate | Alone it would be | Runs |', '|---|---|---|---|---:|---:|---|'
   foreach ($g in $batch.groups) {
@@ -216,6 +221,7 @@ if ($PostIssue -and $batch.groups.Count) {
   # gh issue create fails on a label the repo doesn't have yet; create it once.
   gh label create sandbox-batch -R $Repo --color 5319E7 --description 'A sandbox batch waiting for a go' 2>$null
   if ($LASTEXITCODE) { Write-Host '  Label sandbox-batch already exists.' -ForegroundColor DarkGray }
-  gh issue create -R $Repo --title "Sandbox batch $($batch.batchId): $(Format-AvdBatchMoney $batch.total)" --label sandbox-batch --body-file (Join-Path $dir 'batch.md')
+  $issueTitle = if ($Sandbox) { "Sandbox batch $($batch.batchId) [$Sandbox]: $(Format-AvdBatchMoney $batch.total)" } else { "Sandbox batch $($batch.batchId): $(Format-AvdBatchMoney $batch.total)" }
+  gh issue create -R $Repo --title $issueTitle --label sandbox-batch --body-file (Join-Path $dir 'batch.md')
   if ($LASTEXITCODE) { throw "gh issue create failed (exit $LASTEXITCODE). The batch is written to $dir." }
 }
