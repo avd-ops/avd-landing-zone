@@ -69,8 +69,8 @@ var allRoles = enableSecondWorkloadSpoke || contains(existingSubscriptionIds, 'l
     ])
   : baseRoles
 
-var rolesToVend = [for r in allRoles: if (vendSubscriptions && !contains(existingSubscriptionIds, r.key)) r]
-var existingRoles = [for r in allRoles: if (contains(existingSubscriptionIds, r.key)) r]
+var rolesToVend = vendSubscriptions ? filter(allRoles, r => !contains(existingSubscriptionIds, r.key)) : []
+var existingRoles = filter(allRoles, r => contains(existingSubscriptionIds, r.key))
 
 resource mgPlatform 'Microsoft.Management/managementGroups@2023-04-01' = {
   name: '${prefix}-platform'
