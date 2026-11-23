@@ -267,11 +267,25 @@ Describe 'Groups and the batch plan' {
     $g[0].lead | Should -Be 16          # most hours leads
     $g[0].items | Should -Be @(16, 15)
     $g[0].hours | Should -Be 5          # 4 + 1 shared
-    $g[0].estimate | Should -Be 2.5     # 0.50 x 5
-    $g[0].estimateIfAlone | Should -Be 3.29
+    $g[0].estimate | Should -Be 4        # 0.50 x ceil(5 x 1.5) = 0.50 x 8
+    $g[0].estimateIfAlone | Should -Be 5.15
     $g[0].deadlineHours | Should -Be 7.5
-    $g[1].estimate | Should -Be 2.5     # 1 x 2 + 0.5
+    $g[0].pricingSource | Should -Be 'manual'
+    $g[1].estimate | Should -Be 3.5      # 1 x ceil(2 x 1.5) + 0.5 = 1 x 3 + 0.5
     $g[1].regionReason | Should -Be 'model quota'
+  }
+  It 'computes weakest-link pricingSource (manual < infracost < zero-spend)' {
+    $z1 = Get-AvdBatchItem -Issue (New-Issue 31 @{ 'Deployment key' = 'lz-p'; Hours = '2' })
+    $z1.pricingSource = 'zero-spend'
+    $z2 = Get-AvdBatchItem -Issue (New-Issue 32 @{ 'Deployment key' = 'lz-p'; Hours = '1' })
+    $z2.pricingSource = 'zero-spend'
+    (@(Get-AvdBatchGroup -Items @($z1, $z2))[0]).pricingSource | Should -Be 'zero-spend'
+
+    $z2.pricingSource = 'infracost'
+    (@(Get-AvdBatchGroup -Items @($z1, $z2))[0]).pricingSource | Should -Be 'infracost'
+
+    $z3 = Get-AvdBatchItem -Issue (New-Issue 33 @{ 'Deployment key' = 'lz-p'; Hours = '1' })
+    (@(Get-AvdBatchGroup -Items @($z1, $z2, $z3))[0]).pricingSource | Should -Be 'manual'
   }
   It 'refuses a deployment no item can deploy and tear down' {
     $x = Get-AvdBatchItem -Issue (New-Issue 20 @{ Deploy = '_No response_' })
@@ -281,11 +295,11 @@ Describe 'Groups and the batch plan' {
     $g = @(Get-AvdBatchGroup -Items @($A, $B, $C))
     $p = Get-AvdBatchPlan -Groups $g -BatchCap 4
     $p.groups.Count | Should -Be 1
-    $p.total | Should -Be 2.5
+    $p.total | Should -Be 4
     $p.leftOut[0].reasons -join ';' | Should -Match 'batch cap'
     (Get-AvdBatchPlan -Groups $g -BatchCap 10 -MonthlyCap 100 -MonthToDate 98).groups.Count | Should -Be 0
     (Get-AvdBatchPlan -Groups $g -BatchCap 10 -RunCap 2).leftOut.Count | Should -Be 2
-    (Get-AvdBatchPlan -Groups $g -BatchCap 10).total | Should -Be 5
+    (Get-AvdBatchPlan -Groups $g -BatchCap 10).total | Should -Be 7.5
   }
 }
 
@@ -298,20 +312,20 @@ Describe 'Approval' {
   }
   It 'builds a hashed batch with pinned commits' {
     $Batch.batchId | Should -Be 'b20261021-0100'
-    $Batch.total | Should -Be 1.29
+    $Batch.total | Should -Be 2.15
     $Batch.groups[0].members[0].sha | Should -Be ('a' * 40)
     $Batch.hash | Should -Be (Get-AvdBatchHash -Batch $Batch)
   }
   It 'takes only this batch at this total' {
-    $a = Get-AvdBatchApproval -Batch $Batch -Phrase 'Go batch b20261021-0100 $1.29' -ApprovedBy operator -Via cloudshell -Now $Now
+    $a = Get-AvdBatchApproval -Batch $Batch -Phrase 'Go batch b20261021-0100 $2.15' -ApprovedBy operator -Via cloudshell -Now $Now
     $a.hash | Should -Be $Batch.hash
     (Test-AvdBatchApproval -Batch $Batch -Approval $a).valid | Should -BeTrue
-    { Get-AvdBatchApproval -Batch $Batch -Phrase 'go batch b20261021-0100 $1.00' -ApprovedBy operator -Via cloudshell -Now $Now } | Should -Throw '*totals 1.29*'
-    { Get-AvdBatchApproval -Batch $Batch -Phrase 'go batch b1 $1.29' -ApprovedBy operator -Via cloudshell -Now $Now } | Should -Throw '*not b20261021-0100*'
+    { Get-AvdBatchApproval -Batch $Batch -Phrase 'go batch b20261021-0100 $1.00' -ApprovedBy operator -Via cloudshell -Now $Now } | Should -Throw '*totals 2.15*'
+    { Get-AvdBatchApproval -Batch $Batch -Phrase 'go batch b1 $2.15' -ApprovedBy operator -Via cloudshell -Now $Now } | Should -Throw '*not b20261021-0100*'
     { Get-AvdBatchApproval -Batch $Batch -Phrase 'looks good' -ApprovedBy operator -Via cloudshell -Now $Now } | Should -Throw 'Not an approval*'
   }
   It 'is void once the batch changes' {
-    $a = Get-AvdBatchApproval -Batch $Batch -Phrase 'go batch b20261021-0100 $1.29' -ApprovedBy operator -Via cloudshell -Now $Now
+    $a = Get-AvdBatchApproval -Batch $Batch -Phrase 'go batch b20261021-0100 $2.15' -ApprovedBy operator -Via cloudshell -Now $Now
     $changed = $Batch | ConvertTo-Json -Depth 30 | ConvertFrom-Json -Depth 30 -AsHashtable
     $changed.groups[0].members[0].sha = 'b' * 40
     (Test-AvdBatchApproval -Batch $changed -Approval $a).valid | Should -BeFalse
@@ -401,6 +415,20 @@ Describe 'Item files (no GitHub needed)' {
     { ConvertFrom-AvdBatchItemFile -Item @{ number = 1 } } | Should -Throw '*schema*'
     { ConvertFrom-AvdBatchItemFile -Item @{ schema = 'sandbox-run/v1' } } | Should -Throw '*number*'
     { ConvertFrom-AvdBatchItemFile -Item @{ schema = 'sandbox-run/v1'; number = 1; deplyo = 'x' } } | Should -Throw '*deplyo*'
+    { ConvertFrom-AvdBatchItemFile -Item @{ schema = 'sandbox-run/v1'; number = 1; pricingSource = 'infracost' } } | Should -Throw '*pricingSource*'
+  }
+  It 'reads optional queue/pricing/NN.json sidecars and defaults missing or unknown to manual' {
+    $pDir = Join-Path $TestDrive 'pricing-sidecars'
+    New-Item -ItemType Directory -Force -Path $pDir | Out-Null
+    @{ pricingSource = 'infracost' } | ConvertTo-Json | Set-Content (Join-Path $pDir '01.json')
+    @{ pricingSource = 'zero-spend' } | ConvertTo-Json | Set-Content (Join-Path $pDir '2.json')
+    @{ pricingSource = 'bogus' } | ConvertTo-Json | Set-Content (Join-Path $pDir '03.json')
+
+    Get-AvdBatchPricingSource -PricingPath $pDir -Number 1 | Should -Be 'infracost'
+    Get-AvdBatchPricingSource -PricingPath $pDir -Number 2 | Should -Be 'zero-spend'
+    Get-AvdBatchPricingSource -PricingPath $pDir -Number 3 | Should -Be 'manual'
+    Get-AvdBatchPricingSource -PricingPath $pDir -Number 99 | Should -Be 'manual'
+    Get-AvdBatchPricingSource -PricingPath (Join-Path $TestDrive 'no-such-dir') -Number 1 | Should -Be 'manual'
   }
 }
 
@@ -763,5 +791,45 @@ Describe 'New-AvdSandboxBatch.ps1' {
     $md | Should -Match '20261021-0100-avd \(open\)'
     $md | Should -Match '20261021-0130-avd \(leftovers\)'
     $md | Should -Not -Match '20261021-0030-avd'
+  }
+  It 'reads optional queue/pricing/NN.json sidecars and displays weakest-link pricingSource in batch.md' {
+    $root = Resolve-Path (Join-Path $PSScriptRoot '..\..')
+    $work = Join-Path $TestDrive 'batch-pricing-sidecars'
+    $itemsDir = Join-Path $work 'items'
+    $pricingDir = Join-Path $work 'pricing'
+    $recordsDir = Join-Path $work 'records'
+    New-Item -ItemType Directory -Force -Path $itemsDir, $pricingDir, $recordsDir | Out-Null
+
+    [ordered]@{
+      schema = 'sandbox-run/v1'; number = 1; purpose = 'Infracost lead'
+      source = "contoso/lab-tests@$($('a' * 40))"; tests = 'Check 1 passes'
+      kind = 'avd'; sandbox = 'azure-personal'; region = 'northcentralus'
+      shape = 'dev LZ, 1 x D2as_v5'; deploymentKey = 'lz-p'
+      ratePerHour = 0.5; hours = 2; hoursWhenSharing = 1
+      estimateNote = 'Infracost'; unattended = $true
+      deploy = 'echo deploy'; test = 'echo test'; teardown = 'echo teardown'; evidence = 'Spend record'
+    } | ConvertTo-Json | Set-Content (Join-Path $itemsDir '01.json')
+
+    [ordered]@{
+      schema = 'sandbox-run/v1'; number = 2; purpose = 'Zero-spend sharer'
+      source = "contoso/lab-tests@$($('a' * 40))"; tests = 'Check 2 passes'
+      kind = 'avd'; sandbox = 'azure-personal'; region = 'northcentralus'
+      shape = 'dev LZ, 1 x D2as_v5'; deploymentKey = 'lz-p'
+      ratePerHour = 0.4; hours = 2; hoursWhenSharing = 1
+      estimateNote = 'Zero spend'; unattended = $true
+      deploy = 'echo deploy'; test = 'echo test'; teardown = 'echo teardown'; evidence = 'Spend record'
+    } | ConvertTo-Json | Set-Content (Join-Path $itemsDir '02.json')
+
+    @{ pricingSource = 'infracost' } | ConvertTo-Json | Set-Content (Join-Path $pricingDir '01.json')
+    @{ pricingSource = 'zero-spend' } | ConvertTo-Json | Set-Content (Join-Path $pricingDir '02.json')
+
+    $now = [datetime]::new(2026, 10, 21, 2, 0, 0, [DateTimeKind]::Utc)
+    $scriptPath = Join-Path $root 'scripts/ops/New-AvdSandboxBatch.ps1'
+    & $scriptPath -ItemsPath $itemsDir -RecordsPath $recordsDir -Local -MonthToDate 0 -Now $now -BatchCap 20 -MonthlyCap 150 -RunCap 25 | Out-Null
+
+    $mdPath = Join-Path $recordsDir 'queue/2026-10/b20261021-0200/batch.md'
+    $md = Get-Content $mdPath -Raw
+    # hours = 2 + 1 = 3, ceil(3 * 1.5) = 5, max(rate) = 0.5 => $2.50; weakest-link(infracost, zero-spend) = infracost
+    $md | Should -Match '\$2\.50 \(infracost\)'
   }
 }

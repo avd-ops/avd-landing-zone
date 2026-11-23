@@ -81,6 +81,12 @@ $numbers = @($issues | ForEach-Object { [int]$_.number })
 if (@($numbers | Sort-Object -Unique).Count -ne $numbers.Count) { throw 'Two queue items share a number. Each item needs its own.' }
 $ready = @($issues | Where-Object { @($_.labels | ForEach-Object { $_.name }) -contains 'queue:ready' })
 $items = @($ready | ForEach-Object { Get-AvdBatchItem -Issue $_ -DefaultRegion $DefaultRegion })
+if ($ItemsPath) {
+  $pricingDir = Join-Path (Split-Path $ItemsPath -Parent) 'pricing'
+  foreach ($item in $items) {
+    $item.pricingSource = Get-AvdBatchPricingSource -PricingPath $pricingDir -Number $item.number
+  }
+}
 if ($Sandbox) { $items = @($items | Where-Object { $_.sandbox -eq $Sandbox }) }
 
 # ---- Pins and dependencies ----
@@ -156,7 +162,7 @@ else {
   foreach ($g in $batch.groups) {
     $names = ($g.members | ForEach-Object { "#$($_.number) $($_.purpose)" }) -join '<br>'
     $region = if ($g.regionReason) { "$($g.region) ($($g.regionReason))" } else { $g.region }
-    $md += "| $($g.id) | $names | $region | $($g.hours) ($($g.deadlineHours)) | $(Format-AvdBatchMoney $g.estimate) | $(Format-AvdBatchMoney $g.estimateIfAlone) | $(if ($g.unattended) { 'unattended' } else { 'Cloud Shell' }) |"
+    $md += "| $($g.id) | $names | $region | $($g.hours) ($($g.deadlineHours)) | $(Format-AvdBatchMoney $g.estimate) ($($g.pricingSource)) | $(Format-AvdBatchMoney $g.estimateIfAlone) | $(if ($g.unattended) { 'unattended' } else { 'Cloud Shell' }) |"
   }
   $md += '', 'Pinned commits:', ''
   foreach ($m in @($batch.groups | ForEach-Object { $_.members })) { $md += "- #$($m.number): $($m.repo)@$($m.sha.Substring(0, 12)) ($($m.role))" }

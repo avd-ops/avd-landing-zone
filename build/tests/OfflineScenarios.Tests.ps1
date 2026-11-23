@@ -974,7 +974,7 @@ Describe 'Sandbox batches from Cloud Shell (decision 0020)' {
 
   It 'builds a priced batch from item files, sharing one deployment between items with the same key' {
     Get-StepExit $out 'build' | Should -Be 0
-    $out | Should -Match 'RESULT build groups=3 total=3.5 g1=1\+2 unattended=True md=True'
+    $out | Should -Match 'RESULT build groups=3 total=5.5 g1=1\+2 unattended=True md=True'
   }
   It 'runs nothing without a go, and refuses a go for the wrong amount' {
     Get-StepExit $out 'no-approval' | Should -Be 2
