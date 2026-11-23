@@ -71,6 +71,7 @@ PLANES=""
 AZURE_OUTPUTS=""
 NAME_PREFIX_ARG="${AVD_NAME_PREFIX:-}"
 BATCH_ID_ARG="${BATCH_ID:-${AVD_BATCH_ID:-}}"
+EXPIRE_ON_ARG="${AVD_EXPIRE_ON:-${EXPIRE_ON:-}}"
 ENVIRONMENT_ARG=""
 TEARDOWN=false
 DISCARD_LAST_COPY=false
@@ -112,6 +113,7 @@ while [[ $# -gt 0 ]]; do
     --azure-outputs) AZURE_OUTPUTS="$2"; shift 2 ;;
     --name-prefix) NAME_PREFIX_ARG="$2"; shift 2 ;;
     --batch-id) BATCH_ID_ARG="$2"; shift 2 ;;
+    --expire-on) EXPIRE_ON_ARG="$2"; shift 2 ;;
     --environment) ENVIRONMENT_ARG="$2"; shift 2 ;;
     --teardown) TEARDOWN=true; shift ;;
     --discard-last-copy) DISCARD_LAST_COPY=true; shift ;;
@@ -134,6 +136,11 @@ if [[ -n "$BATCH_ID_ARG" ]]; then
   BATCH_ID_ARG=${BATCH_ID_ARG,,}
   [[ "$BATCH_ID_ARG" =~ ^[a-z0-9-]+$ ]] || { echo "--batch-id / BATCH_ID takes lowercase letters, digits, or hyphens: '$BATCH_ID_ARG'" >&2; exit 1; }
   export BATCH_ID="$BATCH_ID_ARG"
+fi
+
+if [[ -n "$EXPIRE_ON_ARG" ]]; then
+  [[ "$EXPIRE_ON_ARG" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || { echo "--expire-on / AVD_EXPIRE_ON must be UTC ISO-8601 (YYYY-MM-DDTHH:MM:SSZ): '$EXPIRE_ON_ARG'" >&2; exit 1; }
+  export AVD_EXPIRE_ON="$EXPIRE_ON_ARG"
 fi
 
 case "${CLOUD,,}" in
@@ -649,6 +656,17 @@ BASE_NAME=$(arm deployment sub show -n "$DEPLOY_NAME" --query properties.outputs
 BASE_NAME=${BASE_NAME#rg-}; BASE_NAME=${BASE_NAME%-avd}
 POST_PREFIX="${NAME_PREFIX:-${BASE_NAME%%-*}}"
 POST_ENV="${ENV_NAME:-${BASE_NAME#*-}}"; [[ "$POST_ENV" == *-* ]] && POST_ENV="${POST_ENV%%-*}"
+
+RG_TTL_TAGS=()
+[[ -n "$BATCH_ID_VAL" ]] && RG_TTL_TAGS+=("batch-id=$BATCH_ID_VAL")
+[[ -n "$EXPIRE_ON_ARG" ]] && RG_TTL_TAGS+=("expire-on=$EXPIRE_ON_ARG")
+if ((${#RG_TTL_TAGS[@]})); then
+  while IFS= read -r rg_id; do
+    [[ -n "$rg_id" ]] || continue
+    arm tag update --resource-id "$rg_id" --operation Merge --tags "${RG_TTL_TAGS[@]}" -o none \
+      || echo "    Warning: failed to update TTL/batch tags on $rg_id" >&2
+  done < <(arm group list --query "[?starts_with(name, 'rg-$BASE_NAME-')].id" -o tsv)
+fi
 
 if [[ -n "$AZURE_OUTPUTS" ]]; then
   cat > "$AZURE_OUTPUTS" <<JSONEOF
