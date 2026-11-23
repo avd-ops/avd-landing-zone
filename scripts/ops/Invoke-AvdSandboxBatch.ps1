@@ -379,9 +379,16 @@ if ($recorded -and -not $TeardownOnly) {
 $recorded = $recorded -and [bool]$results.runId -and (Test-StepPassed 'record-open')
 # Every step the group runs (the items' bash and the landing zone scripts they call) writes to the run's journal.
 # Put back afterwards, so landing zone scripts run later in this shell don't write to a closed run.
-$envBefore = @{ AVDLZ_RECORD = $env:AVDLZ_RECORD; AVDLZ_RUN_ID = $env:AVDLZ_RUN_ID; AVD_NAME_PREFIX = $env:AVD_NAME_PREFIX; BATCH_ID = $env:BATCH_ID }
+$envBefore = @{ AVDLZ_RECORD = $env:AVDLZ_RECORD; AVDLZ_RUN_ID = $env:AVDLZ_RUN_ID; AVD_NAME_PREFIX = $env:AVD_NAME_PREFIX; BATCH_ID = $env:BATCH_ID; AVD_EXPIRE_ON = $env:AVD_EXPIRE_ON }
 $env:AVD_NAME_PREFIX = $groupNamePrefix
 $env:BATCH_ID = $batch.batchId
+$expireOn = if ($results.deadline -and $results.deadline.armed -and $results.deadline.fireAt) {
+  ([datetime]$results.deadline.fireAt).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+} else {
+  $ttlHours = [math]::Min(24, [math]::Max(4, ([double]$g.deadlineHours) + 2))
+  (Get-Date).ToUniversalTime().AddHours($ttlHours).ToString('yyyy-MM-ddTHH:mm:ssZ')
+}
+$env:AVD_EXPIRE_ON = $expireOn
 if ($recorded) { $env:AVDLZ_RECORD = 'azure'; $env:AVDLZ_RUN_ID = $results.runId }
 $stopAfter = $false; $testsFailed = $false; $deployFailed = $false
 $keepFailed = $false; $exportFailed = $false
