@@ -14,6 +14,7 @@
 Set-StrictMode -Version Latest
 
 $script:DeadlineFactor = 1.5
+$script:PricingSourceRank = [ordered]@{ manual = 0; infracost = 1; 'zero-spend' = 2 }
 # The run recorder's printed estimate may be at most this much over the approved group estimate:
 # a re-estimate more than 10% higher voids the approval.
 $script:RecordTolerance = 1.1
@@ -183,6 +184,32 @@ function ConvertFrom-AvdBatchRecordField {
 # =====================================================================
 # Batches
 # =====================================================================
+function Get-AvdBatchPricingSource {
+  <#
+    Reads an optional queue/pricing/<NN>.json sidecar for an item without modifying sandbox-run/v1.
+    Returns 'manual', 'infracost', or 'zero-spend' (defaulting to 'manual' when absent or unknown).
+  #>
+  param(
+    [string] $PricingPath,
+    [Parameter(Mandatory)][int] $Number
+  )
+  if (-not $PricingPath -or -not (Test-Path -LiteralPath $PricingPath)) { return 'manual' }
+  $candidates = @(
+    (Join-Path $PricingPath ('{0:d2}.json' -f $Number))
+    (Join-Path $PricingPath "$Number.json")
+  )
+  foreach ($path in $candidates) {
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { continue }
+    $data = Get-Content -LiteralPath $path -Raw | ConvertFrom-Json -AsHashtable
+    if ($data -is [System.Collections.IDictionary] -and $data.Contains('pricingSource')) {
+      $src = "$($data['pricingSource'])".Trim().ToLowerInvariant()
+      if ($script:PricingSourceRank.Contains($src)) { return $src }
+    }
+    return 'manual'
+  }
+  'manual'
+}
+
 function Get-AvdBatchGroup {
   <#
     Groups ready items into deployments. Items with the same deployment key (and sandbox and
@@ -206,9 +233,22 @@ function Get-AvdBatchGroup {
     $lead = if ($candidates.Count) { $candidates[0] } else { $members[0] }
     $others = @($members | Where-Object { $_.number -ne $lead.number })
     $hours = [double]$lead.hours + [double](@($others | ForEach-Object { $_.sharedHours }) | Measure-Object -Sum).Sum
+    $billedHours = [double][math]::Ceiling([decimal]$hours * [decimal]$script:DeadlineFactor)
     $rate = [double](@($members | ForEach-Object { $_.rate }) | Measure-Object -Maximum).Maximum
     $fixed = [double](@($members | ForEach-Object { $_.fixed }) | Measure-Object -Sum).Sum
-    $alone = [double](@($members | ForEach-Object { [double]$_.rate * [double]$_.hours + [double]$_.fixed }) | Measure-Object -Sum).Sum
+    $alone = [double](@($members | ForEach-Object { [double]$_.rate * [double][math]::Ceiling([decimal]$_.hours * [decimal]$script:DeadlineFactor) + [double]$_.fixed }) | Measure-Object -Sum).Sum
+    $weakestPricing = 'zero-spend'
+    $weakestRank = $script:PricingSourceRank['zero-spend']
+    foreach ($m in $members) {
+      $src = if ($m -is [System.Collections.IDictionary] -and $m.Contains('pricingSource')) { "$($m['pricingSource'])".Trim().ToLowerInvariant() }
+             elseif ($m.PSObject.Properties['pricingSource']) { "$($m.pricingSource)".Trim().ToLowerInvariant() }
+             else { 'manual' }
+      if (-not $script:PricingSourceRank.Contains($src)) { $src = 'manual' }
+      if ($script:PricingSourceRank[$src] -lt $weakestRank) {
+        $weakestRank = $script:PricingSourceRank[$src]
+        $weakestPricing = $src
+      }
+    }
     $n++
     [ordered]@{
       id              = "G$n"
@@ -222,8 +262,9 @@ function Get-AvdBatchGroup {
       hours           = [math]::Round($hours, 2)
       deadlineHours   = [math]::Round($hours * $script:DeadlineFactor, 2)
       rate            = $rate
-      estimate        = [math]::Round($rate * $hours + $fixed, 2)
+      estimate        = [math]::Round($rate * $billedHours + $fixed, 2)
       estimateIfAlone = [math]::Round($alone, 2)
+      pricingSource   = $weakestPricing
       unattended      = -not @($members | Where-Object { -not $_.unattended }).Count
       problems        = @($problems)
     }
@@ -953,4 +994,4 @@ function Get-AvdBatchResultReport {
 Export-ModuleMember -Function ConvertFrom-AvdBatchItemFile, Get-AvdBatchStepState, Test-AvdBatchGroupStart, ConvertFrom-AvdBatchIssueBody, ConvertFrom-AvdBatchRecordField, Get-AvdBatchItem, Get-AvdBatchGroup, Get-AvdBatchPlan, Get-AvdBatchHash, Get-AvdBatch, Get-AvdBatchApproval, Test-AvdBatchApproval, Get-AvdBatchNextStep, Get-AvdBatchRunId, Get-AvdBatchRecorderCall, Format-AvdBatchMoney, Format-AvdBatchTime,
   Get-AvdHostDevicePrefix, Get-AvdStaleHostDevice, Test-AvdArmAction, Get-AvdSandboxHealthResult,
   Get-AvdBatchTeardownBudget, Get-AvdBatchNamePrefix, Get-AvdBatchLandingZoneName, Get-AvdBatchDeadline, Test-AvdBatchGroupMayBeRunning,
-  Get-AvdBatchInitiatingIssue, ConvertFrom-AvdBatchInitiatingIssue, Get-AvdBatchQueueIssue, Get-AvdBatchResultReport
+  Get-AvdBatchInitiatingIssue, ConvertFrom-AvdBatchInitiatingIssue, Get-AvdBatchQueueIssue, Get-AvdBatchResultReport, Get-AvdBatchPricingSource
